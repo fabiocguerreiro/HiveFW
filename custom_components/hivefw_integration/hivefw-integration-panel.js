@@ -6038,12 +6038,6 @@ let e,t,i,o,r,a,s,n,l,d,c,p,h,u,m,g,v,f,y,b,_,x,w,$,k,C,S,M,A,R,F,I,T,z,O,D,N,E,
               ${0}
             </div>
 
-            <!-- Remote MeshCore devices managed by the upstream integration -->
-            <div id="hive-managed-devices-card" class="device-section managed-devices-card" data-hive-native="managed-devices">
-              <div class="card-title">Equipamentos HiveFW geridos</div>
-              ${0}
-            </div>
-
           </div>
 
         </div>
@@ -6089,7 +6083,7 @@ let e,t,i,o,r,a,s,n,l,d,c,p,h,u,m,g,v,f,y,b,_,x,w,$,k,C,S,M,A,R,F,I,T,z,O,D,N,E,
         ?narrow=${0}
         @close=${0}>
       </meshcore-command-dialog>
-    `),this.selectedDevice?this._renderCompanionCard():sn,this._renderDeviceInfo(),this._renderRadioSettings(),this._renderRepeaterSettings(),this._renderRegionsScopes(),this._renderLocation(),this._renderManagedDevices(),this._contextMenu?on($r||($r=ps`
+    `),this.selectedDevice?this._renderCompanionCard():sn,this._renderDeviceInfo(),this._renderRadioSettings(),this._renderRepeaterSettings(),this._renderRegionsScopes(),this._renderLocation(),this._contextMenu?on($r||($r=ps`
         <div class="modal-overlay"
              @pointerdown=${0}
              @click=${0}>
