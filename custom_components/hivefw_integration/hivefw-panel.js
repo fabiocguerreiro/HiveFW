@@ -1831,6 +1831,10 @@ class HiveFWPanel extends BasePanel {
 
     const nativeLayout=!!sroot.querySelector('.settings-container[data-hive-native-layout="device-v2"]');
 
+    // HiveFW is a single active companion connection in this integration.
+    // Never expose the legacy upstream "managed devices" card.
+    sroot.querySelector("#hive-managed-devices-card")?.remove();
+
     if(!settingsPage.__hiveRemoteAdminBound){
       settingsPage.__hiveRemoteAdminBound=true;
       settingsPage.addEventListener("hivefw-open-remote-admin",(event)=>{
@@ -1844,7 +1848,6 @@ class HiveFWPanel extends BasePanel {
     if(!nativeLayout){
       this.__renderSettingsRepeaterCard(sroot, grid);
       this.__renderRegionsScopesCard(sroot, grid);
-      this.__renderManagedDevicesCard(sroot, grid);
       this.__enhanceCompanionMeta(sroot);
     }
 
