@@ -6180,7 +6180,7 @@ let e,t,i,o,r,a,s,n,l,d,c,p,h,u,g,m,v,f,y,b,_,x,w,$,k,C,S,M,A,D,z,R,O,I,T,F,E,N,
 
     .nodes-layout {
       --nodes-list-width: 340px;
-      --nodes-activity-width: 300px;
+      --nodes-activity-width: 340px;
       display: grid;
       grid-template-columns: var(--nodes-list-width) minmax(0, 1fr) var(--nodes-activity-width);
       grid-template-rows: auto minmax(0, 1fr);
@@ -6383,9 +6383,9 @@ let e,t,i,o,r,a,s,n,l,d,c,p,h,u,g,m,v,f,y,b,_,x,w,$,k,C,S,M,A,D,z,R,O,I,T,F,E,N,
     }
 
     .header-actions .search-bar {
-      flex: 0 1 var(--nodes-list-width);
-      width: min(var(--nodes-list-width), 100%);
-      max-width: var(--nodes-list-width);
+      flex: 1 1 340px;
+      width: auto;
+      max-width: none;
       min-width: 220px;
       box-sizing: border-box;
     }
