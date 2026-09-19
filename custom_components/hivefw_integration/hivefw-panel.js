@@ -1371,32 +1371,37 @@ class HiveFWPanel extends BasePanel {
 
   __defaultMetricOrder(items) {
     const priority=[
-      "hive:health-alerts",
-      "native:battery",
-      "hive:temperature",
+      // Standard layout matches the approved Device cockpit order.
       "hive:state",
-      "native:last-message-strength",
-      "hive:rf-health",
-      "hive:noise",
-      "hive:uptime",
-      "hive:clock",
       "native:radio-activity",
       "hive:airtime-health",
-      "hive:traffic-now",
-      "native:messages-received",
       "native:messages-sent",
-      "hive:reliability",
+      "native:messages-received",
       "hive:integrity",
-      "hive:queue",
-      "hive:request-tokens",
-      "hive:storage",
-      "hive:capacity",
-      "hive:repeat-frequencies",
+
+      "hive:uptime",
+      "native:battery",
+      "hive:temperature",
+      "hive:rf-health",
+      "native:last-message-strength",
+      "hive:clock",
+
+      "hive:network-activity",
       "hive:protocol",
       "hive:hardware",
-      "hive:network-activity",
-      "hive:contacts",
+      "hive:repeat-frequencies",
+      "hive:health-alerts",
+      "hive:queue",
+
+      "hive:capacity",
+      "hive:storage",
       "native:location",
+
+      // Less frequently used optional metrics follow the approved cockpit.
+      "hive:traffic-now",
+      "hive:reliability",
+      "hive:request-tokens",
+      "hive:contacts",
     ];
     const rank=new Map(priority.map((id,index)=>[id,index]));
     return [...items]
@@ -2444,9 +2449,6 @@ class HiveFWPanel extends BasePanel {
       hero.appendChild(makeTile("Device clock",t,abs<=2?"· synchronized":`· drift ${drift>0?"+":""}${drift}s`,Math.min(abs,120),0,120,abs<=2?"good":abs<=30?"warn":"bad","clock",clickEntity("device_clock","clock")));
     }
 
-    const noise=Number(status.stats?.radio?.noise_floor);
-    if(Number.isFinite(noise)) hero.appendChild(makeTile("Noise floor",`${Math.round(noise)} dBm`,"",noise,-130,-90,noise>-105?"bad":noise>-115?"warn":"good","noise",clickEntity("noise_floor"),"compact"));
-
     const queue=Number(status.stats?.core?.queue_len);
     if(Number.isFinite(queue)) hero.appendChild(makeTile("TX queue",String(Math.round(queue)),"queued",Math.min(Math.max(queue,0),30),0,30,queue>10?"bad":queue>5?"warn":"good","queue",clickEntity("tx_queue_len"),"compact"));
 
@@ -2538,7 +2540,7 @@ class HiveFWPanel extends BasePanel {
       ].filter(Boolean).join(" · ");
       const rfEntityId=noiseMetric.entityId||rssiMetric.entityId||snrMetric.entityId;
       hero.appendChild(makeTile(
-        "RF Health",primary,details?"· "+details:"",100,0,100,rfBand,"rf-health",
+        "Noise floor",primary,details?"· "+details:"",100,0,100,rfBand,"rf-health",
         clickEntityId(rfEntityId)
       ));
     }
