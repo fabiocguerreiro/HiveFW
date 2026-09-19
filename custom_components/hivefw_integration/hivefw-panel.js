@@ -770,17 +770,37 @@ class HiveFWPanel extends BasePanel {
       .hivefw-console-wrap {
         width:min(1160px,100%);
         margin:0 auto;
+      }
+      .hivefw-console-layout {
+        display:grid;
+        grid-template-columns:minmax(280px,.78fr) minmax(0,1.35fr);
+        gap:14px;
+        align-items:start;
+      }
+      .hivefw-console-column {
+        min-width:0;
         display:flex;
         flex-direction:column;
         gap:14px;
       }
+      .hivefw-console-description {
+        display:block;
+        padding:18px;
+      }
+      .hivefw-console-description .mcr-subtitle {
+        max-width:none;
+      }
       .hivefw-console-toolbar,
-      .hivefw-console-input-row,
-      .hivefw-console-quick {
+      .hivefw-console-input-row {
         display:flex;
         align-items:center;
         gap:8px;
         flex-wrap:wrap;
+      }
+      @media (max-width: 870px) {
+        .hivefw-console-page { padding:12px; }
+        .hivefw-console-layout { grid-template-columns:minmax(0,1fr); }
+        .hivefw-console-input { flex-basis:100%; min-width:0; }
       }
       .hivefw-console-card {
         border:1px solid var(--divider-color);
@@ -789,8 +809,8 @@ class HiveFWPanel extends BasePanel {
         padding:16px;
       }
       .hivefw-console-output {
-        min-height:260px;
-        max-height:52vh;
+        min-height:360px;
+        max-height:62vh;
         overflow:auto;
         border-radius:12px;
         background:#101418;
@@ -1788,7 +1808,15 @@ class HiveFWPanel extends BasePanel {
           color:var(--primary-text-color);font:inherit;font-size:12px;
         }
         .hive-settings-note { margin-top:10px;font-size:11px;line-height:1.45;color:var(--secondary-text-color); }
-        @media(max-width:600px){.hive-settings-controls{grid-template-columns:1fr}}
+        @media(max-width:870px){
+          .hive-settings-controls{grid-template-columns:minmax(0,1fr)}
+          .hive-settings-controls,.hive-settings-field,.hive-settings-note{
+            min-width:0;max-width:100%;box-sizing:border-box;
+          }
+          .hive-settings-field input,.hive-settings-field select{
+            width:100%;min-width:0;max-width:100%;box-sizing:border-box;
+          }
+        }
       `;
       sroot.appendChild(style);
     }
@@ -5777,8 +5805,17 @@ class HiveFWPanel extends BasePanel {
     page.appendChild(wrap);
     container.appendChild(page);
 
+    const layout = document.createElement("div");
+    layout.className = "hivefw-console-layout";
+    const leftColumn = document.createElement("div");
+    leftColumn.className = "hivefw-console-column";
+    const rightColumn = document.createElement("div");
+    rightColumn.className = "hivefw-console-column";
+    layout.append(leftColumn, rightColumn);
+    wrap.appendChild(layout);
+
     const hero = document.createElement("section");
-    hero.className = "mcr-hero";
+    hero.className = "mcr-hero hivefw-console-description";
     const heading = document.createElement("div");
     const eyebrow = document.createElement("div");
     eyebrow.className = "mcr-eyebrow";
@@ -5792,37 +5829,7 @@ class HiveFWPanel extends BasePanel {
       "Executa comandos diretamente no rádio ligado ao Home Assistant. Os comandos locais não geram tráfego LoRa, exceto quando o próprio comando envia dados para a mesh.";
     heading.append(eyebrow, title, subtitle);
     hero.appendChild(heading);
-    wrap.appendChild(hero);
-
-    const quickCard = document.createElement("section");
-    quickCard.className = "hivefw-console-card";
-    const quickTitle = document.createElement("div");
-    quickTitle.className = "mcr-card-title";
-    quickTitle.textContent = "Comandos rápidos";
-    const quick = document.createElement("div");
-    quick.className = "hivefw-console-quick";
-    const commands = [
-      ["Info", "send_appstart"],
-      ["Bateria", "get_bat"],
-      ["Hora", "get_time"],
-      ["Stats Core", "get_stats_core"],
-      ["Stats Rádio", "get_stats_radio"],
-      ["Stats Pacotes", "get_stats_packets"],
-      ["Path Hash", "get_path_hash_mode"],
-      ["Frequências", "get_allowed_repeat_freq"],
-    ];
-    for (const [label, command] of commands) {
-      const button = document.createElement("button");
-      button.className = "mcr-btn";
-      button.type = "button";
-      button.textContent = label;
-      button.title = command;
-      button.disabled = this.__consoleBusy;
-      button.addEventListener("click", () => void this.__runConsoleCommand(command));
-      quick.appendChild(button);
-    }
-    quickCard.append(quickTitle, quick);
-    wrap.appendChild(quickCard);
+    leftColumn.appendChild(hero);
 
     // Reuse the exact command catalogue that powered the former Device
     // "Issue Command" dialog. This keeps one source of truth for command
@@ -6005,7 +6012,7 @@ class HiveFWPanel extends BasePanel {
     });
 
     presetCard.append(presetTitle, presetSelect, presetBody);
-    wrap.appendChild(presetCard);
+    leftColumn.appendChild(presetCard);
     renderPreset();
 
     const commandCard = document.createElement("section");
@@ -6074,7 +6081,7 @@ class HiveFWPanel extends BasePanel {
       error.textContent = this.__consoleError;
       commandCard.appendChild(error);
     }
-    wrap.appendChild(commandCard);
+    // Appended below the History pane so the right side behaves like a console.
 
     const outputCard = document.createElement("section");
     outputCard.className = "hivefw-console-card";
@@ -6127,7 +6134,7 @@ class HiveFWPanel extends BasePanel {
     }
 
     outputCard.append(toolbar, output);
-    wrap.appendChild(outputCard);
+    rightColumn.append(outputCard, commandCard);
     requestAnimationFrame(() => { output.scrollTop = output.scrollHeight; });
   }
 
