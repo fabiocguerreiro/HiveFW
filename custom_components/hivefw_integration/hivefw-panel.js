@@ -3538,7 +3538,7 @@ class HiveFWPanel extends BasePanel {
     }
   }
 
-  __peerActivityFor(contact) {  __peerActivityFor(contact) {
+  __peerActivityFor(contact) {
     const peers=this.__peerActivity?.peers||{};
     const links=this.__peerActivity?.links||{};
     const key=String(contact?.public_key||"").trim().toLowerCase();
@@ -4375,7 +4375,7 @@ class HiveFWPanel extends BasePanel {
     this.__nodesInitialViewport=null;
   }
 
-  __firstSeenStorageKey() {  __firstSeenStorageKey() {
+  __firstSeenStorageKey() {
     const entry=String(this.__entryId()||"default").replace(/[^a-zA-Z0-9_.-]/g,"_");
     return "hivefw.first_seen.v1."+entry;
   }
