@@ -232,8 +232,6 @@ class HiveFWPanel extends BasePanel {
       this.__nodesPersistentPopup = null;
       this.__nodesInitialViewport = null;
       this.__nodesMapInitialViewEntry = null;
-      this.__closeTopologyOverlay();
-      this.__removeActivityHeatmapLayer();
       this.__peerActivityLoadedEntry = null;
       this.__observabilityLoadedEntry = null;
       this.__observabilitySettings = null;
