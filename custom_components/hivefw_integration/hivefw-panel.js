@@ -4363,7 +4363,10 @@ class HiveFWPanel extends BasePanel {
       },true);
     }
 
-    this.__renderActivityPane();
+    // Do not rebuild Activity on every Home Assistant update cycle.
+    // Replacing its children resets scrollTop, so only seed an empty pane;
+    // __loadPeerActivity() owns real data/loading rerenders.
+    if(!activityPane.firstElementChild)this.__renderActivityPane();
     if(this.__peerActivityLoadedEntry!==this.__entryId()&&!this.__peerActivityLoading){
       void this.__loadPeerActivity();
     }
