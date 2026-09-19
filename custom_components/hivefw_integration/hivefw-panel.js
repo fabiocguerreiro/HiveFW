@@ -3447,27 +3447,50 @@ class HiveFWPanel extends BasePanel {
     if(this.__peerActivityLoadedEntry!==this.__entryId()||this.__peerActivityLoading){
       const loading=document.createElement("div");
       loading.className="hive-activity-empty";
-      loading.textContent=this.__peerActivityLoading
-        ?"A carregar atividade…"
-        :"A carregar atividade…";
+      loading.textContent="A carregar atividade…";
       inner.appendChild(loading);
       pane.appendChild(inner);
       return;
     }
 
-    const rows=source.map((contact)=>{
+    // Recreate the useful behaviour of the former Activity pane without
+    // bringing back any map overlays. Direct peers contribute RX/TX and
+    // path hashes contribute observed path volume. Resolve each hash only
+    // once so this stays cheap even with a large contact list.
+    const byId=new Map();
+    for(const contact of source){
       const peer=this.__activityPeerFor(contact);
-      if(!peer)return null;
-      const rx=Number(peer?.rx)||0;
-      const tx=Number(peer?.tx)||0;
-      const messages=Number(peer?.messages)||0;
-      const score=rx+tx+messages;
-      return score>0?{contact,rx,tx,messages,score}:null;
-    }).filter(Boolean).sort((a,b)=>b.score-a.score).slice(0,60);
+      const id=this.__nodeId(contact);
+      if(!id)continue;
+      byId.set(id,{
+        contact,
+        rx:Number(peer?.rx)||0,
+        tx:Number(peer?.tx)||0,
+        messages:Number(peer?.messages)||0,
+        linkVolume:0,
+      });
+    }
+
+    const links=this.__peerActivity?.links||{};
+    for(const [hash,value] of Object.entries(links)){
+      const resolved=this.__resolveTraceHash(hash);
+      if(!resolved)continue;
+      const id=this.__nodeId(resolved);
+      const item=byId.get(id);
+      if(!item)continue;
+      item.linkVolume+=Number(value?.observations)||0;
+    }
+
+    const rows=[...byId.values()]
+      .map((item)=>({...item,score:item.rx+item.tx+item.linkVolume}))
+      .filter((item)=>item.score>0)
+      .sort((a,b)=>b.score-a.score)
+      .slice(0,60);
 
     const totalRx=rows.reduce((sum,item)=>sum+item.rx,0);
     const totalTx=rows.reduce((sum,item)=>sum+item.tx,0);
-    const totalMessages=rows.reduce((sum,item)=>sum+item.messages,0);
+    const activeCount=rows.length;
+    const top=rows[0];
 
     const summary=document.createElement("div");
     summary.className="hive-activity-pane-summary";
@@ -3482,10 +3505,10 @@ class HiveFWPanel extends BasePanel {
       return box;
     };
     summary.append(
-      stat("Nós ativos",rows.length),
+      stat("Nós ativos",activeCount),
       stat("RX",totalRx),
       stat("TX",totalTx),
-      stat("Mensagens",totalMessages)
+      stat("Mais ativo",top?String(top.contact.adv_name||top.contact.pubkey_prefix||"Nó"):"—")
     );
     inner.appendChild(summary);
 
@@ -3509,7 +3532,7 @@ class HiveFWPanel extends BasePanel {
         name.textContent=String(item.contact.adv_name||item.contact.pubkey_prefix||"Nó");
         const detail=document.createElement("div");
         detail.className="hive-activity-detail";
-        detail.textContent=`RX ${item.rx} · TX ${item.tx} · MSG ${item.messages}`;
+        detail.textContent=`RX ${item.rx} · TX ${item.tx} · paths ${item.linkVolume}`;
         left.append(name,detail);
 
         const score=document.createElement("span");
@@ -3521,6 +3544,7 @@ class HiveFWPanel extends BasePanel {
         list.appendChild(row);
       }
     }
+
     inner.appendChild(list);
     pane.appendChild(inner);
   }
