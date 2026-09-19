@@ -876,7 +876,7 @@ export class SettingsPage extends LitElement {
 
     return html`
       <div class="settings-page">
-        <div class="settings-container">
+        <div class="settings-container" data-hive-native-layout="device-v2">
           <!-- Companion Device Card (full width at top) -->
           ${this.selectedDevice ? this._renderCompanionCard() : nothing}
 
@@ -907,9 +907,13 @@ export class SettingsPage extends LitElement {
 
             <!-- Local observability/RX hosts are part of the native layout so
                  HiveFW can populate them without inserting cards after first paint. -->
-            <div id="hive-rxlog-card" class="device-section" data-hive-native-host="rx-log"></div>
+            <div id="hive-rxlog-card" class="device-section" data-hive-native-host="rx-log">
+              <div class="card-title">RX Log</div>
+            </div>
 
-            <div id="hive-observability-settings-card" class="device-section" data-hive-native-host="observability"></div>
+            <div id="hive-observability-settings-card" class="device-section" data-hive-native-host="observability">
+              <div class="card-title">Alertas &amp; automações</div>
+            </div>
 
             <!-- Location -->
             <div class="device-section">
@@ -1095,6 +1099,7 @@ export class SettingsPage extends LitElement {
         ${entities.length > 0
           ? html`
               <meshcore-node-summary
+                data-hive-native-cockpit="1"
                 .hass=${this.hass}
                 .device=${this._companionDescriptor(d)}
                 .entities=${entities}
@@ -1574,6 +1579,14 @@ export class SettingsPage extends LitElement {
     await this._sendRemoteRegionCommand(`region ${this._regionAction} ${name}`);
   }
 
+  private _requestManagedAdmin(device: ManagedDevice) {
+    this.dispatchEvent(new CustomEvent('hivefw-open-remote-admin', {
+      detail: { device },
+      bubbles: true,
+      composed: true,
+    }));
+  }
+
   private _renderManagedDevices() {
     const repeaters = this._managedDevices.repeaters || [];
     const clients = this._managedDevices.clients || [];
@@ -1613,9 +1626,14 @@ export class SettingsPage extends LitElement {
                   ${device.neighbors_enabled ? html` · vizinhos monitorizados` : nothing}
                 </div>
               </div>
-              <div class="managed-device-state ${isOnline ? 'online' : 'offline'}">
-                <span>●</span>
-                <span>${isOnline ? 'Online' : 'Offline'}</span>
+              <div style="display:flex;align-items:center;gap:7px;">
+                <div class="managed-device-state ${isOnline ? 'online' : 'offline'}">
+                  <span>●</span>
+                  <span>${isOnline ? 'Online' : 'Offline'}</span>
+                </div>
+                ${device.type === 'repeater'
+                  ? html`<button class="action-btn" @click=${() => this._requestManagedAdmin(device)}>Admin</button>`
+                  : nothing}
               </div>
             </div>
           `;
