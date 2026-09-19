@@ -2220,7 +2220,7 @@ class HiveFWPanel extends BasePanel {
           min-width:0;
         }
         .hero-row > .hero-tile[data-repeater-extra="repeat-frequencies"]{
-          grid-column:span 2;
+          grid-column:span 1;
         }
         .hero-tile{
           min-height:70px!important;
@@ -2272,7 +2272,7 @@ class HiveFWPanel extends BasePanel {
         }
         @container(max-width:650px){
           .hero-row{grid-template-columns:repeat(2,minmax(0,1fr))!important}
-          .hero-row > .hero-tile[data-repeater-extra="repeat-frequencies"]{grid-column:span 2}
+          .hero-row > .hero-tile[data-repeater-extra="repeat-frequencies"]{grid-column:span 1}
         }
         @container(max-width:390px){
           .hero-row{grid-template-columns:1fr!important}
