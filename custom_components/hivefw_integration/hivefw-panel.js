@@ -3004,7 +3004,9 @@ class HiveFWPanel extends BasePanel {
     const monitor=makeButton("Route Health");
     monitor.addEventListener("click",async()=>{
       if(!Array.isArray(this.__nodesMapContacts))await this.__loadNodesMapContacts();
-      const source=Array.isArray(this.__nodesMapContacts)?this.__nodesMapContacts:[];
+      const source=(Array.isArray(this.__nodesMapContacts)&&this.__nodesMapContacts.length)
+      ? this.__nodesMapContacts
+      : (Array.isArray(this._contacts)?this._contacts:[]);
       const matches=source.filter((contact)=>String(contact?.pubkey_prefix||"")===String(device.pubkey_prefix||""));
       if(matches.length===1){
         this.__closeRemoteAdmin();
@@ -3444,8 +3446,8 @@ class HiveFWPanel extends BasePanel {
       const loading=document.createElement("div");
       loading.className="hive-activity-empty";
       loading.textContent=this.__peerActivityLoading
-        ?"A carregar atividade depois do mapa…"
-        :"A aguardar o mapa…";
+        ?"A carregar atividade…"
+        :"A carregar atividade…";
       inner.appendChild(loading);
       pane.appendChild(inner);
       return;
@@ -3521,22 +3523,6 @@ class HiveFWPanel extends BasePanel {
     pane.appendChild(inner);
   }
 
-  async __loadActivityAfterMap(page,pane) {
-    await this.__ensureSplitMap(page,pane);
-    if(!pane?.isConnected||this._activeTab!=="nodes")return;
-
-    // Let Home Assistant paint the map first. Activity is deliberately a
-    // second-stage request so it cannot compete with map startup.
-    await new Promise((resolve)=>requestAnimationFrame(()=>resolve()));
-    if(!this.__nodesActivityPane?.isConnected||this._activeTab!=="nodes")return;
-
-    this.__renderActivityPane();
-    if(this.__peerActivityLoadedEntry!==this.__entryId()&&!this.__peerActivityLoading){
-      await this.__loadPeerActivity();
-    }else{
-      this.__renderActivityPane();
-    }
-  }
 
   __peerActivityFor(contact) {
     const peers=this.__peerActivity?.peers||{};
@@ -4352,7 +4338,10 @@ class HiveFWPanel extends BasePanel {
     }
 
     this.__renderActivityPane();
-    void this.__loadActivityAfterMap(page,pane);
+    if(this.__peerActivityLoadedEntry!==this.__entryId()&&!this.__peerActivityLoading){
+      void this.__loadPeerActivity();
+    }
+    void this.__ensureSplitMap(page,pane);
   }
 
   __cleanupNodesSplit() {
