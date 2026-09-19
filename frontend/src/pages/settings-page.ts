@@ -1738,6 +1738,41 @@ export class SettingsPage extends LitElement {
     `;
   }
 
+  private async _applyRepeaterSettings() {
+    if (!this.hass || !this._repeaterStatus?.supported) return;
+
+    const status = this._repeaterStatus;
+    const settings: Record<string, unknown> = {
+      repeat: Boolean(this._editValues['repeat'] ?? status.repeat),
+      multi_acks: Number(this._editValues['multi_acks'] ?? status.radio.multi_acks ?? 0),
+      rx_delay: Number(this._editValues['rx_delay'] ?? status.tuning.rx_delay ?? 0),
+      airtime_factor: Number(this._editValues['airtime_factor'] ?? status.tuning.airtime_factor ?? 0),
+    };
+
+    this._saving = true;
+    try {
+      const result = await setDeviceConfig(this.hass, settings, this.config?.entry_id);
+      if (!result.success) {
+        this._showStatusMessage('Failed to apply Repeater settings', 'error');
+        return;
+      }
+
+      for (const key of ['repeat', 'multi_acks', 'rx_delay', 'airtime_factor']) {
+        delete this._editValues[key];
+      }
+      this._editValues = { ...this._editValues };
+
+      // Refresh the native page state from the backend so the status pill,
+      // tuning values and hero metrics stay synchronized with the radio.
+      await this._loadDeviceConfig();
+      this._showStatusMessage('Repeater settings applied', 'success');
+    } catch (error) {
+      this._showStatusMessage(`Repeater settings: ${String(error)}`, 'error');
+    } finally {
+      this._saving = false;
+    }
+  }
+
   private _renderIdentityManagement() {
     return html`
       <div style="display: flex; flex-direction: column; gap: 16px;">
