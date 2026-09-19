@@ -15,6 +15,10 @@
   "integration_type": "device",
   "iot_class": "local_polling",
   "issue_tracker": "https://github.com/fabiocguerreiro/HiveFW-ha-integration/issues",
+  "loggers": [
+    "custom_components.hivefw_integration",
+    "meshcore"
+  ],
   "requirements": [
     "meshcore>=2.3.7",
     "pycryptodome>=3.20.0",
@@ -22,9 +26,5 @@
     "paho-mqtt>=1.6.0",
     "pynacl>=1.5.0"
   ],
-  "version": "1.1.4",
-  "loggers": [
-    "custom_components.hivefw_integration",
-    "meshcore"
-  ]
+  "version": "1.1.4"
 }
