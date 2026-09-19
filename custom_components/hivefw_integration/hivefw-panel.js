@@ -1372,14 +1372,54 @@ class HiveFWPanel extends BasePanel {
     });
   }
 
+  __defaultMetricOrder(items) {
+    const priority=[
+      "hive:health-alerts",
+      "native:battery",
+      "hive:temperature",
+      "hive:state",
+      "native:last-message-strength",
+      "hive:rf-health",
+      "hive:noise",
+      "hive:uptime",
+      "hive:clock",
+      "native:radio-activity",
+      "hive:airtime-health",
+      "hive:traffic-now",
+      "native:messages-received",
+      "native:messages-sent",
+      "hive:reliability",
+      "hive:integrity",
+      "hive:queue",
+      "hive:request-tokens",
+      "hive:storage",
+      "hive:capacity",
+      "hive:repeat-frequencies",
+      "hive:protocol",
+      "hive:hardware",
+      "hive:network-activity",
+      "hive:contacts",
+      "native:location",
+    ];
+    const rank=new Map(priority.map((id,index)=>[id,index]));
+    return [...items]
+      .sort((a,b)=>{
+        const ar=rank.has(a.id)?rank.get(a.id):999;
+        const br=rank.has(b.id)?rank.get(b.id):999;
+        return ar-br || a.index-b.index;
+      })
+      .map((item)=>item.id);
+  }
+
   __applyMetricLayout(hero) {
     const items=this.__metricTileInfo(hero);
     if(!items.length)return;
     const saved=this.__loadMetricLayout();
     const knownIds=new Set(items.map((item)=>item.id));
     const storedOrder=saved.order.filter((id)=>knownIds.has(id));
-    const missing=items.map((item)=>item.id).filter((id)=>!storedOrder.includes(id));
-    const order=[...storedOrder,...missing];
+    const defaultOrder=this.__defaultMetricOrder(items);
+    const missing=defaultOrder.filter((id)=>!storedOrder.includes(id));
+    const order=storedOrder.length?[...storedOrder,...missing]:defaultOrder;
     const hidden=new Set(saved.hidden.filter((id)=>knownIds.has(id)));
 
     items.forEach(({id,tile})=>{
@@ -1401,7 +1441,8 @@ class HiveFWPanel extends BasePanel {
     const saved=this.__loadMetricLayout();
     const byId=new Map(items.map((item)=>[item.id,item]));
     const stored=saved.order.filter((id)=>byId.has(id));
-    const order=[...stored,...items.map((item)=>item.id).filter((id)=>!stored.includes(id))];
+    const defaultOrder=this.__defaultMetricOrder(items);
+    const order=stored.length?[...stored,...defaultOrder.filter((id)=>!stored.includes(id))]:defaultOrder;
     const hidden=new Set(saved.hidden.filter((id)=>byId.has(id)));
 
     const overlay=document.createElement("div");
@@ -2239,13 +2280,6 @@ class HiveFWPanel extends BasePanel {
     const status = this.__repeaterStatus;
     if (!hero || !status?.supported) return;
 
-    if(summary?.dataset?.hiveNativeCockpit==="1"){
-      void this.__loadDiagnosticHistory(summary);
-      this.__renderDiagnosticHistory(summary,nroot,hero);
-      this.__ensureMetricEditor(summary,nroot,hero);
-      return;
-    }
-
     let style = nroot.querySelector("#hivefw-cockpit-style");
     if (!style) {
       style = document.createElement("style");
@@ -2369,6 +2403,9 @@ class HiveFWPanel extends BasePanel {
     };
     const bandForTemp = (c) => c >= 0 && c <= 50 ? "good" : c > -10 && c <= 60 ? "warn" : "bad";
     const makeTile = (title, primary, secondary, value, min, max, band, marker, click, size="normal") => {
+      if(marker && hero.querySelector(`:scope > .hero-tile[data-repeater-extra="${CSS.escape(String(marker))}"]`)){
+        return document.createComment(`native metric: ${marker}`);
+      }
       const tile = document.createElement("div");
       tile.className = `hero-tile hive-repeater-extra${size==="compact"?" hive-metric-compact":""}`;
       tile.dataset.repeaterExtra = marker;
