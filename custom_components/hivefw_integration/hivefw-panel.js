@@ -192,17 +192,27 @@ class HiveFWPanel extends BasePanel {
         title.appendChild(hash);
       }
 
-      const brand = document.createElement("span");
-      brand.className = "hivefw-header-brand-white";
-      brand.setAttribute("aria-label", "HiveFW");
-      brand.title = "HiveFW";
-      title.appendChild(brand);
       title.setAttribute("aria-label", radioName);
     }
 
-    // Keep the right side deliberately minimal: connection state + battery.
-    // Product identity (radio name + HiveFW wordmark) lives together on the left.
+    // Keep the right side compact: connection state + battery + HiveFW logo.
+    // The native panel already renders the logo here; only create/reposition it
+    // as a compatibility fallback for an older cached frontend bundle.
     root.querySelectorAll(".header-right .device-info-wrap").forEach((el) => el.remove());
+    const headerRight=root.querySelector(".header-right");
+    if(headerRight){
+      let brand=headerRight.querySelector(".hivefw-header-brand-white");
+      if(!brand){
+        brand=root.querySelector(".panel-title .hivefw-header-brand-white");
+      }
+      if(!brand){
+        brand=document.createElement("span");
+        brand.className="hivefw-header-brand-white";
+        brand.setAttribute("aria-label","HiveFW");
+        brand.title="HiveFW";
+      }
+      headerRight.appendChild(brand);
+    }
     const connectionStatus = root.querySelector(".connection-status");
     if (connectionStatus) {
       const online = connectionStatus.classList.contains("online");
