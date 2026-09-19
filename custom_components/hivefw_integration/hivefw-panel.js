@@ -4159,6 +4159,7 @@ class HiveFWPanel extends BasePanel {
     // only fills the native map and activity panes.
     nroot.querySelector(".hive-view-switch")?.remove();
     nroot.querySelector(".hive-map-overlay")?.remove();
+    this.__ensureNodeExportControls(nroot,page);
 
     if(!page.__hiveMapMutationRefreshBound&&typeof page.refreshAfterMutation==="function"){
       page.__hiveMapMutationRefreshBound=true;
