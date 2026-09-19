@@ -400,13 +400,13 @@ export class SettingsPage extends LitElement {
       .managed-device-state.online { color: #2e7d32; }
       .managed-device-state.offline { color: var(--secondary-text-color); }
 
-      @media (max-width: 768px) {
+      @media (max-width: 870px) {
         .managed-device-list {
           grid-template-columns: 1fr;
         }
       }
 
-      @media (max-width: 768px) {
+      @media (max-width: 870px) {
         .settings-container {
           width: 100%;
           min-width: 0;
@@ -423,6 +423,40 @@ export class SettingsPage extends LitElement {
 
         .device-section {
           padding: 14px;
+          width: 100%;
+          min-width: 0;
+          max-width: 100%;
+          overflow-x: hidden;
+          box-sizing: border-box;
+        }
+
+        .device-section > *,
+        .settings-grid > *,
+        .managed-device-list,
+        .managed-device-row,
+        .companion-header,
+        .actions-row,
+        .danger-zone {
+          min-width: 0;
+          max-width: 100%;
+          box-sizing: border-box;
+        }
+
+        .device-section input:not([type="checkbox"]):not([type="radio"]),
+        .device-section select,
+        .device-section textarea {
+          width: 100%;
+          min-width: 0;
+          max-width: 100%;
+          box-sizing: border-box;
+        }
+
+        .device-meta,
+        .managed-device-meta,
+        .info-value,
+        .form-label {
+          overflow-wrap: anywhere;
+          word-break: break-word;
         }
 
         .section-row {
