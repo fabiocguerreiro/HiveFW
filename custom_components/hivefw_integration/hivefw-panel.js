@@ -378,46 +378,13 @@ class HiveFWPanel extends BasePanel {
       croot.appendChild(style);
     }
 
+    // RX metadata (hops / RSSI / SNR) is rendered natively by
+    // meshcore-message-bubble as .route-info-inline. Remove any legacy
+    // wrapper-injected copy so each message shows the information once.
     for (const bubbleHost of croot.querySelectorAll("meshcore-message-bubble")) {
       const broot = bubbleHost.shadowRoot;
-      const group = bubbleHost.group;
-      if (!broot || !group?.messages) continue;
-
-      for (const msg of group.messages) {
-        const bubble = broot.querySelector(`.bubble[data-msg-id="${CSS.escape(String(msg.id))}"]`);
-        if (!bubble) continue;
-
-        let meta = bubble.querySelector(".hivefw-rx-meta");
-        const observations = Array.isArray(msg.rxLogData) ? msg.rxLogData : [];
-        if (!observations.length || msg.isOutgoing || msg.isSystem) {
-          meta?.remove();
-          continue;
-        }
-
-        const best = observations[observations.length - 1] || {};
-        const nodes = Array.isArray(best.path_nodes) ? best.path_nodes : [];
-        const rawHops = Number(best.hop_count);
-        const hops = Number.isFinite(rawHops)
-          ? rawHops
-          : (nodes.length ? nodes.length : 0);
-        const rssi = Number(best.rssi);
-        const snr = Number(best.snr);
-        const parts = [hops + " hop" + (hops === 1 ? "" : "s")];
-        if (Number.isFinite(rssi)) parts.push("RSSI " + Math.round(rssi) + " dBm");
-        if (Number.isFinite(snr)) parts.push("SNR " + snr.toFixed(1) + " dB");
-
-        if (!meta) {
-          meta = document.createElement("div");
-          meta.className = "hivefw-rx-meta";
-          meta.style.cssText =
-            "margin-top:3px;padding-top:3px;border-top:1px solid color-mix(in srgb,currentColor 12%,transparent);" +
-            "font:10px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;" +
-            "opacity:.72;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;";
-          bubble.appendChild(meta);
-        }
-        const nextText = parts.join(" · ");
-        if (meta.textContent !== nextText) meta.textContent = nextText;
-      }
+      if (!broot) continue;
+      broot.querySelectorAll(".hivefw-rx-meta").forEach((el) => el.remove());
     }
 
     this.__decorateShareActions(croot);
