@@ -489,17 +489,6 @@ class HiveFWPanel extends BasePanel {
 
     const actions=document.createElement("div");
     actions.style.cssText="display:flex;justify-content:flex-end;gap:8px;margin-top:14px;";
-    const localForLos=this.__localRepeaterMapContact();
-    if(!contact.__hivefw_local__ && this.__nodeCoords(contact) && this.__nodeCoords(localForLos)){
-      const los=document.createElement("button");
-      los.type="button";
-      los.textContent="LOS";
-      los.title="Perfil de terreno e 60% da primeira zona de Fresnel";
-      los.style.cssText="flex:1;padding:7px 9px;border:1px solid var(--divider-color,#bbb);border-radius:6px;background:var(--card-background-color,#fff);color:var(--primary-color,#03a9f4);font-size:12px;font-weight:650;cursor:pointer;";
-      los.addEventListener("click",(event)=>{event.preventDefault();event.stopPropagation();this.__openLosDialog(contact);});
-      actions.appendChild(los);
-    }
-
     const copy=document.createElement("button");
     copy.type="button";
     copy.textContent="Copiar URI";
