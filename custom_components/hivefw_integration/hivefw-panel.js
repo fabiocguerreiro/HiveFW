@@ -3973,116 +3973,48 @@ class HiveFWPanel extends BasePanel {
     const actions=nroot?.querySelector(".header-actions");
     if(!filters||!actions)return;
 
-    // Clean up the 0.10.5 stacked layout if this page survived a hot reload.
-    actions.querySelector(".hive-sync-stack")?.remove();
-    const originalSync=actions.querySelector(":scope > .sync-btn:not(.hive-export-btn):not(.hive-sync-proxy)");
-    if(originalSync)originalSync.style.display="";
+    filters.querySelectorAll(".hive-export-btn,.hive-import-btn,.hive-bulk-btn,.hive-bulk-count,.hive-bulk-actions")
+      .forEach((el)=>el.remove());
+    actions.querySelectorAll(".hive-map-menu-group").forEach((el)=>el.remove());
+
+    this.__bulkMode=false;
+    this.__bulkSelection.clear();
 
     let style=nroot.querySelector("#hive-node-export-style");
     if(!style){
       style=document.createElement("style");
       style.id="hive-node-export-style";
-      style.textContent=`
-        .l1-filters .hive-export-btn{
-          margin-left:0;
-        }
-        .l1-filters{
-          width:100%;
-          align-items:center;
-          flex-wrap:wrap;
-        }
-        .header-actions{
-          width:100%;
-          display:flex!important;
-          align-items:center!important;
-          gap:8px!important;
-          flex-wrap:wrap!important;
-        }
-        .header-actions .search-bar{
-          flex:0 1 var(--hive-nodes-list-width,340px)!important;
-          width:min(var(--hive-nodes-list-width,340px),100%)!important;
-          max-width:var(--hive-nodes-list-width,340px)!important;
-          min-width:220px!important;
-          box-sizing:border-box!important;
-        }
-        .hive-map-menu-group{
-          margin-left:auto;
-          display:inline-flex;
-          align-items:center;
-          gap:6px;
-          flex-wrap:wrap;
-        }
-        .hive-map-menu-group .l1-btn{
-          border-left-width:1px!important;
-          font-weight:650;
-        }
-        .hive-map-menu-group .l1-btn.active{
-          background:color-mix(in srgb,var(--primary-color,#03a9f4) 12%,transparent);
-          color:var(--primary-color,#03a9f4);
-          border-color:color-mix(in srgb,var(--primary-color,#03a9f4) 45%,var(--divider-color,#ddd));
-        }
-        .l1-filters .hive-export-btn,
-        .l1-filters .hive-import-btn,
-        .l1-filters .hive-bulk-btn{
-          white-space:nowrap;
-        }
-        .hive-bulk-count{
-          font-size:11px;
-          color:var(--secondary-text-color,#666);
-          white-space:nowrap;
-        }
-        .map-selection{
-          display:none!important;
-        }
-      `;
       nroot.appendChild(style);
     }
-
-    if(filters.querySelector(".hive-export-btn")){
-      this.__syncBulkToolbar(filters,nroot,page);
-      this.__ensureNodeMapMenus(actions,page);
-      return;
-    }
-
-    const exportButton=document.createElement("button");
-    exportButton.className="l1-btn hive-export-btn";
-    exportButton.textContent="Exportar";
-    exportButton.title="Exportar contactos no formato discovered_contacts compatível com MeshCore";
-    exportButton.addEventListener("click",()=>void this.__exportHiveFWContacts(exportButton));
-
-    const importButton=document.createElement("button");
-    importButton.className="l1-btn hive-import-btn";
-    importButton.textContent="Importar";
-    importButton.title="Importar apenas contactos novos; contactos existentes nunca são alterados";
-
-    const input=document.createElement("input");
-    input.type="file";
-    input.accept=".json,application/json";
-    input.hidden=true;
-    input.addEventListener("change",()=>{
-      const file=input.files?.[0];
-      if(file)void this.__importHiveFWContacts(file,importButton,page);
-      input.value="";
-    });
-    importButton.addEventListener("click",()=>{
-      input.value="";
-      input.click();
-    });
-
-    const bulkButton=document.createElement("button");
-    bulkButton.className="l1-btn hive-bulk-btn";
-    bulkButton.textContent="Selecionar";
-    bulkButton.title="Selecionar vários nós para Favoritos, Tags ou limpeza protegida";
-    bulkButton.addEventListener("click",()=>{
-      this.__bulkMode=!this.__bulkMode;
-      if(!this.__bulkMode)this.__bulkSelection.clear();
-      this.__syncBulkToolbar(filters,nroot,page);
-      this.__decorateNodeCards(nroot);
-    });
-
-    filters.append(exportButton,importButton,bulkButton,input);
-    this.__syncBulkToolbar(filters,nroot,page);
-    this.__ensureNodeMapMenus(actions,page);
+    style.textContent=`
+      .l1-filters{
+        width:100%;
+        align-items:center;
+        flex-wrap:wrap;
+      }
+      .l1-filters .export-btn{
+        margin-left:auto!important;
+      }
+      .l1-filters .export-btn,
+      .l1-filters .export-btn + .l1-btn{
+        white-space:nowrap;
+      }
+      .header-actions{
+        width:100%;
+        display:flex!important;
+        align-items:center!important;
+        gap:8px!important;
+        flex-wrap:wrap!important;
+      }
+      .header-actions .search-bar{
+        flex:0 1 var(--hive-nodes-list-width,340px)!important;
+        width:min(var(--hive-nodes-list-width,340px),100%)!important;
+        max-width:var(--hive-nodes-list-width,340px)!important;
+        min-width:220px!important;
+        box-sizing:border-box!important;
+      }
+      .map-selection{display:none!important;}
+    `;
   }
 
   __centerNodesMap() {
@@ -4091,50 +4023,11 @@ class HiveFWPanel extends BasePanel {
   }
 
   __ensureNodeMapMenus(host,page) {
-    if(!host)return;
-    const nroot=host.getRootNode?.();
-    let group=nroot?.querySelector?.(".hive-map-menu-group")||null;
-    if(group && group.parentElement!==host){
-      host.appendChild(group);
-    }
-    if(!group){
-      group=document.createElement("span");
-      group.className="hive-map-menu-group";
-      host.appendChild(group);
-    }
-
-    // Hot-reload cleanup from 1.1.1: CENTRAR belongs on the map badge.
-    group.querySelector(".hive-map-menu-center")?.remove();
-
-    const make=(key,label,title,handler)=>{
-      let button=group.querySelector(".hive-map-menu-"+key);
-      if(button)return button;
-      button=document.createElement("button");
-      button.type="button";
-      button.className="l1-btn hive-map-menu-"+key;
-      button.textContent=label;
-      button.title=title;
-      button.addEventListener("click",(event)=>{
-        event.preventDefault();
-        event.stopPropagation();
-        handler();
-        this.__syncNodeMapMenuState(host);
-      });
-      group.appendChild(button);
-      return button;
-    };
-
-    make("routes","ROTAS","Histórico de Trace",()=>void this.__toggleTraceHistory());
-    make("activity","ATIVIDADE","Focar a coluna de atividade",()=>this.__toggleActivityHeatmap());
-    make("topology","TOPOLOGIA","Topologia observada por caminhos reais",()=>this.__toggleTopologyOverlay());
-    this.__syncNodeMapMenuState(host);
+    host?.querySelectorAll?.(".hive-map-menu-group")?.forEach?.((el)=>el.remove());
   }
 
   __syncNodeMapMenuState(filters) {
-    if(!filters)return;
-    filters.querySelector(".hive-map-menu-activity")?.classList.toggle("active",!!this.__nodesActivityPane?.isConnected);
-    filters.querySelector(".hive-map-menu-topology")?.classList.toggle("active",!!this.__topologyVisible);
-    filters.querySelector(".hive-map-menu-routes")?.classList.toggle("active",!!this.__traceHistoryPanel?.isConnected);
+    filters?.querySelectorAll?.(".hive-map-menu-group")?.forEach?.((el)=>el.remove());
   }
 
   __scheduleSplitMap(page,pane) {
@@ -4387,6 +4280,7 @@ class HiveFWPanel extends BasePanel {
     nroot.querySelector(".hive-view-switch")?.remove();
     nroot.querySelector(".hive-map-overlay")?.remove();
     this.__ensureNodeExportControls(nroot,page);
+    nroot.querySelectorAll(".hive-map-menu-group,.hive-bulk-btn,.hive-bulk-count,.hive-bulk-actions,.hive-export-btn,.hive-import-btn").forEach((el)=>el.remove());
 
     if(!page.__hiveMapMutationRefreshBound && typeof page.refreshAfterMutation==="function"){
       page.__hiveMapMutationRefreshBound=true;
@@ -6142,18 +6036,6 @@ class HiveFWPanel extends BasePanel {
 
   async __ensureSplitMap(page,pane) {
     if(!pane?.isConnected)return;
-
-    const rect=pane.getBoundingClientRect();
-    if(rect.width<180 || rect.height<220){
-      if(!this.__nodesMapRetryTimer){
-        this.__nodesMapRetryTimer=setTimeout(()=>{
-          this.__nodesMapRetryTimer=null;
-          if(pane.isConnected)this.__scheduleSplitMap(page,pane);
-        },120);
-      }
-      return;
-    }
-
     const entryId=this.__entryId()||null;
     if(!this.__repeaterStatus && !this.__repeaterLoading){
       await this.__loadRepeaterStatus();
@@ -6184,14 +6066,8 @@ class HiveFWPanel extends BasePanel {
         pane.replaceChildren();
         const note=document.createElement("div");
         note.className="hive-map-note";
-        note.textContent="A carregar mapa do Home Assistant…";
+        note.textContent="Não foi possível carregar o mapa do Home Assistant.";
         pane.appendChild(note);
-      }
-      if(!this.__nodesMapRetryTimer){
-        this.__nodesMapRetryTimer=setTimeout(()=>{
-          this.__nodesMapRetryTimer=null;
-          if(pane.isConnected)this.__scheduleSplitMap(page,pane);
-        },700);
       }
       return;
     }
@@ -6289,7 +6165,6 @@ class HiveFWPanel extends BasePanel {
         this.__nodesMapInitialViewEntry=entryId;
       }
     }
-    this.__drawLastTraceRoute();
   }
 
   __focusNodeOnMap(contact,openPopup=true) {
