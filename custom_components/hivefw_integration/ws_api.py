@@ -1381,7 +1381,7 @@ async def ws_get_contacts_paginated(hass, connection, msg):
     category = msg["category"]
     node_type = msg.get("node_type")
     search = msg.get("search")
-    activity = msg["activity"]
+    activity = msg.get("activity", "all")
     limit = msg["limit"]
     offset = msg["offset"]
     sort_by = msg["sort_by"]
@@ -4697,6 +4697,12 @@ async def ws_get_rx_log(
     This is not a raw-radio packet logger. It exposes rx_log_data already
     captured by the embedded HiveFW radio engine and persisted by HiveFW,
     so reading it creates no additional LoRa traffic.
+
+    The inbound ``entry_id`` field is intentionally NOT forwarded to
+    ``_get_store``. As with the other MessageStore handlers, the frontend
+    may supply the radio-engine entry id while the store belongs to the
+    single HiveFW companion entry, so this handler always uses the
+    ``None``-fallback.
     """
     store = _get_store(hass, None)
     if store is None:
