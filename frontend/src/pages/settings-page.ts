@@ -249,7 +249,9 @@ export class SettingsPage extends LitElement {
       }
 
       .form-group-inline {
-        flex: 1;
+        flex: 1 1 0;
+        min-width: 0;
+        max-width: 100%;
       }
 
       .danger-zone {
@@ -301,9 +303,22 @@ export class SettingsPage extends LitElement {
 
       .settings-grid {
         display: grid;
-        grid-template-columns: repeat(2, 1fr);
+        grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 16px;
         margin-bottom: 16px;
+        width: 100%;
+        min-width: 0;
+        max-width: 100%;
+        box-sizing: border-box;
+      }
+
+      .settings-grid > *,
+      .device-section,
+      .section-row,
+      .managed-device-row {
+        min-width: 0;
+        max-width: 100%;
+        box-sizing: border-box;
       }
 
       .settings-grid > .device-section {
@@ -392,8 +407,91 @@ export class SettingsPage extends LitElement {
       }
 
       @media (max-width: 768px) {
+        .settings-container {
+          width: 100%;
+          min-width: 0;
+          max-width: 100%;
+          box-sizing: border-box;
+        }
+
         .settings-grid {
-          grid-template-columns: 1fr;
+          grid-template-columns: minmax(0, 1fr);
+          gap: 12px;
+          width: 100%;
+          min-width: 0;
+        }
+
+        .device-section {
+          padding: 14px;
+        }
+
+        .section-row {
+          flex-direction: column;
+          align-items: stretch;
+          gap: 8px;
+          width: 100%;
+        }
+
+        .form-group-inline,
+        .form-input,
+        .form-select,
+        .apply-button {
+          width: 100%;
+          min-width: 0;
+          max-width: 100%;
+          box-sizing: border-box;
+        }
+
+        .info-row {
+          align-items: flex-start;
+          gap: 8px;
+          flex-wrap: wrap;
+        }
+
+        .info-label,
+        .info-value {
+          min-width: 0;
+          max-width: 100%;
+        }
+
+        .info-value {
+          margin-left: auto;
+          text-align: right;
+          overflow-wrap: anywhere;
+        }
+
+        .managed-device-row {
+          grid-template-columns: auto minmax(0, 1fr);
+          align-items: start;
+        }
+
+        .managed-device-row > div:last-child {
+          grid-column: 2;
+          display: flex !important;
+          flex-wrap: wrap;
+          justify-content: flex-start;
+          min-width: 0;
+        }
+
+        .action-btn {
+          max-width: 100%;
+          white-space: normal;
+          text-align: center;
+        }
+
+        .danger-zone,
+        pre {
+          min-width: 0;
+          max-width: 100%;
+          box-sizing: border-box;
+          overflow-wrap: anywhere;
+        }
+
+        .modal-card {
+          width: calc(100vw - 24px);
+          min-width: 0;
+          max-width: 400px;
+          box-sizing: border-box;
         }
       }
 
@@ -412,6 +510,11 @@ export class SettingsPage extends LitElement {
         border-radius: 12px;
         padding: 20px;
         margin-bottom: 16px;
+        width: 100%;
+        min-width: 0;
+        max-width: 100%;
+        box-sizing: border-box;
+        overflow: hidden;
       }
 
       .companion-header {
@@ -603,7 +706,8 @@ export class SettingsPage extends LitElement {
         background: var(--card-background-color, #fff);
         border-radius: 12px;
         box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
-        min-width: 260px;
+        width: min(400px, calc(100vw - 24px));
+        min-width: 0;
         max-width: 400px;
         max-height: 80vh;
         overflow: hidden;
