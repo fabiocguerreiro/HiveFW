@@ -3372,11 +3372,12 @@ class HiveFWPanel extends BasePanel {
     await this.__sendRemoteRegionCommand(`region ${this.__regionAction} ${name}`,sroot);
   }
 
-  async __loadPeerActivity() {
+  async __loadPeerActivity(force=false) {
     const entryId=this.__entryId()||null;
     if(this.__peerActivityLoading)return;
-    if(this.__peerActivityLoadedEntry===entryId)return;
+    if(!force&&this.__peerActivityLoadedEntry===entryId)return;
     this.__peerActivityLoading=true;
+    this.__renderActivityPane();
     try{
       const msg={type:"hivefw_integration/get_peer_activity"};
       if(entryId)msg.entry_id=entryId;
@@ -3384,26 +3385,160 @@ class HiveFWPanel extends BasePanel {
       this.__peerActivity={
         peers:result?.peers&&typeof result.peers==="object"?result.peers:{},
         links:result?.links&&typeof result.links==="object"?result.links:{},
+        edges:result?.edges&&typeof result.edges==="object"?result.edges:{},
       };
       this.__peerActivityLoadedEntry=entryId;
-      const page=this.shadowRoot?.querySelector("meshcore-nodes-page");
-      const nroot=page?.shadowRoot;
-      if(nroot)this.__decorateNodeCards(nroot);
-      if(this.__nodesPersistentPopup){
-        const source=Array.isArray(this.__nodesMapContacts)?this.__nodesMapContacts:[];
-        const selected=source.find((c)=>this.__nodeId(c)===this.__nodesPopupId);
-        if(selected)this.__openPersistentNodePopup(selected);
-      }
     }catch(error){
       console.warn("HiveFW peer activity load failed",error);
-      this.__peerActivity={peers:{},links:{}};
+      this.__peerActivity={peers:{},links:{},edges:{}};
       this.__peerActivityLoadedEntry=entryId;
     }finally{
       this.__peerActivityLoading=false;
+      this.__renderActivityPane();
     }
   }
 
-  __peerActivityFor(contact) {
+  __activityPeerFor(contact) {
+    const peers=this.__peerActivity?.peers||{};
+    const key=String(contact?.public_key||"").trim().toLowerCase();
+    const prefix=String(contact?.pubkey_prefix||key.slice(0,12)).trim().toLowerCase();
+    let match=null;
+    let matchedLength=-1;
+    for(const [candidate,value] of Object.entries(peers)){
+      const c=String(candidate||"").trim().toLowerCase();
+      if(!c)continue;
+      const matches=(key&&(key.startsWith(c)||c.startsWith(key)))||
+        (prefix&&(prefix.startsWith(c)||c.startsWith(prefix)));
+      if(!matches)continue;
+      if(c.length>matchedLength){
+        match=value;
+        matchedLength=c.length;
+      }
+    }
+    return match&&typeof match==="object"?match:null;
+  }
+
+  __renderActivityPane() {
+    const pane=this.__nodesActivityPane;
+    if(!pane?.isConnected)return;
+
+    const source=Array.isArray(this.__nodesMapContacts)?this.__nodesMapContacts:[];
+    pane.replaceChildren();
+
+    const inner=document.createElement("section");
+    inner.className="hive-activity-pane-inner";
+
+    const header=document.createElement("div");
+    header.className="hive-activity-pane-header";
+    const title=document.createElement("strong");
+    title.textContent="Atividade";
+    const refresh=document.createElement("button");
+    refresh.type="button";
+    refresh.textContent=this.__peerActivityLoading?"A carregar…":"Atualizar";
+    refresh.disabled=!!this.__peerActivityLoading;
+    refresh.addEventListener("click",()=>void this.__loadPeerActivity(true));
+    header.append(title,refresh);
+    inner.appendChild(header);
+
+    if(this.__peerActivityLoadedEntry!==this.__entryId()||this.__peerActivityLoading){
+      const loading=document.createElement("div");
+      loading.className="hive-activity-empty";
+      loading.textContent=this.__peerActivityLoading
+        ?"A carregar atividade depois do mapa…"
+        :"A aguardar o mapa…";
+      inner.appendChild(loading);
+      pane.appendChild(inner);
+      return;
+    }
+
+    const rows=source.map((contact)=>{
+      const peer=this.__activityPeerFor(contact);
+      if(!peer)return null;
+      const rx=Number(peer?.rx)||0;
+      const tx=Number(peer?.tx)||0;
+      const messages=Number(peer?.messages)||0;
+      const score=rx+tx+messages;
+      return score>0?{contact,rx,tx,messages,score}:null;
+    }).filter(Boolean).sort((a,b)=>b.score-a.score).slice(0,60);
+
+    const totalRx=rows.reduce((sum,item)=>sum+item.rx,0);
+    const totalTx=rows.reduce((sum,item)=>sum+item.tx,0);
+    const totalMessages=rows.reduce((sum,item)=>sum+item.messages,0);
+
+    const summary=document.createElement("div");
+    summary.className="hive-activity-pane-summary";
+    const stat=(label,value)=>{
+      const box=document.createElement("div");
+      box.className="hive-activity-stat";
+      const l=document.createElement("span");
+      l.textContent=label;
+      const v=document.createElement("strong");
+      v.textContent=String(value);
+      box.append(l,v);
+      return box;
+    };
+    summary.append(
+      stat("Nós ativos",rows.length),
+      stat("RX",totalRx),
+      stat("TX",totalTx),
+      stat("Mensagens",totalMessages)
+    );
+    inner.appendChild(summary);
+
+    const list=document.createElement("div");
+    list.className="hive-activity-list";
+    if(!rows.length){
+      const empty=document.createElement("div");
+      empty.className="hive-activity-empty";
+      empty.textContent="Ainda não existe atividade local registada.";
+      list.appendChild(empty);
+    }else{
+      for(const item of rows){
+        const row=document.createElement("button");
+        row.type="button";
+        row.className="hive-activity-row";
+
+        const left=document.createElement("div");
+        left.className="hive-activity-row-main";
+        const name=document.createElement("div");
+        name.className="hive-activity-name";
+        name.textContent=String(item.contact.adv_name||item.contact.pubkey_prefix||"Nó");
+        const detail=document.createElement("div");
+        detail.className="hive-activity-detail";
+        detail.textContent=`RX ${item.rx} · TX ${item.tx} · MSG ${item.messages}`;
+        left.append(name,detail);
+
+        const score=document.createElement("span");
+        score.className="hive-activity-score";
+        score.textContent=String(item.score);
+
+        row.append(left,score);
+        row.addEventListener("click",()=>this.__focusNodeOnMap(item.contact,true));
+        list.appendChild(row);
+      }
+    }
+    inner.appendChild(list);
+    pane.appendChild(inner);
+  }
+
+  async __loadActivityAfterMap(page,pane) {
+    await this.__ensureSplitMap(page,pane);
+    if(!pane?.isConnected||this._activeTab!=="nodes")return;
+
+    // Let Home Assistant paint the map first. Activity is deliberately a
+    // second-stage request so it cannot compete with map startup.
+    await new Promise((resolve)=>requestAnimationFrame(()=>resolve()));
+    if(!this.__nodesActivityPane?.isConnected||this._activeTab!=="nodes")return;
+
+    this.__renderActivityPane();
+    if(this.__peerActivityLoadedEntry!==this.__entryId()&&!this.__peerActivityLoading){
+      await this.__loadPeerActivity();
+    }else{
+      this.__renderActivityPane();
+    }
+  }
+
+  __peerActivityFor(contact) {  __peerActivityFor(contact) {
     const peers=this.__peerActivity?.peers||{};
     const links=this.__peerActivity?.links||{};
     const key=String(contact?.public_key||"").trim().toLowerCase();
@@ -4014,19 +4149,18 @@ class HiveFWPanel extends BasePanel {
   __enhanceNodesPage() {
     const root=this.shadowRoot;
     const page=root?.querySelector("meshcore-nodes-page");
-    const container=root?.querySelector(".page-container");
     const nroot=page?.shadowRoot;
     const content=nroot?.querySelector(".content-area");
-    if(!root||!page||!container||!nroot||!content)return;
+    const pane=nroot?.querySelector(".nodes-map-pane");
+    const activityPane=nroot?.querySelector(".nodes-activity-pane");
+    if(!root||!page||!nroot||!content||!pane||!activityPane)return;
 
-    // Remove all previous experimental controls/overlays from inside the
-    // Lit-managed Nodes component. The map now lives beside that component,
-    // outside its render range, so a Nodes rerender cannot destroy it.
+    // The Nodes component owns the final layout from first paint. The wrapper
+    // only fills the native map and activity panes.
     nroot.querySelector(".hive-view-switch")?.remove();
     nroot.querySelector(".hive-map-overlay")?.remove();
-    this.__ensureNodeExportControls(nroot,page);
 
-    if(!page.__hiveMapMutationRefreshBound && typeof page.refreshAfterMutation==="function"){
+    if(!page.__hiveMapMutationRefreshBound&&typeof page.refreshAfterMutation==="function"){
       page.__hiveMapMutationRefreshBound=true;
       const originalRefreshAfterMutation=page.refreshAfterMutation.bind(page);
       page.refreshAfterMutation=async(pubkey)=>{
@@ -4035,40 +4169,12 @@ class HiveFWPanel extends BasePanel {
       };
     }
 
-    let style=root.querySelector("#hive-node-split-style");
+    let style=nroot.querySelector("#hive-node-runtime-style");
     if(!style){
       style=document.createElement("style");
-      style.id="hive-node-split-style";
+      style.id="hive-node-runtime-style";
       style.textContent=`
-        .page-container.hive-nodes-split{
-          display:grid!important;
-          grid-template-columns:minmax(360px,1fr) minmax(0,1fr)!important;
-          grid-template-rows:minmax(0,1fr)!important;
-          overflow:hidden!important;
-          min-height:0!important;
-        }
-        .page-container.hive-nodes-split > meshcore-nodes-page{
-          grid-column:1;
-          grid-row:1;
-          min-width:0;
-          min-height:0;
-          width:100%;
-          height:100%;
-          overflow:hidden;
-        }
-        .page-container.hive-nodes-split > .hive-nodes-map-pane{
-          grid-column:2;
-          grid-row:1;
-          position:relative;
-          min-width:0;
-          min-height:0;
-          width:100%;
-          height:100%;
-          overflow:hidden;
-          background:var(--card-background-color,#fff);
-          border-left:1px solid var(--divider-color,#e0e0e0);
-        }
-        .hive-nodes-map-pane ha-map{
+        .nodes-map-pane ha-map{
           display:block;
           width:100%;
           height:100%;
@@ -4084,12 +4190,19 @@ class HiveFWPanel extends BasePanel {
           text-align:center;
         }
         .hive-map-count{
-          position:absolute;top:10px;right:10px;z-index:30;
-          padding:6px 9px;border-radius:14px;
+          position:absolute;
+          top:10px;
+          right:10px;
+          z-index:30;
+          padding:6px 9px;
+          border-radius:14px;
           background:color-mix(in srgb,var(--card-background-color) 90%,transparent);
-          color:var(--primary-text-color);border:1px solid var(--divider-color);
-          font-size:11px;font-weight:600;box-shadow:0 1px 4px rgba(0,0,0,.18);
-          pointer-events:auto
+          color:var(--primary-text-color);
+          border:1px solid var(--divider-color);
+          font-size:11px;
+          font-weight:600;
+          box-shadow:0 1px 4px rgba(0,0,0,.18);
+          pointer-events:auto;
         }
         .hive-map-count button{
           border:0;
@@ -4102,44 +4215,125 @@ class HiveFWPanel extends BasePanel {
           text-decoration:underline;
           text-underline-offset:2px;
         }
-        @media(max-width:870px){
-          .page-container.hive-nodes-split{
-            grid-template-columns:1fr!important;
-            grid-template-rows:minmax(360px,55%) minmax(300px,45%)!important;
-            overflow-y:auto!important;
-          }
-          .page-container.hive-nodes-split > meshcore-nodes-page{
-            grid-column:1;grid-row:1
-          }
-          .page-container.hive-nodes-split > .hive-nodes-map-pane{
-            grid-column:1;grid-row:2;border-left:0;
-            border-top:1px solid var(--divider-color,#e0e0e0)
-          }
+        .nodes-activity-pane{
+          overflow:hidden;
+        }
+        .hive-activity-pane-inner{
+          display:flex;
+          flex-direction:column;
+          width:100%;
+          height:100%;
+          min-height:0;
+          background:var(--card-background-color,#fff);
+          color:var(--primary-text-color,#222);
+        }
+        .hive-activity-pane-header{
+          display:flex;
+          align-items:center;
+          gap:8px;
+          padding:10px 11px;
+          border-bottom:1px solid var(--divider-color,#ddd);
+          flex:0 0 auto;
+        }
+        .hive-activity-pane-header strong{
+          flex:1;
+          font-size:12px;
+        }
+        .hive-activity-pane-header button{
+          border:1px solid var(--divider-color,#ccc);
+          border-radius:7px;
+          background:transparent;
+          color:var(--primary-color,#03a9f4);
+          padding:4px 7px;
+          font:inherit;
+          font-size:10px;
+          cursor:pointer;
+        }
+        .hive-activity-pane-summary{
+          display:grid;
+          grid-template-columns:repeat(2,minmax(0,1fr));
+          gap:6px;
+          padding:8px 9px;
+          border-bottom:1px solid var(--divider-color,#eee);
+          flex:0 0 auto;
+        }
+        .hive-activity-stat{
+          min-width:0;
+          padding:7px;
+          border:1px solid var(--divider-color,#eee);
+          border-radius:8px;
+          background:var(--secondary-background-color,#f7f7f7);
+        }
+        .hive-activity-stat span{
+          display:block;
+          color:var(--secondary-text-color,#666);
+          font-size:9px;
+          margin-bottom:2px;
+        }
+        .hive-activity-stat strong{
+          display:block;
+          overflow:hidden;
+          text-overflow:ellipsis;
+          white-space:nowrap;
+          font-size:12px;
+        }
+        .hive-activity-list{
+          flex:1;
+          min-height:0;
+          overflow:auto;
+          padding:4px 8px 8px;
+        }
+        .hive-activity-row{
+          width:100%;
+          display:grid;
+          grid-template-columns:minmax(0,1fr) auto;
+          gap:8px;
+          align-items:center;
+          padding:8px 4px;
+          border:0;
+          border-bottom:1px solid var(--divider-color,#eee);
+          background:transparent;
+          color:inherit;
+          text-align:left;
+          cursor:pointer;
+        }
+        .hive-activity-row:hover{
+          background:var(--secondary-background-color,#f7f7f7);
+        }
+        .hive-activity-name{
+          overflow:hidden;
+          text-overflow:ellipsis;
+          white-space:nowrap;
+          font-size:11px;
+          font-weight:600;
+        }
+        .hive-activity-detail{
+          color:var(--secondary-text-color,#666);
+          font-size:9px;
+          margin-top:2px;
+        }
+        .hive-activity-score{
+          font:700 11px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+          color:var(--primary-color,#03a9f4);
+        }
+        .hive-activity-empty{
+          padding:18px 10px;
+          color:var(--secondary-text-color,#666);
+          text-align:center;
+          font-size:10px;
         }
       `;
-      root.appendChild(style);
+      nroot.appendChild(style);
     }
 
-    container.classList.add("hive-nodes-split");
-
-    let pane=container.querySelector(":scope > .hive-nodes-map-pane");
-    if(!pane){
-      pane=document.createElement("section");
-      pane.className="hive-nodes-map-pane";
-      // Appended after Lit's child-part markers: this node is not owned by
-      // the Nodes template and therefore survives its frequent rerenders.
-      container.appendChild(pane);
-    }
     this.__nodesMapPane=pane;
+    this.__nodesActivityPane=activityPane;
     pane.querySelector(".hive-map-selection")?.remove();
-    nroot.querySelectorAll(".map-selection").forEach((el)=>{
-      el.remove();
-    });
-    if(this.__peerActivityLoadedEntry!==this.__entryId()&&!this.__peerActivityLoading){
-      void this.__loadPeerActivity();
-    }
+    nroot.querySelectorAll(".map-selection").forEach((el)=>el.remove());
+
+    // Cheap first-stage decoration only. Peer activity is intentionally not
+    // requested here; the map gets the first render budget.
     this.__decorateNodeCards(nroot);
-    window.setTimeout(()=>this.__decorateNodeCards(nroot),120);
 
     if(!content.dataset.hiveMapFocusBound){
       content.dataset.hiveMapFocusBound="1";
@@ -4156,27 +4350,32 @@ class HiveFWPanel extends BasePanel {
       },true);
     }
 
-    void this.__ensureSplitMap(page,pane);
+    this.__renderActivityPane();
+    void this.__loadActivityAfterMap(page,pane);
   }
 
   __cleanupNodesSplit() {
     this.__closeTraceMonitor();
-    const root=this.shadowRoot;
-    const container=root?.querySelector(".page-container");
-    container?.classList.remove("hive-nodes-split");
-    if(this.__nodesMapPane?.isConnected)this.__nodesMapPane.remove();
     this.__removeTraceRouteLayer();
     this.__traceHistoryPanel?.remove();
     this.__traceHistoryPanel=null;
-    this.__nodesMapPane=null;
     this.__closePersistentNodePopup();
+
+    // Map/activity panes are part of the native Nodes component. Never remove
+    // them; clear runtime children only so the correct layout exists on the
+    // next first paint as well.
+    if(this.__nodesMapPane?.isConnected)this.__nodesMapPane.replaceChildren();
+    if(this.__nodesActivityPane?.isConnected)this.__nodesActivityPane.replaceChildren();
+
+    this.__nodesMapPane=null;
+    this.__nodesActivityPane=null;
     this.__nodesMapElement=null;
     this.__nodesMapSignature="";
     this.__nodesPopupId="";
     this.__nodesInitialViewport=null;
   }
 
-  __firstSeenStorageKey() {
+  __firstSeenStorageKey() {  __firstSeenStorageKey() {
     const entry=String(this.__entryId()||"default").replace(/[^a-zA-Z0-9_.-]/g,"_");
     return "hivefw.first_seen.v1."+entry;
   }
