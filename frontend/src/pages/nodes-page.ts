@@ -81,8 +81,8 @@ export class NodesPage extends LitElement {
     }
 
     .nodes-layout {
-      /* Symmetric side columns; the map owns all remaining width. */
-      --nodes-list-width: 340px;
+      /* Give the node list a little more room; Activity stays compact and the map owns the remainder. */
+      --nodes-list-width: 380px;
       --nodes-activity-width: 340px;
       display: grid;
       grid-template-columns: var(--nodes-list-width) minmax(0, 1fr) var(--nodes-activity-width);
