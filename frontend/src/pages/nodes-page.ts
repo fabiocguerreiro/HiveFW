@@ -572,62 +572,48 @@ export class NodesPage extends LitElement {
     return html`
       <div class="nodes-layout">
         <div class="nodes-header">
-            <div class="l1-filters">
-              ${this._renderL1Button('all', 'All')}
-              ${this._renderL1Button('added', '★ Added')}
-              ${this._renderL1Button('discovered', 'Discovered')}
-              <button class="l1-btn export-btn" @click=${() => this._exportContacts()}>Exportar</button>
-              <button class="l1-btn" @click=${() => this._pickImportFile()}>Importar</button>
-              <input id="contact-import-file" hidden type="file" accept=".json,application/json"
-                @change=${this._onImportFile}>
-            </div>
-
-            <div class="l2-bar">
-              <button class=${`l2-btn ${this._activityFilter === 'active24h' ? 'active' : ''}`}
-                @click=${() => this._setActivityFilter('active24h')}>24h</button>
-              <button class=${`l2-btn repeaters ${this._typeFilter === 'repeaters' ? 'active' : ''}`}
-                @click=${() => this._setTypeFilter('repeaters')}>Repeaters</button>
-              <button class=${`l2-btn clients ${this._typeFilter === 'clients' ? 'active' : ''}`}
-                @click=${() => this._setTypeFilter('clients')}>Clients</button>
-              <button class=${`l2-btn ${this._activityFilter === 'favorites' ? 'active' : ''}`}
-                @click=${() => this._setActivityFilter('favorites')}>★ Favoritos</button>
-              <button class=${`l2-btn ${this._activityFilter === 'gps' ? 'active' : ''}`}
-                @click=${() => this._setActivityFilter('gps')}>GPS</button>
-              <button class=${`l2-btn ${this._activityFilter === 'stale' ? 'active' : ''}`}
-                @click=${() => this._setActivityFilter('stale')}>Stale</button>
-              ${this._primaryFilter !== 'all' ? this._renderL2Buttons() : nothing}
-            </div>
-
-            <div class="header-actions">
-              <div class="search-bar" style="flex: 1;">
-                <span class="search-icon"><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0016 9.5 6.5 6.5 0 109.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg></span>
-                <input
-                  type="text"
-                  placeholder=${this._getSearchPlaceholder()}
-                  .value=${this._searchQuery}
-                  @input=${this._onSearchInput}>
-                ${this._searchQuery
-                  ? html`<button class="clear-search" @click=${() => { this._searchQuery = ''; this._loadPage(true); }}>✕</button>`
-                  : nothing}
-              </div>
-              <select class="sort-select"
-                .value=${this._sortBy}
-                @change=${(e: Event) => {
-                  this._sortBy = (e.target as HTMLSelectElement).value as 'last_heard' | 'name' | 'prefix';
-                  this._loadPage(true);
-                }}>
-                <option value="last_heard">Last Heard</option>
-                <option value="name">Name</option>
-                <option value="prefix">Pub Prefix</option>
-              </select>
-              <button class="clear-btn"
-                @click=${() => this._clearStaleContacts()}
-                title="Remove discovered contacts older than the configured threshold">
-                Clear Stale
-              </button>
-              <button class="sync-btn" @click=${() => this._syncAll()}>⟳ Sync</button>
-            </div>
+          <div class="l1-filters">
+            ${this._renderL1Button('all', 'All')}
+            ${this._renderL1Button('added', '★ Added')}
+            ${this._renderL1Button('discovered', 'Discovered')}
           </div>
+
+          ${this._primaryFilter !== 'all' ? html`
+            <div class="l2-bar">
+              ${this._renderL2Buttons()}
+            </div>
+          ` : nothing}
+
+          <div class="header-actions">
+            <div class="search-bar">
+              <span class="search-icon"><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0016 9.5 6.5 6.5 0 109.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg></span>
+              <input
+                type="text"
+                placeholder=${this._getSearchPlaceholder()}
+                .value=${this._searchQuery}
+                @input=${this._onSearchInput}>
+              ${this._searchQuery
+                ? html`<button class="clear-search" @click=${() => { this._searchQuery = ''; this._loadPage(true); }}>✕</button>`
+                : nothing}
+            </div>
+            <select class="sort-select"
+              .value=${this._sortBy}
+              @change=${(e: Event) => {
+                this._sortBy = (e.target as HTMLSelectElement).value as 'last_heard' | 'name' | 'prefix';
+                this._loadPage(true);
+              }}>
+              <option value="last_heard">Last Heard</option>
+              <option value="name">Name</option>
+              <option value="prefix">Pub Prefix</option>
+            </select>
+            <button class="clear-btn"
+              @click=${() => this._clearStaleContacts()}
+              title="Remove discovered contacts older than the configured threshold">
+              Clear Stale
+            </button>
+            <button class="sync-btn" @click=${() => this._syncAll()}>⟳ Sync</button>
+          </div>
+        </div>
 
         <div class="content-area">
           ${this._renderContactsContent()}
