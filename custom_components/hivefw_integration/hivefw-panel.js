@@ -225,7 +225,7 @@ class HiveFWPanel extends BasePanel {
         label.className = "hivefw-connection-label";
         connectionStatus.appendChild(label);
       }
-      label.textContent = online ? "Conectado" : "Desconectado";
+      label.textContent = online ? "Ligado" : "Desligado";
     }
 
 
