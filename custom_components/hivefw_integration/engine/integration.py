@@ -733,10 +733,12 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Unload platforms
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     
-    # Remove entry from data
-    if unload_ok and entry.entry_id in hass.data[DOMAIN]:
+    # Remove entry from data. A partially initialized or already-cleaned
+    # entry may have no DOMAIN bucket; unloading should remain idempotent.
+    domain_data = hass.data.get(DOMAIN, {})
+    if unload_ok and entry.entry_id in domain_data:
         # Get coordinator and clean up
-        coordinator = hass.data[DOMAIN][entry.entry_id]
+        coordinator = domain_data[entry.entry_id]
         
         # Remove any event listeners registered by the coordinator
         if hasattr(coordinator, "_remove_listeners"):
@@ -749,18 +751,18 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await coordinator.api.disconnect()
         
         # Remove entry
-        hass.data[DOMAIN].pop(entry.entry_id)
+        domain_data.pop(entry.entry_id)
         
         # Unsubscribe from the message_sent event listener for this entry
         event_key = f"{DOMAIN}_message_sent_listener_{entry.entry_id}"
-        if event_key in hass.data[DOMAIN]:
-            unsubscribe_func = hass.data[DOMAIN].pop(event_key)
+        if event_key in domain_data:
+            unsubscribe_func = domain_data.pop(event_key)
             if callable(unsubscribe_func):
                 unsubscribe_func()
                 _LOGGER.debug("Unsubscribed message_sent event listener")
         
         # If no more entries, unload services
-        if not hass.data[DOMAIN]:
+        if not domain_data:
             await async_unload_services(hass)
 
     return unload_ok
