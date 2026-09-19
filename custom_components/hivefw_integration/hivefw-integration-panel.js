@@ -7964,7 +7964,7 @@ let e,t,i,o,r,a,s,n,l,d,c,p,h,u,m,g,v,f,y,b,_,x,w,$,k,C,S,M,A,R,F,T,I,z,O,D,N,E,
                   <span class="connection-status ${0}">
                     <span class="status-dot ${0}"></span>
                     ${0}
-                  </span>`),"online"===this._getNodeStatus(t)?"online":"offline","online"===this._getNodeStatus(t)?"online":"offline","online"===this._getNodeStatus(t)?"Conectado":"Desconectado"):Zs(Ja||(Ja=ls``)),t&&null!==this._getBatteryLevel(t)?Zs(Za||(Za=ls`
+                  </span>`),"online"===this._getNodeStatus(t)?"online":"offline","online"===this._getNodeStatus(t)?"online":"offline","online"===this._getNodeStatus(t)?"Ligado":"Desligado"):Zs(Ja||(Ja=ls``)),t&&null!==this._getBatteryLevel(t)?Zs(Za||(Za=ls`
                   <span class="battery-indicator">
                     <span class="battery-icon">
                       <span class="battery-fill ${0}"
