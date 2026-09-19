@@ -1842,6 +1842,15 @@ class HiveFWPanel extends BasePanel {
       card.className="device-section";
       grid.appendChild(card);
     }
+    const renderSig=JSON.stringify([
+      this.__entryId()||null,
+      !!this.__observabilityLoading,
+      this.__observabilityLoadedEntry,
+      this.__observabilitySettings||null,
+      this.__observabilityState||null,
+    ]);
+    if(card.dataset.hiveRenderSig===renderSig)return;
+    card.dataset.hiveRenderSig=renderSig;
     card.replaceChildren();
 
     const title=document.createElement("div");
@@ -1920,6 +1929,15 @@ class HiveFWPanel extends BasePanel {
       card.className = "device-section";
       grid.appendChild(card);
     }
+    const renderSig=JSON.stringify([
+      this.__entryId()||null,
+      !!this.__repeaterLoading,
+      this.__repeaterError||"",
+      this.__repeaterStatus?.supported??null,
+      this.__repeaterStatus?.repeat??null,
+    ]);
+    if(card.dataset.hiveRenderSig===renderSig)return;
+    card.dataset.hiveRenderSig=renderSig;
     card.replaceChildren();
 
     const title = document.createElement("div");
@@ -2283,6 +2301,19 @@ class HiveFWPanel extends BasePanel {
       `;
       nroot.appendChild(style);
     }
+
+    const entityStateSig=(Array.isArray(summary.entities)?summary.entities:[]).map((entity)=>{
+      const entityId=entity?.entity_id||"";
+      const state=entityId?this.hass?.states?.[entityId]:null;
+      return [entityId,state?.state??null,state?.last_updated??null];
+    });
+    const heroSig=JSON.stringify([
+      this.__entryId()||null,
+      status,
+      entityStateSig,
+    ]);
+    if(hero.dataset.hiveRenderSig===heroSig)return;
+    hero.dataset.hiveRenderSig=heroSig;
 
     nroot.querySelectorAll(".hive-repeater-extra").forEach((el) => el.remove());
 
@@ -2654,26 +2685,25 @@ class HiveFWPanel extends BasePanel {
     const meta = sroot.querySelector(".device-meta");
     if (!meta) return;
 
-    meta.querySelectorAll("[data-hive-meta]").forEach((node) => node.remove());
+    const ensureMeta=(key,text,prepend=false)=>{
+      let node=meta.querySelector(`[data-hive-meta="${key}"]`);
+      if(!node){
+        node=document.createElement("span");
+        node.dataset.hiveMeta=key;
+        if(prepend)meta.prepend(node);
+        else meta.appendChild(node);
+      }
+      if(node.textContent!==text)node.textContent=text;
+      return node;
+    };
 
-    const role = document.createElement("span");
-    role.dataset.hiveMeta = "role";
-    role.textContent = "HiveFW Companion-Repeater";
+    ensureMeta("role","HiveFW Companion-Repeater",true);
+    ensureMeta("nodes",`Nós conhecidos: ${Array.isArray(this._contacts)?this._contacts.length:0}`);
+    ensureMeta("channels",`Canais: ${Array.isArray(this._channels)?this._channels.length:0}`);
 
-    const nodes = document.createElement("span");
-    nodes.dataset.hiveMeta = "nodes";
-    nodes.textContent = `Nós conhecidos: ${Array.isArray(this._contacts) ? this._contacts.length : 0}`;
-
-    const channels = document.createElement("span");
-    channels.dataset.hiveMeta = "channels";
-    channels.textContent = `Canais: ${Array.isArray(this._channels) ? this._channels.length : 0}`;
-
-    const existingCompanion = [...meta.querySelectorAll("span")]
-      .find((span) => span.textContent?.trim() === "Companion");
+    const existingCompanion=[...meta.querySelectorAll("span")]
+      .find((span)=>!span.dataset.hiveMeta&&span.textContent?.trim()==="Companion");
     existingCompanion?.remove();
-
-    meta.prepend(role);
-    meta.append(nodes, channels);
   }
 
   __ensureRebootAction(sroot) {
@@ -2714,6 +2744,14 @@ class HiveFWPanel extends BasePanel {
       card.style.gridColumn = "1 / -1";
       grid.appendChild(card);
     }
+    const renderSig=JSON.stringify([
+      this.__entryId()||null,
+      !!this.__managedDevicesLoading,
+      this.__managedDevicesLoadedEntry,
+      this.__managedDevices||null,
+    ]);
+    if(card.dataset.hiveRenderSig===renderSig)return;
+    card.dataset.hiveRenderSig=renderSig;
     card.replaceChildren();
 
     const title = document.createElement("div");
@@ -3095,9 +3133,21 @@ class HiveFWPanel extends BasePanel {
       card.className="device-section";
       grid.appendChild(card);
     }
-    card.replaceChildren();
-
     const entryId=this.__entryId()||null;
+    const rows=this.__rxLogRows||[];
+    const firstRow=rows[0]||null;
+    const lastRow=rows[rows.length-1]||null;
+    const renderSig=JSON.stringify([
+      entryId,
+      !!this.__rxLogLoading,
+      this.__rxLogLoadedEntry,
+      rows.length,
+      firstRow?.id||firstRow?.timestamp||"",
+      lastRow?.id||lastRow?.timestamp||"",
+    ]);
+    if(card.dataset.hiveRenderSig===renderSig)return;
+    card.dataset.hiveRenderSig=renderSig;
+    card.replaceChildren();
     if(this.__rxLogLoadedEntry!==entryId && !this.__rxLogLoading){
       queueMicrotask(()=>void this.__loadRxLogRows());
     }
@@ -3224,6 +3274,19 @@ class HiveFWPanel extends BasePanel {
       card.className = "device-section";
       grid.appendChild(card);
     }
+    const repeatersForSig=(this.__managedDevices.repeaters||[]).map((item)=>[
+      item.pubkey_prefix,item.name,item.status
+    ]);
+    const renderSig=JSON.stringify([
+      this.__entryId()||null,
+      this.__scopesLoadedEntry,
+      this.__scopeState||null,
+      repeatersForSig,
+      !!this.__regionsBusy,
+      this.__regionText||"",
+    ]);
+    if(card.dataset.hiveRenderSig===renderSig)return;
+    card.dataset.hiveRenderSig=renderSig;
     card.replaceChildren();
 
     const title = document.createElement("div");
