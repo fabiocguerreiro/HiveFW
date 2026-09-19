@@ -111,7 +111,7 @@ export class NodeSummary extends LitElement {
       min-width: 0;
     }
     .hero-row > .hero-tile[data-repeater-extra="repeat-frequencies"] {
-      grid-column: span 2;
+      grid-column: span 1;
     }
     .hero-tile {
       background: var(--secondary-background-color, #f0f0f0);
@@ -132,7 +132,7 @@ export class NodeSummary extends LitElement {
     }
     @container (max-width: 650px) {
       .hero-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-      .hero-row > .hero-tile[data-repeater-extra="repeat-frequencies"] { grid-column: span 2; }
+      .hero-row > .hero-tile[data-repeater-extra="repeat-frequencies"] { grid-column: span 1; }
     }
     @container (max-width: 390px) {
       .hero-row { grid-template-columns: 1fr; }
@@ -556,28 +556,31 @@ export class NodeSummary extends LitElement {
   // card when a battery is present and renders nothing otherwise (no "USB /
   // mains" placeholder).
   private _renderCompanionHero(consumed: Set<string>) {
+    // Default "at glance" order: health/state first, then RF quality,
+    // operation/traffic, capacity/configuration, and finally identity/location.
+    // A saved metric layout still overrides this DOM order in the HiveFW editor.
     return html`
       ${this._renderBatteryTile()}
       ${this._renderTemperatureTile(consumed)}
-      ${this._renderSignalTile()}
       ${this._renderRepeaterStateTile()}
-      ${this._renderHardwareInfoTile()}
+      ${this._renderSignalTile()}
+      ${this._renderNoiseFloorTile(consumed)}
 
       ${this._renderUptimeTile(consumed)}
       ${this._renderDeviceClockTile()}
-      ${this._renderNoiseFloorTile(consumed)}
-      ${this._renderQueueTile(consumed)}
-      ${this._renderProtocolInfoTile()}
-
       ${this._renderCompanionRadioActivityTile()}
-      ${this._renderMessagesSentTile(consumed)}
       ${this._renderMessagesReceivedTile(consumed)}
-      ${this._renderRequestTokensTile(consumed)}
-      ${this._renderCapacityInfoTile()}
+      ${this._renderMessagesSentTile(consumed)}
 
-      ${this._renderDiscoveredContactsTile(consumed)}
+      ${this._renderQueueTile(consumed)}
+      ${this._renderRequestTokensTile(consumed)}
       ${this._renderStorageTile()}
+      ${this._renderCapacityInfoTile()}
       ${this._renderRepeatFrequenciesTile()}
+
+      ${this._renderProtocolInfoTile()}
+      ${this._renderHardwareInfoTile()}
+      ${this._renderDiscoveredContactsTile(consumed)}
       ${this._renderLocationTile()}
     `;
   }
