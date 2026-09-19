@@ -81,24 +81,21 @@ export class NodesPage extends LitElement {
     }
 
     .nodes-layout {
+      /* Symmetric side columns; the map owns all remaining width. */
+      --nodes-list-width: 340px;
+      --nodes-activity-width: 340px;
       display: grid;
-      grid-template-columns: minmax(340px, 1fr) minmax(0, 1fr);
-      grid-template-rows: minmax(0, 1fr);
+      grid-template-columns: var(--nodes-list-width) minmax(0, 1fr) var(--nodes-activity-width);
+      grid-template-rows: auto minmax(0, 1fr);
+      width: 100%;
       height: 100%;
       min-height: 0;
       overflow: hidden;
     }
 
-    .nodes-list-pane {
-      display: flex;
-      flex-direction: column;
-      min-width: 0;
-      min-height: 0;
-      overflow: hidden;
-      border-right: 1px solid var(--divider-color, #e0e0e0);
-    }
-
     .nodes-header {
+      grid-column: 1 / -1;
+      grid-row: 1;
       display: flex;
       flex-direction: column;
       gap: 8px;
@@ -109,11 +106,14 @@ export class NodesPage extends LitElement {
     }
 
     .nodes-map-pane {
+      grid-column: 2;
+      grid-row: 2;
       position: relative;
       min-width: 0;
       min-height: 0;
       overflow: hidden;
       background: var(--card-background-color, #fff);
+      border-left: 1px solid var(--divider-color, #e0e0e0);
     }
 
     .nodes-map-pane ha-map {
@@ -121,6 +121,18 @@ export class NodesPage extends LitElement {
       width: 100%;
       height: 100%;
       min-height: 420px;
+    }
+
+    .nodes-activity-pane {
+      grid-column: 3;
+      grid-row: 2;
+      min-width: 0;
+      min-height: 0;
+      overflow: hidden;
+      background: var(--card-background-color, #fff);
+      border-left: 1px solid var(--divider-color, #e0e0e0);
+      display: flex;
+      flex-direction: column;
     }
 
     .map-note {
@@ -346,6 +358,16 @@ export class NodesPage extends LitElement {
       display: flex;
       align-items: center;
       gap: 8px;
+      width: 100%;
+      flex-wrap: wrap;
+    }
+
+    .header-actions .search-bar {
+      flex: 1 1 340px;
+      width: auto;
+      max-width: none;
+      min-width: 220px;
+      box-sizing: border-box;
     }
 
     .export-btn {
@@ -384,7 +406,10 @@ export class NodesPage extends LitElement {
     /* ─── Content area ──────────────────────────────────────────────── */
 
     .content-area {
-      flex: 1;
+      grid-column: 1;
+      grid-row: 2;
+      min-width: 0;
+      min-height: 0;
       overflow-y: auto;
       overflow-x: hidden;
       padding: 12px;
@@ -400,7 +425,7 @@ export class NodesPage extends LitElement {
 
     .nodes-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      grid-template-columns: 1fr;
       gap: 8px;
     }
 
@@ -467,13 +492,31 @@ export class NodesPage extends LitElement {
     :host([narrow]) .l2-btn { font-size: 11px; padding: 5px 10px; }
     :host([narrow]) .nodes-grid { grid-template-columns: 1fr; }
     :host([narrow]) .nodes-layout {
+      --nodes-list-width: 100%;
+      --nodes-activity-width: 100%;
       grid-template-columns: 1fr;
-      grid-template-rows: minmax(360px, 55%) minmax(300px, 45%);
+      grid-template-rows: auto minmax(280px, 34%) minmax(320px, 42%) minmax(260px, 24%);
       overflow-y: auto;
     }
-    :host([narrow]) .nodes-list-pane {
-      border-right: none;
+    :host([narrow]) .nodes-header {
+      grid-column: 1;
+      grid-row: 1;
+    }
+    :host([narrow]) .content-area {
+      grid-column: 1;
+      grid-row: 2;
       border-bottom: 1px solid var(--divider-color, #e0e0e0);
+    }
+    :host([narrow]) .nodes-map-pane {
+      grid-column: 1;
+      grid-row: 3;
+      border-left: none;
+    }
+    :host([narrow]) .nodes-activity-pane {
+      grid-column: 1;
+      grid-row: 4;
+      border-left: none;
+      border-top: 1px solid var(--divider-color, #e0e0e0);
     }
   `;
 
@@ -486,7 +529,6 @@ export class NodesPage extends LitElement {
     this._mediaQuery.addEventListener('change', this._onMediaChange);
     this._loadCounts();
     this._loadPage(true);
-    void this._ensureMapComponent();
   }
 
   disconnectedCallback() {
@@ -529,8 +571,7 @@ export class NodesPage extends LitElement {
   render() {
     return html`
       <div class="nodes-layout">
-        <section class="nodes-list-pane">
-          <div class="nodes-header">
+        <div class="nodes-header">
             <div class="l1-filters">
               ${this._renderL1Button('all', 'All')}
               ${this._renderL1Button('added', '★ Added')}
@@ -588,14 +629,12 @@ export class NodesPage extends LitElement {
             </div>
           </div>
 
-          <div class="content-area">
-            ${this._renderContactsContent()}
-          </div>
-        </section>
+        <div class="content-area">
+          ${this._renderContactsContent()}
+        </div>
 
-        <section class="nodes-map-pane">
-          ${this._renderMapPane()}
-        </section>
+        <section class="nodes-map-pane" aria-label="Mapa de nós"></section>
+        <aside class="nodes-activity-pane" aria-label="Atividade dos nós"></aside>
       </div>
 
       <meshcore-node-detail-dialog
