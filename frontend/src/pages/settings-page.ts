@@ -1059,12 +1059,6 @@ export class SettingsPage extends LitElement {
               ${this._renderLocation()}
             </div>
 
-            <!-- Remote MeshCore devices managed by the upstream integration -->
-            <div id="hive-managed-devices-card" class="device-section managed-devices-card" data-hive-native="managed-devices">
-              <div class="card-title">Equipamentos HiveFW geridos</div>
-              ${this._renderManagedDevices()}
-            </div>
-
           </div>
 
         </div>
