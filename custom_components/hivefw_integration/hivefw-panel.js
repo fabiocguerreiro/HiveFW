@@ -3424,7 +3424,9 @@ class HiveFWPanel extends BasePanel {
     const pane=this.__nodesActivityPane;
     if(!pane?.isConnected)return;
 
-    const source=Array.isArray(this.__nodesMapContacts)?this.__nodesMapContacts:[];
+    const source=(Array.isArray(this.__nodesMapContacts)&&this.__nodesMapContacts.length)
+      ? this.__nodesMapContacts
+      : (Array.isArray(this._contacts)?this._contacts:[]);
     pane.replaceChildren();
 
     const inner=document.createElement("section");
