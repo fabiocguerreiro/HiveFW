@@ -1778,12 +1778,30 @@ class HiveFWPanel extends BasePanel {
     const grid = sroot.querySelector(".settings-grid");
     if (!grid) return;
 
-    this.__renderSettingsRepeaterCard(sroot, grid);
-    this.__renderRegionsScopesCard(sroot, grid);
+    const nativeLayout=!!sroot.querySelector('.settings-container[data-hive-native-layout="device-v2"]');
+
+    if(!settingsPage.__hiveRemoteAdminBound){
+      settingsPage.__hiveRemoteAdminBound=true;
+      settingsPage.addEventListener("hivefw-open-remote-admin",(event)=>{
+        const device=event?.detail?.device;
+        if(device)this.__openRemoteAdmin(device);
+      });
+    }
+
+    // New bundles own the Device structure from first paint. Keep these
+    // renderers only as a compatibility fallback for an older cached bundle.
+    if(!nativeLayout){
+      this.__renderSettingsRepeaterCard(sroot, grid);
+      this.__renderRegionsScopesCard(sroot, grid);
+      this.__renderManagedDevicesCard(sroot, grid);
+      this.__enhanceCompanionMeta(sroot);
+    }
+
+    // These two cards have native first-paint hosts but their content remains
+    // HiveFW wrapper-specific for now.
     this.__renderRxLogCard(sroot, grid);
     this.__renderObservabilityCard(sroot, grid);
-    this.__renderManagedDevicesCard(sroot, grid);
-    this.__enhanceCompanionMeta(sroot);
+
     this.__enhanceCompanionHero(sroot);
     this.__ensureMetricSettingsMenu(settingsPage,sroot);
     this.__ensureRebootAction(sroot);
@@ -2220,6 +2238,13 @@ class HiveFWPanel extends BasePanel {
     const hero = nroot?.querySelector(".hero-row");
     const status = this.__repeaterStatus;
     if (!hero || !status?.supported) return;
+
+    if(summary?.dataset?.hiveNativeCockpit==="1"){
+      void this.__loadDiagnosticHistory(summary);
+      this.__renderDiagnosticHistory(summary,nroot,hero);
+      this.__ensureMetricEditor(summary,nroot,hero);
+      return;
+    }
 
     let style = nroot.querySelector("#hivefw-cockpit-style");
     if (!style) {
