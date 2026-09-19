@@ -391,7 +391,12 @@ async def test_ws_get_contacts_happy_via_service(
     ):
         conn = _Connection()
         await _call_ws(ws_api.ws_get_contacts, hass, conn, {"id": 1})
-    assert conn.results[0][1]["contacts"] == [{"adv_name": "A"}]
+    contact = conn.results[0][1]["contacts"][0]
+    assert contact["adv_name"] == "A"
+    assert contact["favorite"] is False
+    assert contact["tags"] == []
+    assert contact["age_bucket"] == "stale"
+    assert contact["age_seconds"] is None
 
 
 async def test_ws_get_contacts_legacy_fallback(
@@ -404,7 +409,12 @@ async def test_ws_get_contacts_legacy_fallback(
     ):
         conn = _Connection()
         await _call_ws(ws_api.ws_get_contacts, hass, conn, {"id": 1})
-    assert conn.results[0][1]["contacts"] == [{"adv_name": "B"}]
+    contact = conn.results[0][1]["contacts"][0]
+    assert contact["adv_name"] == "B"
+    assert contact["favorite"] is False
+    assert contact["tags"] == []
+    assert contact["age_bucket"] == "stale"
+    assert contact["age_seconds"] is None
 
 
 async def test_ws_get_contacts_error_no_coordinator(
