@@ -895,15 +895,21 @@ export class SettingsPage extends LitElement {
             </div>
 
             <!-- HiveFW / integrated Repeater -->
-            <div class="device-section">
+            <div id="hive-repeater-settings-card" class="device-section" data-hive-native="repeater">
               <div class="card-title">Repeater</div>
               ${this._renderRepeaterSettings()}
             </div>
 
-            <div class="device-section">
+            <div id="hive-regions-scopes-card" class="device-section" data-hive-native="regions-scopes">
               <div class="card-title">Regions &amp; Scopes</div>
               ${this._renderRegionsScopes()}
             </div>
+
+            <!-- Local observability/RX hosts are part of the native layout so
+                 HiveFW can populate them without inserting cards after first paint. -->
+            <div id="hive-rxlog-card" class="device-section" data-hive-native-host="rx-log"></div>
+
+            <div id="hive-observability-settings-card" class="device-section" data-hive-native-host="observability"></div>
 
             <!-- Location -->
             <div class="device-section">
@@ -912,7 +918,7 @@ export class SettingsPage extends LitElement {
             </div>
 
             <!-- Remote MeshCore devices managed by the upstream integration -->
-            <div class="device-section managed-devices-card">
+            <div id="hive-managed-devices-card" class="device-section managed-devices-card" data-hive-native="managed-devices">
               <div class="card-title">Equipamentos HiveFW geridos</div>
               ${this._renderManagedDevices()}
             </div>
