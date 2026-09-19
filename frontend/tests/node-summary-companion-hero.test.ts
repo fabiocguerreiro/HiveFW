@@ -189,7 +189,7 @@ describe('node-summary companion hero — Self Diagnostics ENABLED', () => {
     }
   });
 
-  it('keeps diagnostics promoted to hero tiles out of the SENSORS table', () => {
+  it('keeps wrapper-owned noise and promoted metrics out of the SENSORS table', () => {
     const table = el.shadowRoot?.querySelector('.sensor-grid');
     expect(table).toBeTruthy();
     const tableText = table?.textContent ?? '';
@@ -197,7 +197,9 @@ describe('node-summary companion hero — Self Diagnostics ENABLED', () => {
     expect(tableText).not.toContain('TX Queue Length');
 
     const heroText = el.shadowRoot?.querySelector('.hero-row')?.textContent ?? '';
-    expect(heroText).toContain('Noise floor');
+    // Noise floor is rendered by the HiveFW aggregate card (noise + RSSI + SNR),
+    // not by the native node-summary, so there is no duplicate native tile.
+    expect(heroText).not.toContain('Noise floor');
     expect(heroText).toContain('TX queue');
   });
 
