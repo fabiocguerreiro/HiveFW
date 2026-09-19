@@ -189,12 +189,16 @@ describe('node-summary companion hero — Self Diagnostics ENABLED', () => {
     }
   });
 
-  it('populates the SENSORS table with the remaining diagnostics', () => {
+  it('populates the SENSORS table with diagnostics not promoted to hero tiles', () => {
     const table = el.shadowRoot?.querySelector('.sensor-grid');
     expect(table).toBeTruthy();
     const tableText = table?.textContent ?? '';
-    expect(tableText).toContain('Noise Floor');
     expect(tableText).toContain('TX Queue Length');
+    expect(tableText).not.toContain('Noise Floor');
+
+    // Noise Floor is now an at-a-glance hero metric.
+    const heroText = el.shadowRoot?.querySelector('.hero-row')?.textContent ?? '';
+    expect(heroText).toContain('Noise floor');
   });
 
   it('renders the radio fault flags as OK / Detected problem rows', () => {
