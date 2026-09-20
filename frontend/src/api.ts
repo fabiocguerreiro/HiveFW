@@ -255,6 +255,7 @@ export interface SetDeviceConfigRenameResult {
 export interface SetDeviceConfigResponse {
   success: boolean;
   changed: string[];
+  error?: string;
   rename?: SetDeviceConfigRenameResult;
 }
 
@@ -274,8 +275,12 @@ export async function setDeviceConfig(
     if (entryId) msg.entry_id = entryId;
     const result = await hass.callWS<SetDeviceConfigResponse>(msg);
     return result;
-  } catch {
-    return { success: false, changed: [] };
+  } catch (error) {
+    const e = error as { code?: string; message?: string };
+    const message = e && e.message
+      ? (e.code ? `${e.message} (${e.code})` : e.message)
+      : String(error);
+    return { success: false, changed: [], error: message };
   }
 }
 

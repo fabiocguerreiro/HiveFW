@@ -408,6 +408,8 @@ export interface LocalRepeaterStatus {
   repeat: boolean;
   auto_advert_supported: boolean;
   auto_advert: boolean;
+  duty_cycle_supported: boolean;
+  duty_cycle?: number;
   name: string;
   firmware: string;
   model: string;

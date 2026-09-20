@@ -2152,6 +2152,15 @@ async def ws_get_local_repeater_status(hass, connection, msg):
             "on",
             "yes",
         }
+        duty_cycle_supported = "duty_cycle" in custom_vars
+        duty_cycle = None
+        if duty_cycle_supported:
+            try:
+                parsed_duty = int(str(custom_vars.get("duty_cycle", "")).strip())
+                if 10 <= parsed_duty <= 50:
+                    duty_cycle = parsed_duty
+            except (TypeError, ValueError):
+                duty_cycle = None
 
         # Tuning values are thousandths on the wire.
         tuning_view = {}
@@ -2160,6 +2169,12 @@ async def ws_get_local_repeater_status(hass, connection, msg):
         if "airtime_factor" in tuning:
             tuning_view["airtime_factor"] = tuning["airtime_factor"] / 1000.0
 
+        # Backward-compatible display value for older firmware. New HiveFW
+        # builds expose duty_cycle directly and are authoritative.
+        if duty_cycle is None and "airtime_factor" in tuning_view:
+            af = max(1.0, min(9.0, float(tuning_view["airtime_factor"])))
+            duty_cycle = max(10, min(50, round(100.0 / (1.0 + af))))
+
         connection.send_result(
             msg["id"],
             {
@@ -2167,6 +2182,8 @@ async def ws_get_local_repeater_status(hass, connection, msg):
                 "repeat": repeat_enabled,
                 "auto_advert_supported": auto_advert_supported,
                 "auto_advert": auto_advert,
+                "duty_cycle_supported": duty_cycle_supported,
+                "duty_cycle": duty_cycle,
                 "name": coordinator.name or self_info.get("name") or "",
                 "firmware": device.get("ver") or coordinator.device_info.get("sw_version", ""),
                 "model": device.get("model") or coordinator.device_info.get("model", ""),
@@ -2625,6 +2642,47 @@ async def ws_set_device_config(hass, connection, msg):
                 )
                 return
             changed.append("auto_advert")
+
+        # New HiveFW builds expose Duty Cycle as a first-class Companion
+        # custom variable. Send the percentage directly so the firmware owns
+        # the Duty Cycle <-> Airtime Factor conversion, exactly like its OLED
+        # menu, then verify the persisted value by reading it back.
+        if "duty_cycle" in settings:
+            duty_cycle = max(10, min(50, int(settings["duty_cycle"])))
+            result = await coordinator.api.mesh_core.commands.set_custom_var(
+                "duty_cycle",
+                str(duty_cycle),
+            )
+            reason = _device_config_failure_reason(result)
+            if reason is not None:
+                _send_device_config_failure(
+                    connection, msg["id"], "duty_cycle", reason, changed
+                )
+                return
+
+            verified = await coordinator.api.mesh_core.commands.get_custom_vars()
+            reason = _device_config_failure_reason(verified)
+            if reason is not None:
+                _send_device_config_failure(
+                    connection, msg["id"], "duty_cycle verification", reason, changed
+                )
+                return
+            verified_payload = getattr(verified, "payload", {}) or {}
+            try:
+                actual_duty = int(str(verified_payload.get("duty_cycle", "")).strip())
+            except (TypeError, ValueError):
+                actual_duty = -1
+
+            if actual_duty != duty_cycle:
+                _send_device_config_failure(
+                    connection,
+                    msg["id"],
+                    "duty_cycle verification",
+                    f"read-back mismatch: requested {duty_cycle}%, got {actual_duty}%",
+                    changed,
+                )
+                return
+            changed.append("duty_cycle")
 
         # Companion tuning values are floats in the UI but thousandths on wire.
         if "rx_delay" in settings or "airtime_factor" in settings:

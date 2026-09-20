@@ -1786,7 +1786,11 @@ export class SettingsPage extends LitElement {
     const multiAcks = Number(this._editValues['multi_acks'] ?? status.radio.multi_acks ?? 0);
     const rxDelay = Number(this._editValues['rx_delay'] ?? status.tuning.rx_delay ?? 0);
     const airtimeFactor = Number(status.tuning.airtime_factor ?? 0);
-    const currentDuty = Math.max(10, Math.min(50, Math.round(100 / (1 + Math.max(1, Math.min(9, airtimeFactor))))));
+    const legacyDuty = Math.max(
+      10,
+      Math.min(50, Math.round(100 / (1 + Math.max(1, Math.min(9, airtimeFactor))))),
+    );
+    const currentDuty = Number(status.duty_cycle ?? legacyDuty);
     const dutyCycle = Number(this._editValues['duty_cycle'] ?? currentDuty);
 
     return html`
@@ -1921,7 +1925,12 @@ export class SettingsPage extends LitElement {
         10,
         Math.min(50, Number(this._editValues['duty_cycle'])),
       );
-      settings.airtime_factor = (100 / duty) - 1;
+      if (status.duty_cycle_supported) {
+        settings.duty_cycle = duty;
+      } else {
+        // Compatibility fallback for pre-direct-control HiveFW firmware.
+        settings.airtime_factor = (100 / duty) - 1;
+      }
     }
 
     if (Object.keys(settings).length === 0) {
@@ -1933,7 +1942,10 @@ export class SettingsPage extends LitElement {
     try {
       const result = await setDeviceConfig(this.hass, settings, this.config?.entry_id);
       if (!result.success) {
-        this._showStatusMessage('Failed to apply Repeater settings', 'error');
+        this._showStatusMessage(
+          result.error || 'Failed to apply Repeater settings',
+          'error',
+        );
         return;
       }
 
