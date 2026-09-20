@@ -552,7 +552,199 @@ export class SettingsPage extends LitElement {
         margin-bottom: 16px;
       }
 
-      /* ─── Companion Device Card Styles ─── */
+      /* ─── Standalone Firmware Manager ─── */
+
+      .firmware-manager {
+        margin-top: 0;
+        margin-bottom: 20px;
+      }
+
+      .firmware-manager-header {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 12px;
+        flex-wrap: wrap;
+        margin-bottom: 12px;
+      }
+
+      .section-icon.firmware {
+        background: color-mix(in srgb, var(--primary-color) 12%, transparent);
+        color: var(--primary-color);
+      }
+
+      .firmware-host {
+        padding: 5px 9px;
+        border-radius: 999px;
+        background: var(--secondary-background-color);
+        color: var(--secondary-text-color);
+        font: 11px ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+
+      .firmware-security {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        padding: 9px 11px;
+        border-radius: 9px;
+        background: color-mix(in srgb, #2e7d32 9%, transparent);
+        color: var(--primary-text-color);
+        font-size: 11px;
+        margin-bottom: 14px;
+      }
+
+      .firmware-status-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #2e7d32;
+        flex: 0 0 auto;
+      }
+
+      .firmware-notice {
+        padding: 10px 12px;
+        border-radius: 9px;
+        background: var(--secondary-background-color);
+        color: var(--secondary-text-color);
+        font-size: 11px;
+        line-height: 1.45;
+        margin-bottom: 14px;
+      }
+
+      .firmware-notice.warning {
+        background: color-mix(in srgb, var(--warning-color, #ff9800) 12%, transparent);
+        color: var(--primary-text-color);
+      }
+
+      .firmware-actions-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .firmware-action-card {
+        min-width: 0;
+        padding: 14px;
+        border: 1px solid var(--divider-color);
+        border-radius: 10px;
+        background: var(--primary-background-color);
+      }
+
+      .firmware-action-title {
+        font-size: 13px;
+        font-weight: 700;
+        margin-bottom: 5px;
+        color: var(--primary-text-color);
+      }
+
+      .firmware-action-text {
+        min-height: 44px;
+        margin-bottom: 12px;
+        color: var(--secondary-text-color);
+        font-size: 11px;
+        line-height: 1.45;
+      }
+
+      .firmware-release-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 10px;
+        margin-top: 12px;
+        padding: 10px 11px;
+        border-radius: 8px;
+        background: var(--secondary-background-color);
+      }
+
+      .firmware-release-label {
+        color: var(--secondary-text-color);
+        font-size: 10px;
+      }
+
+      .firmware-release-version {
+        margin-top: 2px;
+        font-size: 14px;
+        font-weight: 700;
+      }
+
+      .firmware-release-link {
+        color: var(--primary-color);
+        font-size: 11px;
+        font-weight: 600;
+        text-decoration: none;
+        white-space: nowrap;
+      }
+
+      .firmware-primary-action {
+        width: 100%;
+        margin-top: 10px;
+      }
+
+      .firmware-file-picker {
+        min-height: 38px;
+        display: flex;
+        align-items: center;
+        width: 100%;
+        min-width: 0;
+        padding: 8px 10px;
+        border: 1px dashed var(--divider-color);
+        border-radius: 8px;
+        background: var(--secondary-background-color);
+        color: var(--secondary-text-color);
+        font-size: 11px;
+        cursor: pointer;
+        box-sizing: border-box;
+        overflow: hidden;
+      }
+
+      .firmware-file-picker span {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .firmware-file-picker input {
+        display: none;
+      }
+
+      .firmware-empty {
+        margin-top: 12px;
+        padding: 10px;
+        border-radius: 8px;
+        background: var(--secondary-background-color);
+        color: var(--secondary-text-color);
+        font-size: 11px;
+      }
+
+      .firmware-progress-state {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-top: 12px;
+        padding: 11px 12px;
+        border-radius: 9px;
+        background: color-mix(in srgb, var(--primary-color) 9%, transparent);
+        font-size: 11px;
+        line-height: 1.4;
+      }
+
+      .firmware-progress-state strong {
+        display: block;
+        margin-bottom: 2px;
+        font-size: 12px;
+      }
+
+      @media (max-width: 870px) {
+        .firmware-actions-grid {
+          grid-template-columns: minmax(0, 1fr);
+        }
+
+        .firmware-action-text {
+          min-height: 0;
+        }
+      }
+
+            /* ─── Companion Device Card Styles ─── */
 
       .device-section {
         background: var(--card-background-color, #fff);
@@ -1092,6 +1284,9 @@ export class SettingsPage extends LitElement {
 
           </div>
 
+          <!-- Standalone firmware manager -->
+          ${this.selectedDevice ? this._renderFirmwareOta() : nothing}
+
         </div>
       </div>
 
@@ -1310,7 +1505,6 @@ export class SettingsPage extends LitElement {
           </button>
         </div>
 
-        ${this._renderFirmwareOta()}
       </div>
     `;
   }
@@ -1319,132 +1513,160 @@ export class SettingsPage extends LitElement {
     const ota = this._firmwareOtaStatus;
     const installed = ota?.installed_version || this.selectedDevice?.firmware || '—';
     const latest = ota?.latest_version || '—';
+    const isReady = Boolean(ota?.supported && ota?.secure_ota && !ota?.bootstrap_required);
 
     return html`
-      <div
-        style="margin-top:16px;padding:14px;border:1px solid var(--divider-color);border-radius:10px;background:var(--secondary-background-color);">
-        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;">
-          <div>
-            <div style="font-size:13px;font-weight:700;">Firmware OTA</div>
-            <div style="font-size:11px;color:var(--secondary-text-color);margin-top:3px;">
-              Instalado: <strong>${installed}</strong>
-              ${ota?.update_available
-                ? html` · Atualização: <strong>${latest}</strong>`
-                : ota?.release_available
-                  ? html` · Última Release: <strong>${latest}</strong>`
-                  : nothing}
+      <div class="device-section firmware-manager">
+        <div class="firmware-manager-header">
+          <div class="section-title">
+            <div class="section-icon firmware">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+                <path d="M5 20h14v-2H5v2zm7-18l-5.5 5.5 1.42 1.42L11 5.83V16h2V5.83l3.08 3.09 1.42-1.42L12 2z"/>
+              </svg>
+            </div>
+            <div>
+              <div class="device-name">Gestor de Firmware</div>
+              <div class="device-meta">
+                <span>Firmware reportado: ${installed}</span>
+                ${ota?.release_available
+                  ? html`<span>Última Release: ${latest}</span>`
+                  : html`<span>Release: por verificar</span>`}
+              </div>
             </div>
           </div>
           ${ota?.host
-            ? html`<span style="font:11px ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--secondary-text-color);">${ota.host}</span>`
+            ? html`<span class="firmware-host">${ota.host}</span>`
             : nothing}
         </div>
 
         ${!ota
           ? html`
-              <div style="margin-top:10px;font-size:11px;color:var(--secondary-text-color);">
-                Estado OTA ainda não disponível.
+              <div class="firmware-notice">
+                O estado OTA ainda não foi carregado. Usa “Verificar Releases”.
               </div>
             `
           : !ota.supported
             ? html`
-                <div style="margin-top:10px;font-size:11px;color:var(--secondary-text-color);">
-                  Web OTA está disponível apenas quando esta integração comunica com o HiveFW por TCP/Wi-Fi.
+                <div class="firmware-notice warning">
+                  O gestor OTA requer ligação TCP/Wi-Fi ao HiveFW.
                 </div>
               `
             : ota.bootstrap_required
               ? html`
-                  <div style="margin-top:10px;padding:10px;border-radius:8px;background:color-mix(in srgb,var(--warning-color,#ff9800) 12%,transparent);font-size:11px;line-height:1.5;">
-                    <strong>Migração única necessária.</strong>
-                    Instala a V1.11 uma última vez pela página Web OTA atual.
-                    Depois disso, as credenciais OTA passam a ser efémeras e geridas
-                    internamente pelo Home Assistant.
-                  </div>
-                  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">
-                    ${ota.release_url
-                      ? html`
-                          <a
-                            class="apply-button"
-                            style="flex:1 1 130px;text-align:center;text-decoration:none;box-sizing:border-box;"
-                            href=${ota.release_url}
-                            target="_blank"
-                            rel="noopener">
-                            Abrir Release
-                          </a>
-                        `
-                      : nothing}
-                    <a
-                      class="apply-button"
-                      style="flex:1 1 130px;text-align:center;text-decoration:none;box-sizing:border-box;"
-                      href=${`http://${ota.host}/update`}
-                      target="_blank"
-                      rel="noopener">
-                      Abrir Web OTA
-                    </a>
+                  <div class="firmware-notice warning">
+                    Este firmware ainda requer o bootstrap OTA seguro.
                   </div>
                 `
               : html`
-                  <div style="margin-top:10px;font-size:11px;color:var(--secondary-text-color);line-height:1.45;">
-                    OTA seguro ativo. A credencial é aleatória, rodada imediatamente antes
-                    de cada atualização e nunca é mostrada nem guardada pela integração.
+                  <div class="firmware-security">
+                    <span class="firmware-status-dot"></span>
+                    OTA seguro ativo · credencial efémera gerida apenas pelo backend
+                  </div>
+                `}
+
+        <div class="firmware-actions-grid">
+          <div class="firmware-action-card">
+            <div class="firmware-action-title">Release oficial</div>
+            <div class="firmware-action-text">
+              Consulta agora o GitHub e, quando existir uma Release, permite
+              flashar diretamente a versão mais recente disponível.
+            </div>
+
+            <button
+              class="apply-button"
+              ?disabled=${this._firmwareBusy || this._firmwareChecking}
+              @click=${this._checkFirmwareUpdates}>
+              ${this._firmwareChecking ? 'A verificar Releases…' : 'Verificar Releases'}
+            </button>
+
+            ${ota?.release_available
+              ? html`
+                  <div class="firmware-release-row">
+                    <div>
+                      <div class="firmware-release-label">Última versão publicada</div>
+                      <div class="firmware-release-version">${latest}</div>
+                    </div>
+                    ${ota.release_url
+                      ? html`
+                          <a
+                            class="firmware-release-link"
+                            href=${ota.release_url}
+                            target="_blank"
+                            rel="noopener">
+                            Ver Release
+                          </a>
+                        `
+                      : nothing}
                   </div>
 
                   <button
-                    class="apply-button"
-                    style="width:100%;margin-top:10px;"
-                    ?disabled=${this._firmwareBusy || this._firmwareChecking}
-                    @click=${this._checkFirmwareUpdates}>
-                    ${this._firmwareChecking ? 'A verificar…' : 'Verificar atualizações'}
+                    class="apply-button firmware-primary-action"
+                    ?disabled=${this._firmwareBusy || !isReady}
+                    @click=${this._installLatestFirmware}>
+                    ${this._firmwareBusy
+                      ? 'A processar firmware…'
+                      : `Flash da última Release (${latest})`}
                   </button>
-
-                  <div style="display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:end;margin-top:12px;">
-                    <div>
-                      <label class="form-label">Firmware .bin</label>
-                      <input
-                        class="form-input"
-                        type="file"
-                        accept=".bin,application/octet-stream"
-                        ?disabled=${this._firmwareBusy}
-                        @change=${(e: Event) => {
-                          const input = e.target as HTMLInputElement;
-                          this._firmwareFile = input.files?.[0] || null;
-                        }}
-                      />
-                    </div>
-                    <button
-                      class="apply-button"
-                      style="min-width:120px;"
-                      ?disabled=${this._firmwareBusy || !this._firmwareFile}
-                      @click=${this._uploadFirmwareFile}>
-                      ${this._firmwareBusy ? 'A atualizar…' : 'Enviar .bin'}
-                    </button>
+                `
+              : html`
+                  <div class="firmware-empty">
+                    Ainda não foi encontrada uma Release OTA pública.
                   </div>
-
-                  ${this._firmwareUploadStage
-                    ? html`
-                        <div
-                          style="margin-top:10px;padding:9px 11px;border-radius:8px;background:color-mix(in srgb,var(--primary-color) 10%,transparent);font-size:11px;color:var(--primary-text-color);">
-                          ${this._firmwareUploadStage === 'uploading'
-                            ? 'A enviar firmware para o rádio…'
-                            : this._firmwareUploadStage === 'rebooting'
-                              ? 'Firmware aceite. O HiveFW está a reiniciar…'
-                              : 'A aguardar a reconexão do HiveFW…'}
-                        </div>
-                      `
-                    : nothing}
-
-                  ${ota.update_available
-                    ? html`
-                        <button
-                          class="apply-button"
-                          style="width:100%;margin-top:10px;"
-                          ?disabled=${this._firmwareBusy}
-                          @click=${this._installLatestFirmware}>
-                          Instalar última Release (${latest})
-                        </button>
-                      `
-                    : nothing}
                 `}
+          </div>
+
+          <div class="firmware-action-card">
+            <div class="firmware-action-title">Flash manual</div>
+            <div class="firmware-action-text">
+              Seleciona um <strong>firmware.bin</strong> de aplicação. Imagens
+              <strong>merged</strong> / factory não são aceites pelo OTA.
+            </div>
+
+            <label class="firmware-file-picker">
+              <span>${this._firmwareFile ? this._firmwareFile.name : 'Selecionar ficheiro .bin'}</span>
+              <input
+                type="file"
+                accept=".bin,application/octet-stream"
+                ?disabled=${this._firmwareBusy}
+                @change=${(e: Event) => {
+                  const input = e.target as HTMLInputElement;
+                  this._firmwareFile = input.files?.[0] || null;
+                }}
+              />
+            </label>
+
+            <button
+              class="apply-button firmware-primary-action"
+              ?disabled=${this._firmwareBusy || !this._firmwareFile || !isReady}
+              @click=${this._uploadFirmwareFile}>
+              ${this._firmwareBusy ? 'A processar firmware…' : 'Flash do ficheiro selecionado'}
+            </button>
+          </div>
+        </div>
+
+        ${this._firmwareUploadStage
+          ? html`
+              <div class="firmware-progress-state">
+                <div class="loading-spinner"></div>
+                <div>
+                  <strong>
+                    ${this._firmwareUploadStage === 'uploading'
+                      ? 'A enviar firmware'
+                      : this._firmwareUploadStage === 'rebooting'
+                        ? 'Firmware aceite · a reiniciar'
+                        : 'A aguardar reconexão'}
+                  </strong>
+                  <div>
+                    ${this._firmwareUploadStage === 'uploading'
+                      ? 'O Home Assistant está a enviar e validar a imagem OTA.'
+                      : this._firmwareUploadStage === 'rebooting'
+                        ? 'O rádio recebeu a imagem e está a arrancar novamente.'
+                        : 'A ligação TCP/Wi-Fi será retomada automaticamente.'}
+                  </div>
+                </div>
+              </div>
+            `
+          : nothing}
       </div>
     `;
   }
@@ -1459,14 +1681,9 @@ export class SettingsPage extends LitElement {
         true,
       );
       this._firmwareOtaStatus = status;
-      if (status.update_available) {
+      if (status.release_available) {
         this._showStatusMessage(
-          `Nova versão disponível: ${status.latest_version || 'firmware mais recente'}.`,
-          'success',
-        );
-      } else if (status.release_available) {
-        this._showStatusMessage(
-          `Sem atualizações. Última Release: ${status.latest_version || 'atual'}.`,
+          `Última Release encontrada: ${status.latest_version || 'desconhecida'}.`,
           'success',
         );
       } else {

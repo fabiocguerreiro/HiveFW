@@ -74,9 +74,21 @@ PLATFORMS = [
     Platform.TEXT,
     Platform.DEVICE_TRACKER,
     Platform.BUTTON,
-    Platform.UPDATE,
 ]
 STATIC_PATH_REGISTERED_KEY = f"{DOMAIN}_static_path_registered"
+
+
+def _remove_legacy_firmware_update_entity(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+) -> None:
+    """Remove the retired native firmware update entity from HA registry."""
+    registry = er.async_get(hass)
+    unique_id = f"{entry.entry_id}_firmware_update"
+    entity_id = registry.async_get_entity_id("update", DOMAIN, unique_id)
+    if entity_id:
+        registry.async_remove(entity_id)
+        _LOGGER.info("Removed retired HiveFW firmware update entity: %s", entity_id)
 
 
 def _read_integration_version() -> str:
@@ -499,6 +511,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Load persisted neighbor data before sensor platform setup so that
     # sensor.py can recreate neighbor sensor entities from the stored data.
     await coordinator.async_load_neighbor_data()
+
+    # Firmware updates are managed only from the HiveFW Device page.
+    # Remove the legacy native Home Assistant update entity if it exists.
+    _remove_legacy_firmware_update_entity(hass, entry)
 
     # Set up all platforms for this device
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
