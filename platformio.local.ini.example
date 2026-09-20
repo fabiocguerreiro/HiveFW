@@ -1,0 +1,15 @@
+; HiveFW local build overrides
+;
+; Copy this file to platformio.local.ini and replace ONLY the placeholder
+; values below for the one-time Wi-Fi bootstrap build.
+;
+; platformio.local.ini is gitignored and must never be committed.
+;
+; From HiveFW V1.11 onward, the first locally compiled Wi-Fi build migrates
+; these credentials to ESP32 NVS. Later public OTA releases use the NVS copy
+; and therefore do not embed the user's Wi-Fi credentials.
+
+[wifi_secrets]
+build_flags =
+  -D WIFI_SSID='"YOUR_WIFI_SSID"'
+  -D WIFI_PWD='"YOUR_WIFI_PASSWORD"'

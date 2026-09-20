@@ -286,11 +286,27 @@ git clone https://github.com/fabiocguerreiro/HiveFW-Companion-Repeater.git
 cd HiveFW-Companion-Repeater
 ```
 
+Para o bootstrap Wi-Fi do Heltec V3, criar primeiro a configuração local:
+
+```bash
+cp platformio.local.ini.example platformio.local.ini
+```
+
+Editar apenas `platformio.local.ini` e introduzir o SSID/password da rede. Este ficheiro está no `.gitignore` e **não deve ser commitado**.
+
 Compilar o ambiente correspondente ao equipamento:
 
 ```bash
 pio run -e <environment>
 ```
+
+Para o Heltec V3 Wi-Fi:
+
+```bash
+pio run -e Heltec_v3_companion_radio_wifi
+```
+
+Na V1.11, esta build local faz a migração única das credenciais Wi-Fi para NVS. As imagens OTA públicas posteriores são compiladas sem credenciais privadas.
 
 Os ambientes de compilação disponíveis podem variar consoante o hardware suportado e incluído no repositório.
 
