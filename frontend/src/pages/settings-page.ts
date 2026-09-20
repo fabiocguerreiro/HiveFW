@@ -1589,7 +1589,7 @@ export class SettingsPage extends LitElement {
         'error',
       );
     } finally {
-      if (this._firmwareUploadStage !== 'rebooting' && this._firmwareUploadStage !== 'reconnecting') {
+      if (this._firmwareUploadStage === 'uploading') {
         this._firmwareUploadStage = null;
       }
       this._firmwareBusy = false;
