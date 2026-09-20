@@ -1451,6 +1451,14 @@ export class SettingsPage extends LitElement {
   private async _uploadFirmwareFile() {
     if (!this.hass || !this._firmwareFile || !this.config?.entry_id) return;
 
+    if (!this.hass.fetchWithAuth) {
+      this._showStatusMessage(
+        'Esta versão do Home Assistant não disponibiliza upload autenticado para o painel.',
+        'error',
+      );
+      return;
+    }
+
     const file = this._firmwareFile;
     if (!file.name.toLowerCase().endsWith('.bin') || file.name.toLowerCase().includes('merged')) {
       this._showStatusMessage('Seleciona o firmware .bin OTA, não o ficheiro merged.', 'error');

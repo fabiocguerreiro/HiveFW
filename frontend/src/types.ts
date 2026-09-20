@@ -10,7 +10,7 @@ export interface HomeAssistant {
   states: Record<string, HassEntity>;
   entities: Record<string, EntityRegistryEntry>;
   callApi: <T>(method: string, path: string) => Promise<T>;
-  fetchWithAuth: (path: string, init?: RequestInit) => Promise<Response>;
+  fetchWithAuth?: (path: string, init?: RequestInit) => Promise<Response>;
   callService: (domain: string, service: string, data?: Record<string, unknown>) => Promise<void>;
   callWS: <T>(msg: Record<string, unknown>) => Promise<T>;
   connection: {
