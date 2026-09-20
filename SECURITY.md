@@ -58,6 +58,31 @@ devem provocar substituição silenciosa por estruturas vazias.
 Passwords, chaves e identidade do rádio não devem ser expostos em payloads frontend,
 logs ou mensagens de erro além do estritamente necessário.
 
+### Firmware OTA
+
+O Web OTA do ESP32 é uma operação administrativa e exige um utilizador administrador
+no Home Assistant.
+
+A integração não guarda uma password OTA estática. Para firmware HiveFW V1.11 ou
+superior, cada atualização usa uma credencial aleatória efémera, rodada imediatamente
+antes do upload e mantida apenas em memória. A credencial não é devolvida ao frontend
+nem persistida na configuração.
+
+Como o SDK MeshCore pode registar valores de Custom Vars e frames raw em DEBUG, o
+backend aplica um filtro temporário que elimina qualquer registo contendo a credencial
+OTA em texto ou na representação hexadecimal do frame.
+
+O upload manual do browser usa a autenticação nativa do Home Assistant através de
+`fetchWithAuth`; o painel HiveFW não lê nem armazena o access token do Home Assistant.
+
+O backend rejeita imagens `merged`/factory e valida a estrutura básica da imagem ESP32.
+Para instalações provenientes de GitHub Releases, é também validado o SHA-256 publicado.
+
+O transporte do Home Assistant para o endpoint Web OTA do ESP32 é HTTP e não oferece
+confidencialidade de transporte. O modelo pressupõe uma LAN de confiança. A utilização
+através de redes não confiáveis ou exposição direta do endpoint OTA à Internet não é
+suportada.
+
 ## Fora do âmbito
 
 - vulnerabilidades do Home Assistant Core;
