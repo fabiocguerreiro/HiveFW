@@ -3221,7 +3221,8 @@ void MyMesh::handleCmdFrame(size_t len) {
   } else if (cmd_frame[0] == CMD_GET_CUSTOM_VARS) {
     out_frame[0] = RESP_CODE_CUSTOM_VARS;
     char *dp = (char *)&out_frame[1];
-    for (int i = 0; i < sensors.getNumSettings() && dp - (char *)&out_frame[1] < 140; i++) {
+    char *custom_start = dp;
+    for (int i = 0; i < sensors.getNumSettings() && dp - custom_start < 140; i++) {
       if (i > 0) {
         *dp++ = ',';
       }
@@ -3231,6 +3232,25 @@ void MyMesh::handleCmdFrame(size_t len) {
       strcpy(dp, sensors.getSettingValue(i));
       dp = strchr(dp, 0);
     }
+
+    // HiveFW: expose Repeater AUTOADVERT through the standard Companion
+    // custom-variable commands, so Home Assistant and other Companion
+    // clients can read/write the same setting used by the local UI.
+    if (dp - custom_start < 140) {
+      if (dp != custom_start) {
+        *dp++ = ',';
+      }
+
+      const char *name = "auto_advert:";
+      while (*name && dp - custom_start < 139) {
+        *dp++ = *name++;
+      }
+
+      if (dp - custom_start < 140) {
+        *dp++ = _prefs.isAutoAdvertEn() ? '1' : '0';
+      }
+    }
+
     _serial->writeFrame(out_frame, dp - (char *)out_frame);
   } else if (cmd_frame[0] == CMD_SET_CUSTOM_VAR && len >= 4) {
     cmd_frame[len] = 0;
@@ -3238,7 +3258,22 @@ void MyMesh::handleCmdFrame(size_t len) {
     char *np = strchr(sp, ':'); // look for separator char
     if (np) {
       *np++ = 0; // modify 'cmd_frame', replace ':' with null
-      bool success = sensors.setSettingValue(sp, np);
+
+      bool success = false;
+
+      // HiveFW Repeater: AUTOADVERT is a persisted NodePrefs setting rather
+      // than a sensor setting, but CMD_SET_CUSTOM_VAR is the official
+      // Companion extension point for remotely writable custom values.
+      if (strcmp(sp, "auto_advert") == 0) {
+        if (strcmp(np, "0") == 0 || strcmp(np, "1") == 0) {
+          _prefs.setAutoAdvertEn(np[0] == '1');
+          savePrefs();
+          success = true;
+        }
+      } else {
+        success = sensors.setSettingValue(sp, np);
+      }
+
       if (success) {
         #if ENV_INCLUDE_GPS == 1
         // Update node preferences for GPS settings
