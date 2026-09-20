@@ -6181,11 +6181,41 @@ let e,t,i,o,a,r,s,n,l,d,c,p,h,u,m,g,v,f,y,b,_,x,w,$,k,C,S,M,A,R,F,I,T,z,O,D,N,E,
         ${0}
 
         <div class="actions-row">
-          <button class="action-btn" ?disabled=${0} @click=${0}>Local Advert</button>
-          <button class="action-btn" ?disabled=${0} @click=${0}>Flood Advert</button>
-          <button class="action-btn" ?disabled=${0} @click=${0}>Sync Clock</button>
-          <button class="action-btn" ?disabled=${0} @click=${0}>Trace</button>
-          <button class="action-btn danger" ?disabled=${0} @click=${0}>Reboot</button>
+          <button
+            class="apply-button"
+            style="flex:1 1 120px;"
+            ?disabled=${0}
+            @click=${0}>
+            Local Advert
+          </button>
+          <button
+            class="apply-button"
+            style="flex:1 1 120px;"
+            ?disabled=${0}
+            @click=${0}>
+            Flood Advert
+          </button>
+          <button
+            class="apply-button"
+            style="flex:1 1 120px;"
+            ?disabled=${0}
+            @click=${0}>
+            Sync Clock
+          </button>
+          <button
+            class="apply-button"
+            style="flex:1 1 100px;"
+            ?disabled=${0}
+            @click=${0}>
+            Trace
+          </button>
+          <button
+            class="danger-button"
+            style="flex:1 1 100px;"
+            ?disabled=${0}
+            @click=${0}>
+            Reboot
+          </button>
         </div>
       </div>
     `),e=>this._onTileContextMenu(e,o),t.name,t.firmware||"unknown",t.pubkey_prefix,this.contactCount,this.channelCount,void 0!==l?an(Aa||(Aa=hs`<span>Added nodes: ${0}</span>`),l):nn,()=>this._settingsModalOpen=!0,a.length>0?an(Ra||(Ra=hs`
