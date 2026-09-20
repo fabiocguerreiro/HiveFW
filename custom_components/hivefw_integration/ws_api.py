@@ -38,6 +38,11 @@ from .const import (
     MESHCORE_DOMAIN,
 )
 from .message_store import MessageStore
+from .ota import (
+    HiveFWOtaError,
+    async_get_ota_status,
+    async_install_latest_release,
+)
 from .utils import format_entity_id, parse_flood_scope_allowlist, sanitize_name
 
 _LOGGER = logging.getLogger(__name__)
@@ -655,6 +660,8 @@ def async_register_ws_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_get_local_repeater_status)
     websocket_api.async_register_command(hass, ws_get_duty_cycle)
     websocket_api.async_register_command(hass, ws_set_duty_cycle)
+    websocket_api.async_register_command(hass, ws_get_firmware_ota_status)
+    websocket_api.async_register_command(hass, ws_install_latest_firmware)
     websocket_api.async_register_command(hass, ws_set_device_config)
     websocket_api.async_register_command(hass, ws_execute_local)
     websocket_api.async_register_command(hass, ws_execute_remote)
@@ -2386,6 +2393,48 @@ async def ws_set_duty_cycle(hass, connection, msg):
             ex,
             handler="ws_set_duty_cycle",
         )
+
+
+# ─── HiveFW secure firmware OTA ─────────────────────────────────────────
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hivefw_integration/get_firmware_ota_status",
+        vol.Optional("entry_id"): str,
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_get_firmware_ota_status(hass, connection, msg):
+    """Return non-secret OTA capability and release metadata."""
+    try:
+        result = await async_get_ota_status(hass, msg.get("entry_id"))
+        connection.send_result(msg["id"], result)
+    except HiveFWOtaError as ex:
+        connection.send_error(msg["id"], "ota_status_failed", str(ex))
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hivefw_integration/install_latest_firmware",
+        vol.Optional("entry_id"): str,
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_install_latest_firmware(hass, connection, msg):
+    """Download, verify and install the latest public HiveFW V3 release."""
+    coordinator = _get_coordinator(hass, msg.get("entry_id"))
+    if not coordinator:
+        connection.send_error(msg["id"], "not_found", "No HiveFW coordinator found")
+        return
+
+    try:
+        result = await async_install_latest_release(hass, coordinator)
+        connection.send_result(msg["id"], result)
+    except HiveFWOtaError as ex:
+        connection.send_error(msg["id"], "ota_install_failed", str(ex))
 
 
 # ─── meshcore/set_device_config ─────────────────────────────────────────

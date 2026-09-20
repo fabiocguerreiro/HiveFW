@@ -553,6 +553,57 @@ export async function getLocalRepeaterStatus(
   return hass.callWS<LocalRepeaterStatus>(msg);
 }
 
+export interface FirmwareOtaStatus {
+  supported: boolean;
+  secure_ota: boolean;
+  bootstrap_required: boolean;
+  host: string;
+  installed_version?: string | null;
+  latest_version?: string | null;
+  release_url?: string | null;
+  release_name?: string | null;
+  release_available: boolean;
+}
+
+export interface FirmwareInstallResult {
+  success: boolean;
+  host?: string;
+  size?: number;
+  md5?: string;
+  rebooting?: boolean;
+  version?: string | null;
+}
+
+/**
+ * Return only non-secret firmware/OTA state. Credentials are generated and
+ * consumed by the backend and are never returned to the browser.
+ */
+export async function getFirmwareOtaStatus(
+  hass: HomeAssistant,
+  entryId?: string,
+): Promise<FirmwareOtaStatus> {
+  const msg: Record<string, unknown> = {
+    type: 'hivefw_integration/get_firmware_ota_status',
+  };
+  if (entryId) msg.entry_id = entryId;
+  return hass.callWS<FirmwareOtaStatus>(msg);
+}
+
+/**
+ * Download the latest public HiveFW V3 release, verify its checksum and
+ * install it through the secure backend OTA path.
+ */
+export async function installLatestFirmware(
+  hass: HomeAssistant,
+  entryId?: string,
+): Promise<FirmwareInstallResult> {
+  const msg: Record<string, unknown> = {
+    type: 'hivefw_integration/install_latest_firmware',
+  };
+  if (entryId) msg.entry_id = entryId;
+  return hass.callWS<FirmwareInstallResult>(msg);
+}
+
 /**
  * Get direct zero-hop Repeater neighbors using the Companion's existing
  * advert-path cache. This is a local Companion query and does not transmit

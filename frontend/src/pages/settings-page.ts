@@ -4,6 +4,8 @@ import type { HomeAssistant, PanelConfig, DeviceConfig, MeshCoreDevice, LocalRep
 import {
   getDeviceConfig,
   getLocalRepeaterStatus,
+  getFirmwareOtaStatus,
+  installLatestFirmware,
   getDutyCycle,
   setDutyCycle,
   getManagedDevices,
@@ -16,7 +18,11 @@ import {
   subscribeIdentityChange,
   setLocationSource,
 } from '../api';
-import type { IdentityFlowStep, SetDeviceConfigRenameResult } from '../api';
+import type {
+  FirmwareOtaStatus,
+  IdentityFlowStep,
+  SetDeviceConfigRenameResult,
+} from '../api';
 import '../components/confirm-dialog';
 import '../components/command-dialog';
 import '../components/node-summary';
@@ -116,6 +122,10 @@ export class SettingsPage extends LitElement {
   @state() private _error: string | null = null;
   @state() private _editValues: Record<string, unknown> = {};
   @state() private _saving = false;
+  @state() private _firmwareOtaStatus: FirmwareOtaStatus | null = null;
+  @state() private _firmwareFile: File | null = null;
+  @state() private _firmwareBusy = false;
+  @state() private _firmwareUploadProgress: number | null = null;
   @state() private _dutyCycleValue = 10;
   @state() private _dutyCycleReadValue: number | null = null;
   @state() private _dutyCycleBusy: 'read' | 'apply' | null = null;
@@ -978,6 +988,14 @@ export class SettingsPage extends LitElement {
       } catch {
         this._repeaterStatus = null;
       }
+      try {
+        this._firmwareOtaStatus = await getFirmwareOtaStatus(
+          this.hass,
+          this.config?.entry_id,
+        );
+      } catch {
+        this._firmwareOtaStatus = null;
+      }
       this._managedDevices = await getManagedDevices(this.hass, this.config?.entry_id);
       const scopes = await getFloodScopes(this.hass, this.config?.entry_id);
       this._scopeDraft = scopes.scopes.join(', ');
@@ -1290,8 +1308,239 @@ export class SettingsPage extends LitElement {
             Reboot
           </button>
         </div>
+
+        ${this._renderFirmwareOta()}
       </div>
     `;
+  }
+
+  private _renderFirmwareOta() {
+    const ota = this._firmwareOtaStatus;
+    const installed = ota?.installed_version || this.selectedDevice?.firmware || '—';
+    const latest = ota?.latest_version || '—';
+
+    return html`
+      <div
+        style="margin-top:16px;padding:14px;border:1px solid var(--divider-color);border-radius:10px;background:var(--secondary-background-color);">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+          <div>
+            <div style="font-size:13px;font-weight:700;">Firmware OTA</div>
+            <div style="font-size:11px;color:var(--secondary-text-color);margin-top:3px;">
+              Instalado: <strong>${installed}</strong>
+              ${ota?.release_available
+                ? html` · Disponível: <strong>${latest}</strong>`
+                : nothing}
+            </div>
+          </div>
+          ${ota?.host
+            ? html`<span style="font:11px ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--secondary-text-color);">${ota.host}</span>`
+            : nothing}
+        </div>
+
+        ${!ota
+          ? html`
+              <div style="margin-top:10px;font-size:11px;color:var(--secondary-text-color);">
+                Estado OTA ainda não disponível.
+              </div>
+            `
+          : !ota.supported
+            ? html`
+                <div style="margin-top:10px;font-size:11px;color:var(--secondary-text-color);">
+                  Web OTA está disponível apenas quando esta integração comunica com o HiveFW por TCP/Wi-Fi.
+                </div>
+              `
+            : ota.bootstrap_required
+              ? html`
+                  <div style="margin-top:10px;padding:10px;border-radius:8px;background:color-mix(in srgb,var(--warning-color,#ff9800) 12%,transparent);font-size:11px;line-height:1.5;">
+                    <strong>Migração única necessária.</strong>
+                    Instala a V1.11 uma última vez pela página Web OTA atual.
+                    Depois disso, as credenciais OTA passam a ser efémeras e geridas
+                    internamente pelo Home Assistant.
+                  </div>
+                  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">
+                    ${ota.release_url
+                      ? html`
+                          <a
+                            class="apply-button"
+                            style="flex:1 1 130px;text-align:center;text-decoration:none;box-sizing:border-box;"
+                            href=${ota.release_url}
+                            target="_blank"
+                            rel="noopener">
+                            Abrir Release
+                          </a>
+                        `
+                      : nothing}
+                    <a
+                      class="apply-button"
+                      style="flex:1 1 130px;text-align:center;text-decoration:none;box-sizing:border-box;"
+                      href=${`http://${ota.host}/update`}
+                      target="_blank"
+                      rel="noopener">
+                      Abrir Web OTA
+                    </a>
+                  </div>
+                `
+              : html`
+                  <div style="margin-top:10px;font-size:11px;color:var(--secondary-text-color);line-height:1.45;">
+                    OTA seguro ativo. A credencial é aleatória, rodada imediatamente antes
+                    de cada atualização e nunca é mostrada nem guardada pela integração.
+                  </div>
+
+                  <div style="display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:end;margin-top:12px;">
+                    <div>
+                      <label class="form-label">Firmware .bin</label>
+                      <input
+                        class="form-input"
+                        type="file"
+                        accept=".bin,application/octet-stream"
+                        ?disabled=${this._firmwareBusy}
+                        @change=${(e: Event) => {
+                          const input = e.target as HTMLInputElement;
+                          this._firmwareFile = input.files?.[0] || null;
+                        }}
+                      />
+                    </div>
+                    <button
+                      class="apply-button"
+                      style="min-width:120px;"
+                      ?disabled=${this._firmwareBusy || !this._firmwareFile}
+                      @click=${this._uploadFirmwareFile}>
+                      ${this._firmwareBusy ? 'A atualizar…' : 'Enviar .bin'}
+                    </button>
+                  </div>
+
+                  ${this._firmwareUploadProgress !== null
+                    ? html`
+                        <div style="margin-top:9px;height:7px;border-radius:999px;overflow:hidden;background:var(--divider-color);">
+                          <div style=${`height:100%;width:${this._firmwareUploadProgress}%;background:var(--primary-color);transition:width .15s;`}></div>
+                        </div>
+                        <div style="margin-top:4px;font-size:10px;color:var(--secondary-text-color);">
+                          ${this._firmwareUploadProgress}%
+                        </div>
+                      `
+                    : nothing}
+
+                  ${ota.release_available
+                    ? html`
+                        <button
+                          class="apply-button"
+                          style="width:100%;margin-top:10px;"
+                          ?disabled=${this._firmwareBusy}
+                          @click=${this._installLatestFirmware}>
+                          Instalar última Release (${latest})
+                        </button>
+                      `
+                    : nothing}
+                `}
+      </div>
+    `;
+  }
+
+  private async _refreshFirmwareOtaStatus() {
+    if (!this.hass) return;
+    try {
+      this._firmwareOtaStatus = await getFirmwareOtaStatus(
+        this.hass,
+        this.config?.entry_id,
+      );
+    } catch {
+      // Keep the previous status visible during the radio reboot window.
+    }
+  }
+
+  private async _uploadFirmwareFile() {
+    if (!this.hass || !this._firmwareFile || !this.config?.entry_id) return;
+
+    const auth = (this.hass.connection as unknown as {
+      options?: { auth?: { accessToken?: string } };
+    })?.options?.auth;
+    const accessToken = auth?.accessToken;
+    if (!accessToken) {
+      this._showStatusMessage('Não foi possível obter a sessão autenticada do Home Assistant.', 'error');
+      return;
+    }
+
+    const file = this._firmwareFile;
+    if (!file.name.toLowerCase().endsWith('.bin') || file.name.toLowerCase().includes('merged')) {
+      this._showStatusMessage('Seleciona o firmware .bin OTA, não o ficheiro merged.', 'error');
+      return;
+    }
+
+    this._firmwareBusy = true;
+    this._firmwareUploadProgress = 0;
+
+    try {
+      const form = new FormData();
+      form.append('entry_id', this.config.entry_id);
+      form.append('firmware', file, file.name);
+
+      const response = await new Promise<{ success: boolean; error?: string }>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', '/api/hivefw_integration/firmware');
+        xhr.setRequestHeader('Authorization', `Bearer ${accessToken}`);
+
+        xhr.upload.onprogress = (event) => {
+          if (event.lengthComputable && event.total > 0) {
+            this._firmwareUploadProgress = Math.min(
+              95,
+              Math.round((event.loaded / event.total) * 95),
+            );
+          }
+        };
+
+        xhr.onerror = () => reject(new Error('Falha de rede durante o upload para o Home Assistant.'));
+        xhr.onload = () => {
+          let payload: { success: boolean; error?: string };
+          try {
+            payload = JSON.parse(xhr.responseText || '{}');
+          } catch {
+            payload = { success: false, error: xhr.responseText || `HTTP ${xhr.status}` };
+          }
+          if (xhr.status >= 200 && xhr.status < 300 && payload.success) {
+            resolve(payload);
+          } else {
+            reject(new Error(payload.error || `HTTP ${xhr.status}`));
+          }
+        };
+        xhr.send(form);
+      });
+
+      if (!response.success) throw new Error(response.error || 'OTA falhou');
+      this._firmwareUploadProgress = 100;
+      this._firmwareFile = null;
+      this._showStatusMessage('Firmware enviado. O HiveFW está a reiniciar.', 'success');
+      window.setTimeout(() => void this._refreshFirmwareOtaStatus(), 12000);
+    } catch (error) {
+      this._showStatusMessage(`Firmware OTA: ${error instanceof Error ? error.message : String(error)}`, 'error');
+    } finally {
+      this._firmwareBusy = false;
+      window.setTimeout(() => {
+        this._firmwareUploadProgress = null;
+      }, 2500);
+    }
+  }
+
+  private async _installLatestFirmware() {
+    if (!this.hass) return;
+    this._firmwareBusy = true;
+    this._firmwareUploadProgress = null;
+    try {
+      const result = await installLatestFirmware(this.hass, this.config?.entry_id);
+      if (!result.success) throw new Error('A atualização não foi aceite.');
+      this._showStatusMessage(
+        `Firmware ${result.version || ''} enviado. O HiveFW está a reiniciar.`,
+        'success',
+      );
+      window.setTimeout(() => void this._refreshFirmwareOtaStatus(), 12000);
+    } catch (error) {
+      const e = error as { message?: string };
+      this._showStatusMessage(
+        `Firmware OTA: ${e?.message || String(error)}`,
+        'error',
+      );
+    } finally {
+      this._firmwareBusy = false;
+    }
   }
 
   private _renderHiddenSensorsModal() {

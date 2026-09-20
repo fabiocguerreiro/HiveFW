@@ -274,6 +274,7 @@ async def _async_evaluate_health(
 # all of those definitions so partial package initialization cannot expose
 # missing symbols.
 from .ws_api import async_register_ws_commands  # noqa: E402
+from .ota import async_register_ota_http  # noqa: E402
 from .engine.integration import async_setup_entry as async_setup_engine_entry  # noqa: E402
 from .engine.integration import async_unload_entry as async_unload_engine_entry  # noqa: E402
 
@@ -417,6 +418,11 @@ async def async_setup_entry(
     if not bucket.get("_ws_registered"):
         async_register_ws_commands(hass)
         bucket["_ws_registered"] = True
+
+    # Admin-only multipart endpoint used by the Device page for manual .bin
+    # uploads. The view itself has a process-global duplicate-registration
+    # guard, so entry reloads never expose multiple routes.
+    async_register_ota_http(hass)
 
     # One-shot detection of the embedded HiveFW engine service surface this
     # companion depends on. Surfaces an INFO line per-process so support
