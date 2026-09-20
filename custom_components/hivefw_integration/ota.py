@@ -37,6 +37,7 @@ OTA_MAX_FIRMWARE_BYTES = 4 * 1024 * 1024
 OTA_MIN_FIRMWARE_BYTES = 64 * 1024
 OTA_TARGET_PREFIX = "Heltec_v3_companion_radio_wifi-"
 RELEASE_CACHE_SECONDS = 60 * 60
+RELEASE_EMPTY_CACHE_SECONDS = 30
 _OTA_HTTP_REGISTERED = False
 
 
@@ -306,12 +307,15 @@ async def async_get_latest_release(
     bucket = hass.data.setdefault(DOMAIN, {})
     now = time.monotonic()
     cached = bucket.get("_ota_release_cache")
-    if (
-        not force
-        and isinstance(cached, dict)
-        and now - float(cached.get("timestamp", 0)) < RELEASE_CACHE_SECONDS
-    ):
-        return cached.get("release")
+    if not force and isinstance(cached, dict):
+        cached_release = cached.get("release")
+        cache_ttl = (
+            RELEASE_CACHE_SECONDS
+            if cached_release
+            else RELEASE_EMPTY_CACHE_SECONDS
+        )
+        if now - float(cached.get("timestamp", 0)) < cache_ttl:
+            return cached_release
 
     session = async_get_clientsession(hass)
     headers = {
