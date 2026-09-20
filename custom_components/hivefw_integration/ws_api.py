@@ -2644,9 +2644,12 @@ async def ws_set_device_config(hass, connection, msg):
                 "airtime_factor",
                 float(payload.get("airtime_factor", 0)) / 1000.0,
             )
+            requested_rx = int(round(float(rx_delay) * 1000))
+            requested_af = int(round(float(airtime_factor) * 1000))
+
             result = await coordinator.api.mesh_core.commands.set_tuning(
-                int(round(float(rx_delay) * 1000)),
-                int(round(float(airtime_factor) * 1000)),
+                requested_rx,
+                requested_af,
             )
             reason = _device_config_failure_reason(result)
             if reason is not None:
@@ -2654,6 +2657,37 @@ async def ws_set_device_config(hass, connection, msg):
                     connection, msg["id"], "tuning", reason, changed
                 )
                 return
+
+            # Do not treat the command ACK as proof that the preference was
+            # persisted. Read it straight back from the radio and compare the
+            # exact wire values (thousandths) before telling the panel it
+            # succeeded. This makes Duty Cycle failures visible instead of
+            # silently snapping back to the previous value.
+            verified = await coordinator.api.mesh_core.commands.get_tuning()
+            reason = _device_config_failure_reason(verified)
+            if reason is not None:
+                _send_device_config_failure(
+                    connection, msg["id"], "tuning verification", reason, changed
+                )
+                return
+            verified_payload = getattr(verified, "payload", {}) or {}
+            actual_rx = int(verified_payload.get("rx_delay", -1))
+            actual_af = int(verified_payload.get("airtime_factor", -1))
+
+            if abs(actual_rx - requested_rx) > 1 or abs(actual_af - requested_af) > 1:
+                _send_device_config_failure(
+                    connection,
+                    msg["id"],
+                    "tuning verification",
+                    (
+                        f"read-back mismatch: requested rx_delay={requested_rx}, "
+                        f"airtime_factor={requested_af}; got "
+                        f"rx_delay={actual_rx}, airtime_factor={actual_af}"
+                    ),
+                    changed,
+                )
+                return
+
             if "rx_delay" in settings:
                 changed.append("rx_delay")
             if "airtime_factor" in settings:

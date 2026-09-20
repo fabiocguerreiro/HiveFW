@@ -1898,33 +1898,35 @@ export class SettingsPage extends LitElement {
     if (!this.hass || !this._repeaterStatus?.supported) return;
 
     const status = this._repeaterStatus;
-    const settings: Record<string, unknown> = {
-      repeat: Boolean(this._editValues['repeat'] ?? status.repeat),
-      multi_acks: Number(this._editValues['multi_acks'] ?? status.radio.multi_acks ?? 0),
-      rx_delay: Number(this._editValues['rx_delay'] ?? status.tuning.rx_delay ?? 0),
-      airtime_factor: (() => {
-        const currentAirtimeFactor = Number(status.tuning.airtime_factor ?? 0);
-        const currentDuty = Math.max(
-          10,
-          Math.min(
-            50,
-            Math.round(
-              100 / (1 + Math.max(1, Math.min(9, currentAirtimeFactor))),
-            ),
-          ),
-        );
-        const duty = Math.max(
-          10,
-          Math.min(50, Number(this._editValues['duty_cycle'] ?? currentDuty)),
-        );
-        return (100 / duty) - 1;
-      })(),
-    };
+    const settings: Record<string, unknown> = {};
 
-    if (status.auto_advert_supported) {
-      settings.auto_advert = Boolean(
-        this._editValues['auto_advert'] ?? status.auto_advert,
+    // Send only values the user actually changed. Previously this handler
+    // re-sent the whole Repeater block (including CMD_SET_RADIO_PARAMS) even
+    // when changing Duty Cycle alone, so an unrelated setting could prevent
+    // the tuning command from ever being reached.
+    if (this._editValues['repeat'] !== undefined) {
+      settings.repeat = Boolean(this._editValues['repeat']);
+    }
+    if (this._editValues['multi_acks'] !== undefined) {
+      settings.multi_acks = Number(this._editValues['multi_acks']);
+    }
+    if (this._editValues['rx_delay'] !== undefined) {
+      settings.rx_delay = Number(this._editValues['rx_delay']);
+    }
+    if (status.auto_advert_supported && this._editValues['auto_advert'] !== undefined) {
+      settings.auto_advert = Boolean(this._editValues['auto_advert']);
+    }
+    if (this._editValues['duty_cycle'] !== undefined) {
+      const duty = Math.max(
+        10,
+        Math.min(50, Number(this._editValues['duty_cycle'])),
       );
+      settings.airtime_factor = (100 / duty) - 1;
+    }
+
+    if (Object.keys(settings).length === 0) {
+      this._showStatusMessage('No Repeater settings changed', 'success');
+      return;
     }
 
     this._saving = true;
@@ -1940,10 +1942,10 @@ export class SettingsPage extends LitElement {
       }
       this._editValues = { ...this._editValues };
 
-      // Refresh the native page state from the backend so the status pill,
-      // tuning values and hero metrics stay synchronized with the radio.
+      // Read the values back from the device. The backend also verifies
+      // tuning writes before reporting success.
       await this._loadDeviceConfig();
-      this._showStatusMessage('Repeater settings applied', 'success');
+      this._showStatusMessage('Repeater settings applied and verified', 'success');
     } catch (error) {
       this._showStatusMessage(`Repeater settings: ${String(error)}`, 'error');
     } finally {
