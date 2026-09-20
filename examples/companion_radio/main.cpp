@@ -33,6 +33,9 @@ MultiSerialInterface interface_manager;
 
 // include wifi interface
 #ifdef WIFI_SSID
+  #if defined(ESP32)
+    #include <Preferences.h>
+  #endif
   #ifndef TCP_PORT
     #define TCP_PORT 5000
   #endif
@@ -159,8 +162,41 @@ void halt() {
   while (1) ;
 }
 
-/* WIFI RECONNECT TRACKERS */
+/* WIFI RUNTIME CREDENTIALS + RECONNECT TRACKERS */
 #if defined(ESP32) && defined(WIFI_SSID)
+  static String hivefw_wifi_ssid;
+  static String hivefw_wifi_password;
+
+  static bool isRuntimeWifiPlaceholder(const char* value) {
+    return value != nullptr &&
+      strcmp(value, "__HIVEFW_RUNTIME_WIFI__") == 0;
+  }
+
+  static void loadHiveFwWifiCredentials() {
+    Preferences prefs;
+    prefs.begin("hivefw_net", false);
+
+    hivefw_wifi_ssid = prefs.getString("ssid", "");
+    hivefw_wifi_password = prefs.getString("pwd", "");
+
+    // One-time bootstrap migration: a locally compiled V1.11 still carries
+    // the user's existing WIFI_SSID/WIFI_PWD. Persist them in ESP32 NVS so
+    // every later public OTA image can be credential-free. NVS is outside
+    // the OTA app partitions and survives normal firmware updates.
+    if (
+      hivefw_wifi_ssid.length() == 0 &&
+      strlen(WIFI_SSID) > 0 &&
+      !isRuntimeWifiPlaceholder(WIFI_SSID)
+    ) {
+      hivefw_wifi_ssid = WIFI_SSID;
+      hivefw_wifi_password = WIFI_PWD;
+      prefs.putString("ssid", hivefw_wifi_ssid);
+      prefs.putString("pwd", hivefw_wifi_password);
+    }
+
+    prefs.end();
+  }
+
   bool wifi_needs_reconnect = false;
   unsigned long last_wifi_reconnect_attempt = 0;
 #endif
@@ -257,7 +293,16 @@ void setup() {
       }
   });
 
-  WiFi.begin(WIFI_SSID, WIFI_PWD);
+  loadHiveFwWifiCredentials();
+
+  if (hivefw_wifi_ssid.length() > 0) {
+    WiFi.begin(hivefw_wifi_ssid.c_str(), hivefw_wifi_password.c_str());
+  } else {
+    WIFI_DEBUG_PRINTLN(
+      "No runtime WiFi credentials found; Companion TCP/Web OTA will remain offline"
+    );
+  }
+
   wifi_interface.begin(TCP_PORT);
   interface_manager.addInterface(InterfaceType::WiFi, &wifi_interface);
 
