@@ -72,6 +72,13 @@ class HiveFWFirmwareUpdateEntity(UpdateEntity):
         self._installing = False
         self._progress: int | None = None
 
+    async def async_added_to_hass(self) -> None:
+        """Subscribe the update entity to live coordinator changes."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self.coordinator.async_add_listener(self.async_write_ha_state)
+        )
+
     @property
     def device_info(self):
         return self.coordinator.device_info

@@ -195,20 +195,30 @@ async def _wait_for_web_ota_return(
 
 
 async def _refresh_after_reboot(hass: HomeAssistant, coordinator) -> None:
-    """Best-effort device-info refresh after the ESP32 restarts."""
+    """Refresh until the post-reboot DEVICE_INFO has actually been read."""
     await asyncio.sleep(8)
-    # Force DEVICE_INFO to be fetched again so firmware sw_version changes.
+
+    # A TCP transport can report connected before the coordinator has queried
+    # the freshly rebooted radio. Force DEVICE_INFO invalidation once and do
+    # not declare success until that query has completed.
     if hasattr(coordinator, "_device_info_initialized"):
         coordinator._device_info_initialized = False
 
-    for _ in range(8):
+    for _ in range(10):
         try:
             await coordinator.async_request_refresh()
-            if getattr(coordinator.api, "connected", False):
+            if (
+                getattr(coordinator.api, "connected", False)
+                and getattr(coordinator, "_device_info_initialized", False)
+            ):
                 return
         except Exception:  # reboot/reconnect is inherently transient
             pass
         await asyncio.sleep(4)
+
+    _LOGGER.warning(
+        "HiveFW returned after OTA but DEVICE_INFO was not refreshed in time"
+    )
 
 
 async def async_upload_firmware_bytes(
