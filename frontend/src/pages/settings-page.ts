@@ -125,7 +125,7 @@ export class SettingsPage extends LitElement {
   @state() private _firmwareOtaStatus: FirmwareOtaStatus | null = null;
   @state() private _firmwareFile: File | null = null;
   @state() private _firmwareBusy = false;
-  @state() private _firmwareUploadProgress: number | null = null;
+  @state() private _firmwareUploadStage: 'uploading' | 'rebooting' | 'reconnecting' | null = null;
   @state() private _dutyCycleValue = 10;
   @state() private _dutyCycleReadValue: number | null = null;
   @state() private _dutyCycleBusy: 'read' | 'apply' | null = null;
@@ -1409,13 +1409,15 @@ export class SettingsPage extends LitElement {
                     </button>
                   </div>
 
-                  ${this._firmwareUploadProgress !== null
+                  ${this._firmwareUploadStage
                     ? html`
-                        <div style="margin-top:9px;height:7px;border-radius:999px;overflow:hidden;background:var(--divider-color);">
-                          <div style=${`height:100%;width:${this._firmwareUploadProgress}%;background:var(--primary-color);transition:width .15s;`}></div>
-                        </div>
-                        <div style="margin-top:4px;font-size:10px;color:var(--secondary-text-color);">
-                          ${this._firmwareUploadProgress}%
+                        <div
+                          style="margin-top:10px;padding:9px 11px;border-radius:8px;background:color-mix(in srgb,var(--primary-color) 10%,transparent);font-size:11px;color:var(--primary-text-color);">
+                          ${this._firmwareUploadStage === 'uploading'
+                            ? 'A enviar firmware para o rádio…'
+                            : this._firmwareUploadStage === 'rebooting'
+                              ? 'Firmware aceite. O HiveFW está a reiniciar…'
+                              : 'A aguardar a reconexão do HiveFW…'}
                         </div>
                       `
                     : nothing}
@@ -1466,7 +1468,7 @@ export class SettingsPage extends LitElement {
     }
 
     this._firmwareBusy = true;
-    this._firmwareUploadProgress = 10;
+    this._firmwareUploadStage = 'uploading';
 
     try {
       const form = new FormData();
@@ -1484,8 +1486,6 @@ export class SettingsPage extends LitElement {
         },
       );
 
-      this._firmwareUploadProgress = 90;
-
       let payload: { success?: boolean; error?: string } = {};
       try {
         payload = await response.json();
@@ -1497,35 +1497,47 @@ export class SettingsPage extends LitElement {
         throw new Error(payload.error || `HTTP ${response.status}`);
       }
 
-      this._firmwareUploadProgress = 100;
+      this._firmwareUploadStage = 'rebooting';
       this._firmwareFile = null;
       this._showStatusMessage('Firmware enviado. O HiveFW está a reiniciar.', 'success');
-      window.setTimeout(() => void this._refreshFirmwareOtaStatus(), 12000);
+
+      window.setTimeout(() => {
+        this._firmwareUploadStage = 'reconnecting';
+        void this._refreshFirmwareOtaStatus().finally(() => {
+          window.setTimeout(() => {
+            this._firmwareUploadStage = null;
+            this._firmwareBusy = false;
+          }, 2500);
+        });
+      }, 5000);
     } catch (error) {
+      this._firmwareUploadStage = null;
+      this._firmwareBusy = false;
       this._showStatusMessage(
         `Firmware OTA: ${error instanceof Error ? error.message : String(error)}`,
         'error',
       );
-    } finally {
-      this._firmwareBusy = false;
-      window.setTimeout(() => {
-        this._firmwareUploadProgress = null;
-      }, 2500);
     }
   }
 
   private async _installLatestFirmware() {
     if (!this.hass) return;
     this._firmwareBusy = true;
-    this._firmwareUploadProgress = null;
+    this._firmwareUploadStage = 'uploading';
     try {
       const result = await installLatestFirmware(this.hass, this.config?.entry_id);
       if (!result.success) throw new Error('A atualização não foi aceite.');
+      this._firmwareUploadStage = 'rebooting';
       this._showStatusMessage(
         `Firmware ${result.version || ''} enviado. O HiveFW está a reiniciar.`,
         'success',
       );
-      window.setTimeout(() => void this._refreshFirmwareOtaStatus(), 12000);
+      window.setTimeout(() => {
+        this._firmwareUploadStage = 'reconnecting';
+        void this._refreshFirmwareOtaStatus().finally(() => {
+          this._firmwareUploadStage = null;
+        });
+      }, 5000);
     } catch (error) {
       const e = error as { message?: string };
       this._showStatusMessage(
@@ -1533,6 +1545,9 @@ export class SettingsPage extends LitElement {
         'error',
       );
     } finally {
+      if (this._firmwareUploadStage !== 'rebooting' && this._firmwareUploadStage !== 'reconnecting') {
+        this._firmwareUploadStage = null;
+      }
       this._firmwareBusy = false;
     }
   }

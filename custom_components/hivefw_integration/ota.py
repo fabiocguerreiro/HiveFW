@@ -17,7 +17,7 @@ import time
 from collections.abc import Callable
 from typing import Any
 
-from aiohttp import BasicAuth, ClientTimeout, FormData, web
+from aiohttp import BasicAuth, ClientConnectionError, ClientTimeout, FormData, web
 from meshcore import EventType
 
 from homeassistant.components.http import HomeAssistantView
@@ -170,6 +170,29 @@ async def _rotate_ota_token(coordinator) -> str:
     return token
 
 
+async def _wait_for_web_ota_return(
+    hass: HomeAssistant,
+    host: str,
+) -> bool:
+    """Confirm that the ESP came back after an OTA-side connection drop."""
+    await asyncio.sleep(3)
+    session = async_get_clientsession(hass)
+    for _ in range(10):
+        try:
+            async with session.get(
+                f"http://{host}/",
+                timeout=ClientTimeout(total=3),
+            ) as response:
+                if response.status == 200:
+                    return True
+        except (ClientConnectionError, asyncio.TimeoutError):
+            pass
+        except Exception:
+            pass
+        await asyncio.sleep(2)
+    return False
+
+
 async def _refresh_after_reboot(hass: HomeAssistant, coordinator) -> None:
     """Best-effort device-info refresh after the ESP32 restarts."""
     await asyncio.sleep(8)
@@ -226,20 +249,32 @@ async def async_upload_firmware_bytes(
 
     url = f"http://{host}/update"
     session = async_get_clientsession(hass)
+    response_lost_during_reboot = False
     try:
         if progress:
             progress(30)
-        async with session.post(
-            url,
-            data=form,
-            auth=BasicAuth(OTA_USERNAME, token),
-            timeout=ClientTimeout(total=120),
-        ) as response:
-            body = (await response.text()).strip()
-            if response.status != 200 or body != "OK":
+        try:
+            async with session.post(
+                url,
+                data=form,
+                auth=BasicAuth(OTA_USERNAME, token),
+                timeout=ClientTimeout(total=120),
+            ) as response:
+                body = (await response.text()).strip()
+                if response.status != 200 or body != "OK":
+                    raise HiveFWOtaError(
+                        f"Radio rejected OTA upload (HTTP {response.status}: {body or 'empty response'})"
+                    )
+        except ClientConnectionError as ex:
+            # HiveFW V1.11 could reboot quickly enough to close the socket
+            # before aiohttp received the final 200/OK. Do not report a false
+            # failure if the ESP demonstrably rebooted and returned on the LAN.
+            if await _wait_for_web_ota_return(hass, host):
+                response_lost_during_reboot = True
+            else:
                 raise HiveFWOtaError(
-                    f"Radio rejected OTA upload (HTTP {response.status}: {body or 'empty response'})"
-                )
+                    "Radio disconnected during OTA and did not return online"
+                ) from ex
     finally:
         # Drop our reference as soon as the request finishes. The radio reboots
         # and creates a different random boot token, invalidating this one.
@@ -258,6 +293,7 @@ async def async_upload_firmware_bytes(
         "size": len(firmware),
         "md5": md5,
         "rebooting": True,
+        "response_lost_during_reboot": response_lost_during_reboot,
     }
 
 
