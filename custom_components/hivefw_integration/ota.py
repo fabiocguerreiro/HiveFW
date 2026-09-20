@@ -44,6 +44,27 @@ class HiveFWOtaError(RuntimeError):
     """Raised when secure HiveFW OTA cannot be completed."""
 
 
+class _OtaSecretFilter(logging.Filter):
+    """Drop any log record containing the ephemeral OTA credential.
+
+    meshcore_py currently logs both set_custom_var values and raw command
+    frames at DEBUG level. The latter contains the ASCII token encoded as hex.
+    This short-lived filter therefore checks both representations.
+    """
+
+    def __init__(self, secret: str) -> None:
+        super().__init__()
+        self._plain = secret
+        self._wire_hex = secret.encode("utf-8").hex()
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        try:
+            message = record.getMessage()
+        except Exception:
+            return True
+        return self._plain not in message and self._wire_hex not in message
+
+
 def _get_coordinator(hass: HomeAssistant, entry_id: str | None):
     bucket = hass.data.get(DOMAIN, {})
     if entry_id:
@@ -111,10 +132,34 @@ def _validate_firmware(firmware: bytes, filename: str) -> None:
 async def _rotate_ota_token(coordinator) -> str:
     """Rotate the radio's write-only OTA token and return it in-memory only."""
     token = secrets.token_hex(24)  # 192 bits, 48 hex chars
-    result = await coordinator.api.mesh_core.commands.set_custom_var(
-        "ota_token",
-        token,
-    )
+
+    # meshcore_py logs custom-var values and the raw command frame at DEBUG.
+    # Never let the ephemeral credential reach Home Assistant logs, even when
+    # a user has enabled verbose meshcore logging for diagnostics.
+    secret_filter = _OtaSecretFilter(token)
+    loggers = {
+        logging.getLogger("meshcore"),
+        logging.getLogger(),
+    }
+    handlers: list[logging.Handler] = []
+    for logger in loggers:
+        for handler in logger.handlers:
+            if handler not in handlers:
+                handlers.append(handler)
+                handler.addFilter(secret_filter)
+
+    mesh_logger = logging.getLogger("meshcore")
+    mesh_logger.addFilter(secret_filter)
+    try:
+        result = await coordinator.api.mesh_core.commands.set_custom_var(
+            "ota_token",
+            token,
+        )
+    finally:
+        mesh_logger.removeFilter(secret_filter)
+        for handler in handlers:
+            handler.removeFilter(secret_filter)
+
     reason = _result_error(result)
     if reason is not None:
         # Never include the token in an exception/log message.
