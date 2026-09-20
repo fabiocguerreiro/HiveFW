@@ -1,396 +1,299 @@
-# HiveFW Companion Repeater
+# HiveFW Companion & Repeater
 
-**HiveFW** é um firmware personalizado baseado no [MeshCore](https://github.com/meshcore-dev/MeshCore), que expande o conceito de **Companion Radio** do MeshCore com um modo **Repeater** integrado, conectividade Wi-Fi e uma base para automação doméstica e serviços remotos.
+**HiveFW** é um firmware baseado no [MeshCore](https://github.com/meshcore-dev/MeshCore) que mantém o **Companion Radio como função principal** e acrescenta um **modo Repeater opcional**, ativável pela aplicação MeshCore.
 
-O projeto foi concebido para **hardware compatível com MeshCore**, combinando comunicação LoRa em rede mesh com conectividade de rede local e plataformas de automação como o Home Assistant.
+O projeto usa uma única árvore de código e uma única versão para os equipamentos suportados. As funcionalidades comuns permanecem partilhadas; as capacidades dependentes do hardware ficam isoladas por plataforma.
 
-> **HiveFW = MeshCore Companion + Repeater + Wi-Fi + Automação**
+> **Companion primeiro. Repeater quando ativado. Uma versão para todas as plataformas HiveFW suportadas.**
 
 ---
 
-## Visão Geral
+## Arquitetura
 
-A principal característica do HiveFW é simples:
+O mesmo firmware base serve dois cenários:
 
-> **O HiveFW é, primeiro e sempre, um MeshCore Companion Radio.**
+- **Companion normal** — comportamento principal e sempre disponível.
+- **Companion + Repeater** — o utilizador ativa o modo Repeater na app e o HiveFW passa a anunciar-se e a encaminhar tráfego como Repeater, mantendo a interface Companion.
 
-A funcionalidade Companion é o núcleo do firmware e permanece disponível independentemente do estado do modo Repeater.
+As funcionalidades comuns são implementadas em `examples/companion_radio/` e compiladas tanto para ESP32 como para nRF52 sempre que o hardware as suporte.
 
-O **modo Repeater é uma funcionalidade adicional e opcional**, que pode ser ativada diretamente através da aplicação MeshCore.
+As funcionalidades dependentes da plataforma ficam separadas:
 
-Quando o utilizador ativa o modo Repeater pela aplicação, o HiveFW passa a disponibilizar automaticamente as funcionalidades adicionais específicas do Repeater, incluindo o comportamento de anúncios, o Smart Advert e o Node Discovery.
+- **ESP32 / Heltec V3 Wi-Fi:** TCP/Wi-Fi, NVS de rede e Web OTA seguro.
+- **nRF52 / Heltec T114:** BLE Companion e atualização por BLE DFU/UF2.
+- O código OTA/Wi-Fi do V3 é protegido por `ESP32 + WIFI_SSID + WEB_OTA_ENABLED` e não é compilado no T114.
 
-Em outras palavras:
+---
 
-> **Companion primeiro. Repeater quando ativado.**
+## Hardware principal e matriz de funcionalidades
 
-Isto permite utilizar o mesmo firmware como um Companion Radio normal ou, quando necessário, ativar as capacidades de Repeater sem necessidade de instalar um firmware diferente.
+| Funcionalidade | Heltec V3 | Heltec T114 |
+| --- | --- | --- |
+| HiveFW Companion | Sim | Sim |
+| Repeater opcional | Sim | Sim |
+| UI HiveFW | Sim | Sim, no modelo com display |
+| BLE Companion | Disponível em build própria | **Build principal do T114** |
+| Wi-Fi / TCP Companion | **Sim** | Não |
+| Home Assistant por TCP/Wi-Fi | **Sim** | Não diretamente |
+| Web OTA seguro | **Sim** | Não |
+| BLE DFU | Não é o método principal | **Sim** |
+| UF2 | Não é o método principal | **Sim** |
+| Mesma versão HiveFW | **Sim** | **Sim** |
+
+Ambientes principais de Release:
 
 ```text
-                    MeshCore App
-                         │
-                         │
-                         ▼
-                 ┌───────────────┐
-                 │    HiveFW     │
-                 │               │
-                 │   Companion   │◄──── Sempre ativo
-                 │      +        │
-                 │   Repeater    │◄──── Ativado pela app
-                 └───────┬───────┘
-                         │
-                  ┌──────┴──────┐
-                  │             │
-                 LoRa          Wi-Fi
-                  │             │
-                  ▼             ▼
-             MeshCore       Serviços Remotos
-               Mesh          Home Assistant
-                              Automação
+Heltec_v3_companion_radio_wifi
+Heltec_t114_companion_radio_ble
 ```
 
-O objetivo é disponibilizar uma plataforma prática para **interação remota com MeshCore, telemetria, automação e futuras aplicações de bots por solicitação**, mantendo sempre a experiência Companion no centro do firmware.
+Outros equipamentos compatíveis com MeshCore podem continuar a ser compilados através das respetivas definições existentes no repositório.
 
 ---
 
-## Principais Características
+## Funcionalidades comuns Companion & Repeater
 
-### Companion Primeiro
+Entre as funcionalidades partilhadas pelo V3 e pelo T114 estão:
 
-A característica fundamental do HiveFW é ser um **Companion Radio primeiro e sempre**.
+- Companion Radio como modo base.
+- Modo Repeater ativável/desativável pela app.
+- Identidade de advert adaptada ao estado Repeater.
+- Smart Advert quando Repeater e Auto Advert estão ativos.
+- Contadores de adverts TX/RX.
+- Descoberta de Repeaters e vizinhos diretos.
+- Node Discovery associado ao modo Repeater.
+- Regions / Flood Scopes baseados na lógica do Repeater MeshCore.
+- Duty Cycle configurável.
+- Path Hash Mode.
+- configuração de rádio e preferências comuns expostas pelo Companion.
+- interface HiveFW e informação de Companion nos equipamentos com display.
 
-* A funcionalidade normal de MeshCore Companion Radio continua a ser a base do firmware.
-* A funcionalidade Repeater é opcional.
-* O modo Repeater é ativado ou desativado através da aplicação MeshCore.
-* Com o Repeater desativado, o equipamento funciona como um Companion Radio normal.
-* Ao ativar o Repeater, as funcionalidades adicionais específicas do Repeater são ativadas.
-* Não é necessário instalar um firmware diferente para alternar entre Companion normal e Companion + Repeater.
-
-Desta forma, o HiveFW disponibiliza uma **única solução de firmware**, capaz de adaptar o equipamento à função pretendida pelo utilizador.
-
-### Evolução do Companion
-
-O desenvolvimento do Companion no HiveFW **não é considerado concluído**.
-
-Estão previstas novas funcionalidades e melhorias para o modo Companion em futuras versões, com o objetivo de expandir as capacidades do equipamento e, ao mesmo tempo, manter a compatibilidade com o fluxo de utilização normal do MeshCore Companion.
+O objetivo é que as funcionalidades de protocolo e Repeater sejam comuns sempre que possível, evitando forks separados por placa.
 
 ---
 
-### Companion + Repeater
+## Funcionalidades específicas do Heltec V3 Wi-Fi
 
-Quando o modo Repeater é ativado através da aplicação MeshCore, o HiveFW ativa as funcionalidades adicionais necessárias ao funcionamento como Repeater.
+O V3 usa ESP32-S3 e inclui as funcionalidades de rede local:
 
-Atualmente, estas incluem:
+- Companion por TCP/Wi-Fi.
+- integração remota com o Home Assistant.
+- reconexão Wi-Fi.
+- credenciais Wi-Fi persistidas em NVS.
+- Web OTA.
+- token OTA aleatório de 192 bits, mantido apenas em RAM.
+- rotação do token imediatamente antes do flash pela integração HiveFW.
+- artefacto OTA público sem SSID/password privados.
 
-* Funcionalidade LoRa Repeater integrada.
-* Anúncios específicos para funcionamento como Repeater.
-* Smart Advert.
-* Ciclo de anúncios de 23 horas.
-* Agendamento determinístico dos anúncios.
-* Pequena variação temporal (*jitter*) para reduzir anúncios simultâneos entre vários nós.
-* Funcionalidade Node Discovery para operação como Repeater.
+O Web OTA utiliza HTTP na LAN. Não deve ser exposto diretamente à Internet nem através de port-forwarding.
 
-O equipamento não precisa, portanto, de estar permanentemente configurado como Repeater.
+### Migração Wi-Fi a partir da V1.11
 
-O utilizador pode continuar a utilizá-lo como um **Companion Radio normal** e ativar as funcionalidades adicionais de Repeater quando necessário.
+Uma build local pode migrar o SSID/password compilados para a NVS do ESP32. Depois dessa migração, as Releases públicas podem usar placeholders e continuar a ligar à rede através das credenciais persistidas no equipamento.
 
----
+O ficheiro local de segredos não é versionado:
 
-### Conectividade Wi-Fi
+```bash
+cp platformio.local.ini.example platformio.local.ini
+```
 
-A ligação Wi-Fi do HiveFW tem como principal objetivo permitir **acesso remoto e integração com serviços externos**.
-
-Isto permite que um equipamento HiveFW funcione como uma ponte entre a rede LoRa MeshCore e aplicações ou serviços executados numa rede local ou remotamente.
-
-A conectividade Wi-Fi cria uma base para integrações como:
-
-* **Home Assistant**.
-* [meshcore-ha](https://github.com/meshcore-dev/meshcore-ha).
-* **meshcore-chat-ha**.
-* Computadores e servidores.
-* Interfaces MeshCore remotas.
-* Serviços de rede locais.
-* Sistemas de monitorização e automação.
-
-O objetivo é permitir que um nó HiveFW permaneça permanentemente ligado à rede MeshCore e possa ser acedido ou integrado remotamente através de Wi-Fi, sem depender de uma ligação USB permanente.
-
-### Atualizações Web OTA e credenciais
-
-Nos builds ESP32 Wi-Fi suportados, o HiveFW pode atualizar o firmware pela rede local sem voltar a ligar o equipamento por USB.
-
-A partir da **V1.11**, o modelo de segurança do Web OTA deixa de utilizar qualquer password OTA fixa ou partilhada com o Wi-Fi:
-
-* nenhuma password OTA é incluída no código público ou nos artefactos de Release;
-* a password da rede Wi-Fi não é reutilizada como credencial OTA;
-* o rádio gera um token OTA aleatório de **192 bits** em cada arranque e mantém-no apenas em RAM;
-* a integração HiveFW para Home Assistant roda esse token imediatamente antes de um upload;
-* o token é write-only no protocolo Companion, não aparece em Custom Vars de leitura;
-* a integração filtra o token dos logs, incluindo a representação hexadecimal dos frames de debug;
-* depois do reboot causado pela atualização, o token anterior deixa de ser válido.
-
-A V1.11 também introduz uma migração das credenciais Wi-Fi para a NVS do ESP32. Numa primeira instalação compilada localmente, o SSID e a password existentes são guardados na NVS. As atualizações OTA públicas seguintes podem, assim, ser compiladas sem credenciais privadas e continuar a usar a configuração Wi-Fi já existente no equipamento.
-
-> **Migração V1.11:** equipamentos com versões anteriores devem instalar uma build V1.11 compilada localmente uma última vez. Depois dessa migração, as atualizações seguintes podem ser geridas pelo Home Assistant.
-
-O Web OTA utiliza HTTP na rede local e não fornece TLS. Deve, por isso, ser utilizado apenas numa rede local considerada confiável. O token efémero evita credenciais permanentes ou públicas, mas não substitui a proteção de transporte oferecida por HTTPS.
+Depois editar apenas `platformio.local.ini`.
 
 ---
 
-### Smart Advert
+## Funcionalidades específicas do Heltec T114
 
-O HiveFW inclui uma implementação personalizada de **Smart Advert** para a operação como Repeater.
+O T114 usa nRF52840 e permanece independente do código ESP32/Wi-Fi.
 
-A implementação atual inclui:
-
-* Ciclo de anúncios de 23 horas.
-* Agendamento determinístico dos anúncios.
-* Pequena variação temporal para reduzir anúncios simultâneos entre vários nós.
-* Comportamento de anúncios adaptado ao modo Repeater.
-
----
-
-### Node Discovery
-
-Está disponível funcionalidade básica de **Node Discovery** para a operação como Repeater.
-
-A implementação atual está focada especificamente na funcionalidade Repeater e poderá ser expandida em futuras versões.
-
----
-
-# Integração com Home Assistant
-
-Um dos principais objetivos do HiveFW é criar uma ponte entre o **MeshCore e o Home Assistant**.
-
-A ligação Wi-Fi permite que um equipamento HiveFW permanentemente ligado comunique com o Home Assistant através de projetos como o **meshcore-ha** e o **meshcore-chat-ha**.
-
-Isto cria uma ponte entre a rede LoRa e os sistemas de automação doméstica, permitindo trocar remotamente informações e comandos selecionados.
-
-Possíveis aplicações incluem:
-
-* Consultar valores de sensores do Home Assistant.
-* Informação ambiental e de temperatura.
-* Estado de dispositivos e sistemas.
-* Informação energética.
-* Informação de presença.
-* Telemetria remota.
-* Acionar automações previamente definidas no Home Assistant.
-* Enviar mensagens para canais MeshCore.
-* Monitorizar canais MeshCore.
-* Responder automaticamente a comandos explicitamente solicitados.
-
-A intenção é manter esta interface leve e controlada, disponibilizando apenas a informação e as ações que forem explicitamente configuradas.
-
----
-
-# Automação Remota e Bots MeshCore
-
-O HiveFW está a ser desenvolvido tendo em conta **automação controlada e sob solicitação**.
-
-Uma plataforma de automação ligada, como o Home Assistant, poderá fornecer respostas previamente definidas a comandos recebidos através da rede MeshCore.
-
-Por exemplo:
+A build principal do HiveFW para T114 é:
 
 ```text
-Nó MeshCore Remoto
-        │
-        │ comando / pedido
-        ▼
-   Rede LoRa Mesh
-        │
-        ▼
-     HiveFW
-        │
-        │ Wi-Fi
-        ▼
- Home Assistant
-        │
-        │ resposta predefinida
-        ▼
-     HiveFW
-        │
-        ▼
-   Rede LoRa Mesh
-        │
-        ▼
-Nó MeshCore Remoto
+Heltec_t114_companion_radio_ble
 ```
 
-Possíveis aplicações incluem:
+O transporte Companion é BLE e a atualização de firmware é disponibilizada em dois formatos:
 
-* Consultas remotas de sensores.
-* Pedidos de estado do sistema.
-* Notificações automáticas.
-* Comandos remotos previamente definidos.
-* Respostas a pedidos de ping.
-* Serviços de telemetria.
-* Bots MeshCore leves.
-* Interfaces para automação doméstica.
+- `.zip` — pacote para **BLE DFU**, método recomendado para o T114.
+- `.uf2` — alternativa para atualização compatível com UF2.
 
-### Comportamento Responsável dos Bots
+O T114 não recebe:
 
-Os bots e serviços automatizados devem funcionar **principalmente sob solicitação**, respondendo a pedidos explícitos em vez de gerar continuamente tráfego na rede.
+- AsyncElegantOTA;
+- servidor HTTP `/update`;
+- token `ota_token`;
+- NVS de credenciais Wi-Fi;
+- lógica de reconexão Wi-Fi.
 
-O objetivo do HiveFW não é incentivar *flooding* ou a geração excessiva de tráfego na rede MeshCore.
-
-As automações devem ser leves, úteis e, sempre que necessário, utilizar mecanismos de limitação de frequência (*rate limiting*).
-
-A rede MeshCore é um **recurso rádio partilhado**. O tempo de utilização do canal, a largura de banda e os restantes recursos da rede são partilhados entre diferentes utilizadores e nós.
-
-Por esse motivo, anúncios excessivos, mensagens automáticas, bots demasiado ativos ou pedidos repetidos podem consumir desnecessariamente tempo de antena e prejudicar a utilização da rede por outros participantes.
-
-O princípio deve ser simples:
-
-> **Automatizar quando necessário, responder quando solicitado e evitar tráfego desnecessário.**
+Estas diferenças são deliberadas e não representam versões diferentes do HiveFW.
 
 ---
 
-# Configuração de Rádio
+## Releases unificadas
 
-O HiveFW inclui atualmente presets de rádio MeshCore para Portugal, destinados especificamente à utilização em **modo Repeater**:
+O ficheiro `VERSION` é a **fonte única de versão** do projeto.
 
-|  Frequência | Largura de Banda | SF | CR | Modo     |
-| ----------: | ---------------: | -: | -: | -------- |
-| 433.375 MHz |         62.5 kHz |  9 |  6 | Repeater |
-| 869.618 MHz |         62.5 kHz |  7 |  6 | Repeater |
+Uma tag:
 
-Estes presets destinam-se a instalações **Repeater em Portugal**.
+```text
+hivefw-VX.Y.Z
+```
 
-Os parâmetros de rádio devem ser sempre selecionados e utilizados de acordo com a legislação aplicável, atribuições de frequência, limites de potência e restantes requisitos locais.
+gera uma única GitHub Release **HiveFW Companion & Repeater VX.Y.Z** com artefactos para os dois alvos principais.
 
-As definições de frequência podem ser adaptadas a outros países, regiões ou instalações locais.
+### Heltec V3
+
+```text
+Heltec_v3_companion_radio_wifi-VX.Y.Z-<commit>.bin
+Heltec_v3_companion_radio_wifi-VX.Y.Z-<commit>.bin.sha256
+```
+
+O ficheiro `.bin` é a imagem da partição de aplicação adequada ao OTA. Imagens `merged`/factory não são publicadas como OTA.
+
+### Heltec T114
+
+```text
+Heltec_t114_companion_radio_ble-VX.Y.Z-<commit>.zip
+Heltec_t114_companion_radio_ble-VX.Y.Z-<commit>.zip.sha256
+Heltec_t114_companion_radio_ble-VX.Y.Z-<commit>.uf2
+Heltec_t114_companion_radio_ble-VX.Y.Z-<commit>.uf2.sha256
+```
+
+Desta forma, **V3 e T114 saem sempre da mesma tag, do mesmo commit e com a mesma versão**.
 
 ---
 
-# Hardware
+## Validação no `main`
 
-O HiveFW foi desenvolvido para **hardware compatível com a arquitetura MeshCore**.
+O CI compila explicitamente os dois alvos principais:
 
-O projeto não está limitado a uma única placa ou fabricante. O suporte depende da existência da respetiva definição de hardware MeshCore e do ambiente de compilação PlatformIO correspondente.
+```text
+Heltec_v3_companion_radio_wifi
+Heltec_t114_companion_radio_ble
+```
 
-### Hardware atualmente testado / direcionado
+Isto serve para detetar imediatamente alterações comuns que funcionem numa plataforma mas quebrem a outra.
 
-* Equipamentos compatíveis com MeshCore podem ser suportados através das respetivas definições de hardware MeshCore.
-
-O repositório poderá incluir ambientes de compilação específicos para determinados equipamentos quando necessário.
+O workflow de Release também compila os dois alvos em cada alteração relevante do `main`; só publica uma GitHub Release quando a execução é originada por uma tag `hivefw-V*`.
 
 ---
 
-# Compilação
+## Compilação local
 
-O HiveFW utiliza **PlatformIO** para a compilação.
-
-Clonar o repositório:
+Clonar:
 
 ```bash
 git clone https://github.com/fabiocguerreiro/HiveFW-Companion-Repeater.git
 cd HiveFW-Companion-Repeater
 ```
 
-Para o bootstrap Wi-Fi do Heltec V3, criar primeiro a configuração local:
+### Heltec V3 Wi-Fi
+
+Para uma instalação que ainda necessita do bootstrap das credenciais:
 
 ```bash
 cp platformio.local.ini.example platformio.local.ini
+# editar platformio.local.ini
+./build.sh build-firmware Heltec_v3_companion_radio_wifi
 ```
 
-Editar apenas `platformio.local.ini` e introduzir o SSID/password da rede. Este ficheiro está no `.gitignore` e **não deve ser commitado**.
-
-Compilar o ambiente correspondente ao equipamento:
-
-```bash
-pio run -e <environment>
-```
-
-Para o Heltec V3 Wi-Fi:
+Para desenvolvimento rápido também pode ser usado:
 
 ```bash
 pio run -e Heltec_v3_companion_radio_wifi
 ```
 
-Na V1.11, esta build local faz a migração única das credenciais Wi-Fi para NVS. As imagens OTA públicas posteriores são compiladas sem credenciais privadas.
+### Heltec T114 BLE
 
-Os ambientes de compilação disponíveis podem variar consoante o hardware suportado e incluído no repositório.
+```bash
+./build.sh build-firmware Heltec_t114_companion_radio_ble
+```
 
----
-
-# MeshCore
-
-O HiveFW é baseado no [MeshCore](https://github.com/meshcore-dev/MeshCore), um projeto open-source de redes LoRa Mesh desenvolvido para comunicação de longo alcance e descentralizada.
-
-O MeshCore fornece a base de comunicação utilizada pelo HiveFW, incluindo:
-
-* Comunicação LoRa.
-* Encaminhamento de pacotes através de múltiplos nós.
-* Funcionalidade Companion Radio.
-* Funcionalidade Repeater.
-* Descoberta de nós.
-* Telemetria e outras capacidades da rede Mesh.
-
-O HiveFW desenvolve esta base com funcionalidades adicionais centradas em **conectividade Wi-Fi, operação como Repeater e integração com sistemas de automação doméstica**.
-
-Para mais informações sobre o projeto base, consulte a [documentação do MeshCore](https://docs.meshcore.io/).
+Os ficheiros de distribuição ficam em `out/`. No T114, o pacote `.zip` é o formato recomendado para BLE DFU.
 
 ---
 
-# Utilização Responsável e Disclaimer
+## Home Assistant
 
-O HiveFW é fornecido **"tal como está" e sem garantias**. A utilização do firmware, do hardware rádio, das funcionalidades de automação e dos serviços associados é feita **por conta e risco do utilizador**.
+A integração própria do projeto é:
 
-É responsabilidade do utilizador garantir que o equipamento e a configuração rádio utilizada estão em conformidade com a legislação e regulamentação aplicáveis.
+[**HiveFW-ha-integration**](https://github.com/fabiocguerreiro/HiveFW-ha-integration)
 
-O HiveFW destina-se a experimentação, projetos pessoais, redes MeshCore e automação responsável.
+No V3 Wi-Fi, a integração pode comunicar diretamente com o rádio por TCP e disponibilizar:
 
-O HiveFW **não deve ser utilizado para gerar tráfego excessivo ou desnecessário**, provocar *flooding* contínuo da rede MeshCore, executar bots abusivos ou interferir deliberadamente com o funcionamento normal da rede.
+- estado e telemetria;
+- configuração do Companion/Repeater;
+- chats, nós, vizinhos e regiões;
+- comandos locais/remotos;
+- gestão segura de firmware OTA;
+- verificação manual da última GitHub Release;
+- flash da última Release;
+- flash manual de um `.bin`.
 
-A rede MeshCore é um **espaço rádio partilhado**. Todos os utilizadores e nós partilham o mesmo recurso de rádio e, por isso, devem utilizá-lo de forma responsável e respeitar os restantes participantes.
-
-Bots e sistemas automatizados devem funcionar preferencialmente **sob solicitação**, responder apenas a pedidos legítimos e evitar transmissões repetitivas ou desnecessárias.
-
-O objetivo é que a automação acrescente funcionalidades à rede sem prejudicar a sua utilização por outros membros da comunidade.
-
-> **Use a rede como gostaria que os outros utilizassem a rede quando o seu nó está no ar: com respeito, moderação e bom senso.**
-
-Ao utilizar o HiveFW, o utilizador reconhece que é responsável pela sua própria configuração, transmissões, automações e utilização da rede.
-
----
-
-# Objetivos do Projeto
-
-O HiveFW está a ser desenvolvido com vários objetivos de longo prazo:
-
-* Expandir as funcionalidades Companion + Repeater.
-* Melhorar a integração Wi-Fi.
-* Disponibilizar uma interface sólida para Home Assistant.
-* Integrar com projetos como **meshcore-ha** e **meshcore-chat-ha**.
-* Permitir telemetria remota.
-* Desenvolver funcionalidades de bots MeshCore leves e **sob solicitação**.
-* Adicionar novas funcionalidades ao modo Companion.
-* Disponibilizar interfaces de automação configuráveis.
-* Suportar mais hardware compatível com MeshCore.
-* Manter, sempre que possível, compatibilidade com o projeto MeshCore original.
-* Promover uma utilização responsável e eficiente do tempo de antena LoRa.
-
-O projeto pretende evoluir em conjunto com o ecossistema MeshCore.
+O gestor de firmware no Home Assistant é específico do caminho TCP/Web OTA do V3. O T114 continua a usar BLE DFU/UF2.
 
 ---
 
-# Versão
+## Automação e bots
 
+O HiveFW permite usar o Companion como ponte para automação, incluindo Home Assistant.
 
----
+Bots e respostas automáticas devem ser preferencialmente **on-demand**, acionados por pedidos explícitos. A rede MeshCore utiliza um recurso rádio partilhado; automações que gerem flood, anúncios excessivos ou tráfego repetitivo devem ser evitadas.
 
-# Créditos
-
-O HiveFW é baseado no excelente trabalho do projeto **MeshCore** e dos seus contribuidores.
-
-* [Repositório GitHub do MeshCore](https://github.com/meshcore-dev/MeshCore)
-* [Documentação do MeshCore](https://docs.meshcore.io/)
-
-O HiveFW acrescenta funcionalidades específicas do projeto, mantendo como base a arquitetura MeshCore.
+> **Automatizar quando necessário, responder quando solicitado e evitar tráfego desnecessário.**
 
 ---
 
-# Licença
+## Rádio
 
-O HiveFW é baseado no MeshCore e mantém os termos de licenciamento aplicáveis ao projeto original.
+O firmware mantém a configuração de rádio MeshCore e as funcionalidades Repeater necessárias ao projeto. Frequência, largura de banda, SF, CR, potência e restantes parâmetros devem ser escolhidos de acordo com o hardware, a rede utilizada e a regulamentação aplicável no local de utilização.
 
-Consulte o [repositório do MeshCore](https://github.com/meshcore-dev/MeshCore) e os ficheiros de licença incluídos neste repositório para obter a informação de licenciamento aplicável.
+---
+
+## Estrutura de desenvolvimento
+
+```text
+HiveFW Companion & Repeater
+│
+├── Código comum
+│   └── examples/companion_radio/
+│       ├── Companion
+│       ├── Repeater opcional
+│       ├── Smart Advert
+│       ├── Node Discovery
+│       ├── Regions / Scopes
+│       ├── Custom Vars
+│       └── UI
+│
+├── Heltec V3 / ESP32-S3
+│   ├── Wi-Fi / TCP
+│   ├── NVS
+│   └── Web OTA seguro
+│
+└── Heltec T114 / nRF52840
+    ├── BLE Companion
+    ├── BLE DFU
+    └── UF2
+```
+
+A intenção é manter esta arquitetura: **uma base comum, diferenças de plataforma isoladas e uma única linha de versões**.
+
+---
+
+## Utilização responsável
+
+O HiveFW é fornecido **tal como está**, sem garantias. A utilização do firmware, do equipamento rádio e das automações é da responsabilidade do utilizador.
+
+É responsabilidade do utilizador garantir conformidade com legislação, frequências, potência, duty cycle e restantes regras aplicáveis.
+
+O projeto não deve ser usado para flooding deliberado, tráfego automatizado excessivo ou interferência com outros utilizadores da rede MeshCore.
+
+---
+
+## Créditos e licença
+
+O HiveFW é baseado no projeto open-source [MeshCore](https://github.com/meshcore-dev/MeshCore) e no trabalho dos seus contribuidores.
+
+- [MeshCore](https://github.com/meshcore-dev/MeshCore)
+- [Documentação MeshCore](https://docs.meshcore.io/)
+
+Consulte os ficheiros de licença deste repositório para os termos aplicáveis ao HiveFW e às dependências de terceiros.
