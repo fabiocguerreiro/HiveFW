@@ -6527,11 +6527,11 @@ let e,t,i,o,r,a,s,n,l,d,c,p,h,u,m,g,v,f,y,b,_,x,w,$,k,C,S,M,A,R,F,I,T,z,O,D,N,E,
                 ${0}
               </div>
             </div>
-          `),"repeater"===e.type?"R":"C",e.name,o,(null===(t=e.pubkey_prefix)||void 0===t?void 0:t.toUpperCase())||"sem chave",e.firmware_version?rn(Jr||(Jr=hs` · FW ${0}`),e.firmware_version):nn,e.neighbors_enabled?rn(Zr||(Zr=hs` · vizinhos monitorizados`)):nn,i?"online":"offline",i?"Online":"Offline","repeater"===e.type?rn(ea||(ea=hs`<button class="action-btn" @click=${0}>Admin</button>`),()=>this._requestManagedAdmin(e)):nn)}))}_renderRepeaterSettings(){var e,t,i,o,r,a,s;const n=this._repeaterStatus;if(null==n||!n.supported)return rn(ta||(ta=hs`
+          `),"repeater"===e.type?"R":"C",e.name,o,(null===(t=e.pubkey_prefix)||void 0===t?void 0:t.toUpperCase())||"sem chave",e.firmware_version?rn(Jr||(Jr=hs` · FW ${0}`),e.firmware_version):nn,e.neighbors_enabled?rn(Zr||(Zr=hs` · vizinhos monitorizados`)):nn,i?"online":"offline",i?"Online":"Offline","repeater"===e.type?rn(ea||(ea=hs`<button class="action-btn" @click=${0}>Admin</button>`),()=>this._requestManagedAdmin(e)):nn)}))}_renderRepeaterSettings(){var e,t,i,o,r,a,s,n;const l=this._repeaterStatus;if(null==l||!l.supported)return rn(ta||(ta=hs`
         <div style="font-size: 12px; color: var(--secondary-text-color); line-height: 1.5;">
           O Companion está disponível, mas esta versão não anuncia o modo Repeater integrado.
         </div>
-      `));const l=Boolean(null!==(e=this._editValues.repeat)&&void 0!==e?e:n.repeat),d=Number(null!==(t=null!==(i=this._editValues.multi_acks)&&void 0!==i?i:n.radio.multi_acks)&&void 0!==t?t:0),c=Number(null!==(o=null!==(r=this._editValues.rx_delay)&&void 0!==r?r:n.tuning.rx_delay)&&void 0!==o?o:0),p=Number(null!==(a=n.tuning.airtime_factor)&&void 0!==a?a:0),h=Math.max(10,Math.min(50,Math.round(100/(1+Math.max(1,Math.min(9,p)))))),u=Number(null!==(s=this._editValues.duty_cycle)&&void 0!==s?s:h);return rn(ia||(ia=hs`
+      `));const d=Boolean(null!==(e=this._editValues.repeat)&&void 0!==e?e:l.repeat),c=Boolean(l.auto_advert_supported),p=Boolean(null!==(t=this._editValues.auto_advert)&&void 0!==t?t:l.auto_advert),h=Number(null!==(i=null!==(o=this._editValues.multi_acks)&&void 0!==o?o:l.radio.multi_acks)&&void 0!==i?i:0),u=Number(null!==(r=null!==(a=this._editValues.rx_delay)&&void 0!==a?a:l.tuning.rx_delay)&&void 0!==r?r:0),m=Number(null!==(s=l.tuning.airtime_factor)&&void 0!==s?s:0),g=Math.max(10,Math.min(50,Math.round(100/(1+Math.max(1,Math.min(9,m)))))),v=Number(null!==(n=this._editValues.duty_cycle)&&void 0!==n?n:g);return rn(ia||(ia=hs`
       <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;padding:10px 12px;border-radius:8px;background:var(--secondary-background-color);">
         <div>
           <div style="font-size:13px;font-weight:600;">Modo Repeater</div>
@@ -6543,6 +6543,24 @@ let e,t,i,o,r,a,s,n,l,d,c,p,h,u,m,g,v,f,y,b,_,x,w,$,k,C,S,M,A,R,F,I,T,z,O,D,N,E,
           <input
             type="checkbox"
             .checked=${0}
+            @change=${0}
+          />
+          ${0}
+        </label>
+      </div>
+
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;padding:10px 12px;border-radius:8px;background:var(--secondary-background-color);">
+        <div>
+          <div style="font-size:13px;font-weight:600;">AutoAdvert</div>
+          <div style="font-size:11px;color:var(--secondary-text-color);margin-top:2px;">
+            ${0}
+          </div>
+        </div>
+        <label style="display:flex;align-items:center;gap:8px;font-size:12px;">
+          <input
+            type="checkbox"
+            .checked=${0}
+            ?disabled=${0}
             @change=${0}
           />
           ${0}
@@ -6596,7 +6614,7 @@ let e,t,i,o,r,a,s,n,l,d,c,p,h,u,m,g,v,f,y,b,_,x,w,$,k,C,S,M,A,R,F,I,T,z,O,D,N,E,
         Frequência, BW, SF, CR, TX Power e Path Hash continuam no cartão Radio acima;
         adverts, sync de relógio e reboot continuam no cartão do Companion.
       </div>
-    `),n.repeat?"Ativo no HiveFW":"Desligado — Companion apenas",l,e=>{this._editValues.repeat=e.target.checked,this._editValues={...this._editValues}},l?"Ativo":"Desligado",String(d),e=>{this._editValues.multi_acks=Number(e.target.value),this._editValues={...this._editValues}},String(c),e=>{this._editValues.rx_delay=Number(e.target.value),this._editValues={...this._editValues}},String(u),e=>{this._editValues.duty_cycle=Number(e.target.value),this._editValues={...this._editValues}},Array.from({length:41},(e,t)=>t+10).map(e=>rn(oa||(oa=hs`<option value=${0}>${0}%</option>`),e,e)),this._saving,this._applyRepeaterSettings,this._saving?"Applying...":"Apply Repeater Settings")}async _applyRepeaterSettings(){var e,t,i,o,r,a;if(!this.hass||null===(e=this._repeaterStatus)||void 0===e||!e.supported)return;const s=this._repeaterStatus,n={repeat:Boolean(null!==(t=this._editValues.repeat)&&void 0!==t?t:s.repeat),multi_acks:Number(null!==(i=null!==(o=this._editValues.multi_acks)&&void 0!==o?o:s.radio.multi_acks)&&void 0!==i?i:0),rx_delay:Number(null!==(r=null!==(a=this._editValues.rx_delay)&&void 0!==a?a:s.tuning.rx_delay)&&void 0!==r?r:0),airtime_factor:((e,t)=>{const i=Number(null!==(e=s.tuning.airtime_factor)&&void 0!==e?e:0),o=Math.max(10,Math.min(50,Math.round(100/(1+Math.max(1,Math.min(9,i))))));return 100/Math.max(10,Math.min(50,Number(null!==(t=this._editValues.duty_cycle)&&void 0!==t?t:o)))-1})()};this._saving=!0;try{var l;if(!(await Ln(this.hass,n,null===(l=this.config)||void 0===l?void 0:l.entry_id)).success)return void this._showStatusMessage("Failed to apply Repeater settings","error");for(const e of["repeat","multi_acks","rx_delay","duty_cycle"])delete this._editValues[e];this._editValues={...this._editValues},await this._loadDeviceConfig(),this._showStatusMessage("Repeater settings applied","success")}catch(e){this._showStatusMessage(`Repeater settings: ${String(e)}`,"error")}finally{this._saving=!1}}_renderIdentityManagement(){return rn(ra||(ra=hs`
+    `),l.repeat?"Ativo no HiveFW":"Desligado — Companion apenas",d,e=>{this._editValues.repeat=e.target.checked,this._editValues={...this._editValues}},d?"Ativo":"Desligado",c?p?"Ativo — Smart Advert automático":"Desligado":"Requer firmware HiveFW com controlo remoto de AutoAdvert",p,!c,e=>{this._editValues.auto_advert=e.target.checked,this._editValues={...this._editValues}},p?"Ativo":"Desligado",String(h),e=>{this._editValues.multi_acks=Number(e.target.value),this._editValues={...this._editValues}},String(u),e=>{this._editValues.rx_delay=Number(e.target.value),this._editValues={...this._editValues}},String(v),e=>{this._editValues.duty_cycle=Number(e.target.value),this._editValues={...this._editValues}},Array.from({length:41},(e,t)=>t+10).map(e=>rn(oa||(oa=hs`<option value=${0}>${0}%</option>`),e,e)),this._saving,this._applyRepeaterSettings,this._saving?"Applying...":"Apply Repeater Settings")}async _applyRepeaterSettings(){var e,t,i,o,r,a;if(!this.hass||null===(e=this._repeaterStatus)||void 0===e||!e.supported)return;const s=this._repeaterStatus,n={repeat:Boolean(null!==(t=this._editValues.repeat)&&void 0!==t?t:s.repeat),multi_acks:Number(null!==(i=null!==(o=this._editValues.multi_acks)&&void 0!==o?o:s.radio.multi_acks)&&void 0!==i?i:0),rx_delay:Number(null!==(r=null!==(a=this._editValues.rx_delay)&&void 0!==a?a:s.tuning.rx_delay)&&void 0!==r?r:0),airtime_factor:((e,t)=>{const i=Number(null!==(e=s.tuning.airtime_factor)&&void 0!==e?e:0),o=Math.max(10,Math.min(50,Math.round(100/(1+Math.max(1,Math.min(9,i))))));return 100/Math.max(10,Math.min(50,Number(null!==(t=this._editValues.duty_cycle)&&void 0!==t?t:o)))-1})()};var l;s.auto_advert_supported&&(n.auto_advert=Boolean(null!==(l=this._editValues.auto_advert)&&void 0!==l?l:s.auto_advert)),this._saving=!0;try{var d;if(!(await Ln(this.hass,n,null===(d=this.config)||void 0===d?void 0:d.entry_id)).success)return void this._showStatusMessage("Failed to apply Repeater settings","error");for(const e of["repeat","auto_advert","multi_acks","rx_delay","duty_cycle"])delete this._editValues[e];this._editValues={...this._editValues},await this._loadDeviceConfig(),this._showStatusMessage("Repeater settings applied","success")}catch(e){this._showStatusMessage(`Repeater settings: ${String(e)}`,"error")}finally{this._saving=!1}}_renderIdentityManagement(){return rn(ra||(ra=hs`
       <div style="display: flex; flex-direction: column; gap: 16px;">
         <div class="danger-zone" style="margin-top: 0;">
           <div class="danger-zone-title">Regenerate Identity</div>
