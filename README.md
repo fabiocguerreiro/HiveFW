@@ -114,6 +114,26 @@ A conectividade Wi-Fi cria uma base para integrações como:
 
 O objetivo é permitir que um nó HiveFW permaneça permanentemente ligado à rede MeshCore e possa ser acedido ou integrado remotamente através de Wi-Fi, sem depender de uma ligação USB permanente.
 
+### Atualizações Web OTA e credenciais
+
+Nos builds ESP32 Wi-Fi suportados, o HiveFW pode atualizar o firmware pela rede local sem voltar a ligar o equipamento por USB.
+
+A partir da **V1.11**, o modelo de segurança do Web OTA deixa de utilizar qualquer password OTA fixa ou partilhada com o Wi-Fi:
+
+* nenhuma password OTA é incluída no código público ou nos artefactos de Release;
+* a password da rede Wi-Fi não é reutilizada como credencial OTA;
+* o rádio gera um token OTA aleatório de **192 bits** em cada arranque e mantém-no apenas em RAM;
+* a integração HiveFW para Home Assistant roda esse token imediatamente antes de um upload;
+* o token é write-only no protocolo Companion, não aparece em Custom Vars de leitura;
+* a integração filtra o token dos logs, incluindo a representação hexadecimal dos frames de debug;
+* depois do reboot causado pela atualização, o token anterior deixa de ser válido.
+
+A V1.11 também introduz uma migração das credenciais Wi-Fi para a NVS do ESP32. Numa primeira instalação compilada localmente, o SSID e a password existentes são guardados na NVS. As atualizações OTA públicas seguintes podem, assim, ser compiladas sem credenciais privadas e continuar a usar a configuração Wi-Fi já existente no equipamento.
+
+> **Migração V1.11:** equipamentos com versões anteriores devem instalar uma build V1.11 compilada localmente uma última vez. Depois dessa migração, as atualizações seguintes podem ser geridas pelo Home Assistant.
+
+O Web OTA utiliza HTTP na rede local e não fornece TLS. Deve, por isso, ser utilizado apenas numa rede local considerada confiável. O token efémero evita credenciais permanentes ou públicas, mas não substitui a proteção de transporte oferecida por HTTPS.
+
 ---
 
 ### Smart Advert
