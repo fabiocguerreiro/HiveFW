@@ -1799,52 +1799,9 @@ export class SettingsPage extends LitElement {
     const rxDelay = Number(this._editValues['rx_delay'] ?? status.tuning.rx_delay ?? 0);
 
     return html`
-      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;padding:10px 12px;border-radius:8px;background:var(--secondary-background-color);">
-        <div>
-          <div style="font-size:13px;font-weight:600;">Modo Repeater</div>
-          <div style="font-size:11px;color:var(--secondary-text-color);margin-top:2px;">
-            ${status.repeat ? 'Ativo no HiveFW' : 'Desligado — Companion apenas'}
-          </div>
-        </div>
-        <label style="display:flex;align-items:center;gap:8px;font-size:12px;">
-          <input
-            type="checkbox"
-            .checked=${repeat}
-            @change=${(e: Event) => {
-              this._editValues['repeat'] = (e.target as HTMLInputElement).checked;
-              this._editValues = { ...this._editValues };
-            }}
-          />
-          ${repeat ? 'Ativo' : 'Desligado'}
-        </label>
-      </div>
-
-      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;padding:10px 12px;border-radius:8px;background:var(--secondary-background-color);">
-        <div>
-          <div style="font-size:13px;font-weight:600;">AutoAdvert</div>
-          <div style="font-size:11px;color:var(--secondary-text-color);margin-top:2px;">
-            ${autoAdvertSupported
-              ? (autoAdvert ? 'Ativo — Smart Advert automático' : 'Desligado')
-              : 'Requer firmware HiveFW com controlo remoto de AutoAdvert'}
-          </div>
-        </div>
-        <label style="display:flex;align-items:center;gap:8px;font-size:12px;">
-          <input
-            type="checkbox"
-            .checked=${autoAdvert}
-            ?disabled=${!autoAdvertSupported}
-            @change=${(e: Event) => {
-              this._editValues['auto_advert'] = (e.target as HTMLInputElement).checked;
-              this._editValues = { ...this._editValues };
-            }}
-          />
-          ${autoAdvert ? 'Ativo' : 'Desligado'}
-        </label>
-      </div>
-
       <div class="section-row">
         <div class="form-group-inline">
-          <label class="form-label">Multi ACKs</label>
+          <label class="form-label">Multi ACK</label>
           <select
             class="form-select"
             .value=${String(multiAcks)}
@@ -1871,15 +1828,61 @@ export class SettingsPage extends LitElement {
         </div>
       </div>
 
-      <div
-        style="margin:14px 0;padding:12px;border:1px solid var(--divider-color);border-radius:8px;background:var(--secondary-background-color);"
-        data-hive-duty-cycle-control>
-        <div style="font-size:13px;font-weight:600;margin-bottom:8px;">Duty Cycle</div>
-        <div style="font-size:11px;color:var(--secondary-text-color);margin-bottom:10px;">
-          ${this._dutyCycleReadValue !== null
-            ? html`Valor lido do rádio: <strong>${this._dutyCycleReadValue}%</strong>`
-            : 'Valor ainda não lido do rádio'}
+      <button
+        class="apply-button"
+        style="width:100%;margin:4px 0 14px;"
+        ?disabled=${this._saving}
+        @click=${this._applyRepeaterSettings}>
+        ${this._saving ? 'A aplicar...' : 'Aplicar'}
+      </button>
+
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;padding:10px 12px;border-radius:8px;background:var(--secondary-background-color);">
+        <div>
+          <div style="font-size:13px;font-weight:600;">Modo Repetidor</div>
+          <div style="font-size:11px;color:var(--secondary-text-color);margin-top:2px;">
+            ${status.repeat ? 'Ativo no HiveFW' : 'Desligado — Companion apenas'}
+          </div>
         </div>
+        <label style="display:flex;align-items:center;gap:8px;font-size:12px;">
+          <input
+            type="checkbox"
+            .checked=${repeat}
+            @change=${(e: Event) => {
+              this._editValues['repeat'] = (e.target as HTMLInputElement).checked;
+              this._editValues = { ...this._editValues };
+            }}
+          />
+          ${repeat ? 'Ativo' : 'Desligado'}
+        </label>
+      </div>
+
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;padding:10px 12px;border-radius:8px;background:var(--secondary-background-color);">
+        <div>
+          <div style="font-size:13px;font-weight:600;">Auto Advert</div>
+          <div style="font-size:11px;color:var(--secondary-text-color);margin-top:2px;">
+            ${autoAdvertSupported
+              ? (autoAdvert ? 'Ativo — Smart Advert automático' : 'Desligado')
+              : 'Requer firmware HiveFW com controlo remoto de AutoAdvert'}
+          </div>
+        </div>
+        <label style="display:flex;align-items:center;gap:8px;font-size:12px;">
+          <input
+            type="checkbox"
+            .checked=${autoAdvert}
+            ?disabled=${!autoAdvertSupported}
+            @change=${(e: Event) => {
+              this._editValues['auto_advert'] = (e.target as HTMLInputElement).checked;
+              this._editValues = { ...this._editValues };
+            }}
+          />
+          ${autoAdvert ? 'Ativo' : 'Desligado'}
+        </label>
+      </div>
+
+      <div
+        style="margin:0;padding:12px;border:1px solid var(--divider-color);border-radius:8px;background:var(--secondary-background-color);"
+        data-hive-duty-cycle-control>
+        <div style="font-size:13px;font-weight:600;margin-bottom:10px;">Duty Cycle</div>
         <div style="display:grid;grid-template-columns:minmax(90px,1fr) auto auto;gap:8px;align-items:end;">
           <div>
             <label class="form-label">Valor</label>
@@ -1901,27 +1904,21 @@ export class SettingsPage extends LitElement {
             </select>
           </div>
           <button
-            class="action-btn"
+            class="apply-button"
+            style="width:auto;min-width:68px;padding:7px 12px;margin:0;"
             ?disabled=${this._dutyCycleBusy !== null}
             @click=${this._readDutyCycle}>
             ${this._dutyCycleBusy === 'read' ? 'A ler...' : 'Ler'}
           </button>
           <button
-            class="action-btn"
+            class="apply-button"
+            style="width:auto;min-width:78px;padding:7px 12px;margin:0;"
             ?disabled=${this._dutyCycleBusy !== null}
             @click=${this._applyDutyCycle}>
             ${this._dutyCycleBusy === 'apply' ? 'A aplicar...' : 'Aplicar'}
           </button>
         </div>
       </div>
-
-      <button
-        class="apply-button"
-        style="width:100%;margin-top:4px;"
-        ?disabled=${this._saving}
-        @click=${this._applyRepeaterSettings}>
-        ${this._saving ? 'Applying...' : 'Apply Repeater Settings'}
-      </button>
 
       <div style="margin-top:10px;font-size:11px;color:var(--secondary-text-color);line-height:1.45;">
         Frequência, BW, SF, CR, TX Power e Path Hash continuam no cartão Radio acima;
