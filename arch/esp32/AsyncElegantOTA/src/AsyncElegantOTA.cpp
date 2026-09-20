@@ -6,10 +6,8 @@ void AsyncElegantOtaClass::setID(const char* id){
     _id = id;
 }
 
-void AsyncElegantOtaClass::begin(AsyncWebServer *server, const char* username, const char* password){
-    _server = server;
-
-    if(strlen(username) > 0){
+void AsyncElegantOtaClass::setAuth(const char* username, const char* password){
+    if(username != nullptr && password != nullptr && strlen(username) > 0 && strlen(password) > 0){
         _authRequired = true;
         _username = username;
         _password = password;
@@ -18,6 +16,11 @@ void AsyncElegantOtaClass::begin(AsyncWebServer *server, const char* username, c
         _username = "";
         _password = "";
     }
+}
+
+void AsyncElegantOtaClass::begin(AsyncWebServer *server, const char* username, const char* password){
+    _server = server;
+    setAuth(username, password);
 
     _server->on("/update/identity", HTTP_GET, [&](AsyncWebServerRequest *request){
         if(_authRequired){

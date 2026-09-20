@@ -29,6 +29,7 @@ class AsyncElegantOtaClass{
     public:
         void
             setID(const char* id),
+            setAuth(const char* username, const char* password),
             begin(AsyncWebServer *server, const char* username = "", const char* password = ""),
             loop(),
             restart();

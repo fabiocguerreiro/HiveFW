@@ -3,6 +3,10 @@
 #include <Arduino.h> // needed for PlatformIO
 #include <Mesh.h>
 
+#if defined(ESP32) && defined(WIFI_SSID) && defined(WEB_OTA_ENABLED)
+extern bool hivefw_set_ota_token(const char* token);
+#endif
+
 #define CMD_APP_START                 1
 #define CMD_SEND_TXT_MSG              2
 #define CMD_SEND_CHANNEL_TXT_MSG      3
@@ -3309,6 +3313,15 @@ void MyMesh::handleCmdFrame(size_t len) {
           savePrefs();
           success = true;
         }
+      } else if (strcmp(sp, "ota_token") == 0) {
+        // Security-sensitive write-only control. It is intentionally NOT
+        // appended by CMD_GET_CUSTOM_VARS, so Companion clients cannot read
+        // back the current OTA credential.
+        #if defined(ESP32) && defined(WIFI_SSID) && defined(WEB_OTA_ENABLED)
+          success = hivefw_set_ota_token(np);
+        #else
+          success = false;
+        #endif
       } else {
         success = sensors.setSettingValue(sp, np);
       }

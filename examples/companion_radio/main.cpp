@@ -46,12 +46,55 @@ MultiSerialInterface interface_manager;
 #endif
 
 // Web OTA for ESP32 Wi-Fi Companion builds.
-// Uses the same Wi-Fi connection as the Companion TCP transport but serves
-// firmware updates independently over HTTP on port 80.
+//
+// Security model:
+// - no OTA password is compiled into the public firmware;
+// - the Wi-Fi password is never reused for OTA;
+// - a fresh 192-bit token is generated on every boot and kept only in RAM;
+// - Home Assistant rotates that token again immediately before an OTA upload
+//   through the existing local Companion connection;
+// - the token is never returned by the Companion custom-variable read path.
 #if defined(ESP32) && defined(WIFI_SSID) && defined(WEB_OTA_ENABLED)
   #include <ESPAsyncWebServer.h>
   #include <AsyncElegantOTA.h>
+  #include <esp_system.h>
+
   AsyncWebServer web_ota_server(80);
+
+  static String web_ota_token;
+
+  static String generateWebOtaToken() {
+    char token[49];
+    for (size_t i = 0; i < 6; ++i) {
+      const uint32_t value = esp_random();
+      snprintf(&token[i * 8], 9, "%08lx", (unsigned long)value);
+    }
+    token[48] = '\0';
+    return String(token);
+  }
+
+  // Called from MyMesh::CMD_SET_CUSTOM_VAR for the write-only "ota_token"
+  // control. Deliberately RAM-only: after reboot the previous token is dead.
+  bool hivefw_set_ota_token(const char* token) {
+    if (token == nullptr || strlen(token) != 48) {
+      return false;
+    }
+
+    for (size_t i = 0; i < 48; ++i) {
+      const char c = token[i];
+      const bool is_hex =
+        (c >= '0' && c <= '9') ||
+        (c >= 'a' && c <= 'f') ||
+        (c >= 'A' && c <= 'F');
+      if (!is_hex) {
+        return false;
+      }
+    }
+
+    web_ota_token = token;
+    AsyncElegantOTA.setAuth("hivefw", web_ota_token.c_str());
+    return true;
+  }
 #endif
 
 // include usb interface
@@ -219,31 +262,24 @@ void setup() {
   interface_manager.addInterface(InterfaceType::WiFi, &wifi_interface);
 
   #if defined(ESP32) && defined(WEB_OTA_ENABLED)
-    // Default credentials deliberately reuse the Wi-Fi password so no OTA
-    // secret needs to be committed. WEB_OTA_USER / WEB_OTA_PASSWORD can be
-    // overridden in platformio.local.ini if desired.
-    #ifndef WEB_OTA_USER
-      #define WEB_OTA_USER "hivefw"
-    #endif
-    #ifndef WEB_OTA_PASSWORD
-      #define WEB_OTA_PASSWORD WIFI_PWD
-    #endif
+    web_ota_token = generateWebOtaToken();
 
     web_ota_server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
       request->send(
         200,
         "text/plain",
-        "HiveFW Companion-Repeater\nWeb OTA: /update\n"
+        "HiveFW Companion-Repeater\nWeb OTA is managed securely by HiveFW/Home Assistant.\n"
       );
     });
 
     AsyncElegantOTA.begin(
       &web_ota_server,
-      WEB_OTA_USER,
-      WEB_OTA_PASSWORD
+      "hivefw",
+      web_ota_token.c_str()
     );
     web_ota_server.begin();
 
+    // Never print the OTA token. Only the endpoint/address is diagnostic.
     WIFI_DEBUG_PRINTLN(
       "Web OTA ready at http://%s/update",
       WiFi.localIP().toString().c_str()
