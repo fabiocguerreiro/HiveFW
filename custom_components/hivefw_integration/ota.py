@@ -411,6 +411,27 @@ async def async_install_latest_release(
     return result
 
 
+async def async_detect_secure_ota(
+    coordinator,
+    firmware_version: str | None = None,
+) -> bool:
+    """Detect secure OTA capability from the radio, not just version text.
+
+    DEVICE_INFO firmware strings are not guaranteed to preserve a simple
+    semantic-version format. If the version string does not prove V1.11+,
+    probe the write-only ota_token capability directly. A successful probe
+    simply rotates the in-RAM credential; a later upload rotates it again.
+    """
+    if secure_ota_capable(firmware_version):
+        return True
+
+    try:
+        await _rotate_ota_token(coordinator)
+        return True
+    except HiveFWOtaError:
+        return False
+
+
 async def async_get_ota_status(
     hass: HomeAssistant,
     entry_id: str | None,
@@ -423,6 +444,13 @@ async def async_get_ota_status(
     firmware = str(getattr(coordinator, "_firmware_version", "") or "")
     connection_type = entry.data.get(CONF_CONNECTION_TYPE)
     host = str(entry.data.get(CONF_TCP_HOST, "") or "")
+    supported = connection_type == CONNECTION_TYPE_TCP and bool(host)
+    secure_ota = (
+        await async_detect_secure_ota(coordinator, firmware)
+        if supported
+        else False
+    )
+
     release = None
     try:
         release = await async_get_latest_release(hass)
@@ -431,13 +459,9 @@ async def async_get_ota_status(
         pass
 
     return {
-        "supported": connection_type == CONNECTION_TYPE_TCP and bool(host),
-        "secure_ota": secure_ota_capable(firmware),
-        "bootstrap_required": (
-            connection_type == CONNECTION_TYPE_TCP
-            and bool(host)
-            and not secure_ota_capable(firmware)
-        ),
+        "supported": supported,
+        "secure_ota": secure_ota,
+        "bootstrap_required": supported and not secure_ota,
         "host": host,
         "installed_version": firmware or None,
         "latest_version": release.get("version") if release else None,

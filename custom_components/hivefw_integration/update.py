@@ -19,9 +19,9 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from .const import DOMAIN
 from .ota import (
     HiveFWOtaError,
+    async_detect_secure_ota,
     async_get_latest_release,
     async_install_latest_release,
-    secure_ota_capable,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -68,6 +68,7 @@ class HiveFWFirmwareUpdateEntity(UpdateEntity):
         self.coordinator = coordinator
         self._attr_unique_id = f"{coordinator.config_entry.entry_id}_firmware_update"
         self._release: dict[str, Any] | None = None
+        self._secure_ota = False
         self._installing = False
         self._progress: int | None = None
 
@@ -110,10 +111,7 @@ class HiveFWFirmwareUpdateEntity(UpdateEntity):
 
     @property
     def available(self) -> bool:
-        # The update entity becomes install-capable after the one-time V1.11
-        # bootstrap. Older firmware still appears in the custom Device panel
-        # with explicit migration instructions.
-        return secure_ota_capable(self.installed_version)
+        return self._secure_ota
 
     def version_is_newer(self, latest_version: str, installed_version: str) -> bool:
         latest = _version_tuple(latest_version)
@@ -126,6 +124,10 @@ class HiveFWFirmwareUpdateEntity(UpdateEntity):
         return latest_version != installed_version
 
     async def async_update(self) -> None:
+        self._secure_ota = await async_detect_secure_ota(
+            self.coordinator,
+            self.installed_version,
+        )
         try:
             self._release = await async_get_latest_release(self.hass)
         except HiveFWOtaError as ex:
@@ -145,10 +147,13 @@ class HiveFWFirmwareUpdateEntity(UpdateEntity):
     ) -> None:
         if self._installing:
             raise HomeAssistantError("HiveFW firmware update is already in progress")
-        if not secure_ota_capable(self.installed_version):
+        self._secure_ota = await async_detect_secure_ota(
+            self.coordinator,
+            self.installed_version,
+        )
+        if not self._secure_ota:
             raise HomeAssistantError(
-                "Secure OTA requires HiveFW V1.11 or newer. "
-                "Install V1.11 once through the existing /update page."
+                "The connected radio does not expose secure HiveFW OTA."
             )
 
         self._installing = True
