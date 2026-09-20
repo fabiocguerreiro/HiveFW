@@ -1451,15 +1451,6 @@ export class SettingsPage extends LitElement {
   private async _uploadFirmwareFile() {
     if (!this.hass || !this._firmwareFile || !this.config?.entry_id) return;
 
-    const auth = (this.hass.connection as unknown as {
-      options?: { auth?: { accessToken?: string } };
-    })?.options?.auth;
-    const accessToken = auth?.accessToken;
-    if (!accessToken) {
-      this._showStatusMessage('Não foi possível obter a sessão autenticada do Home Assistant.', 'error');
-      return;
-    }
-
     const file = this._firmwareFile;
     if (!file.name.toLowerCase().endsWith('.bin') || file.name.toLowerCase().includes('merged')) {
       this._showStatusMessage('Seleciona o firmware .bin OTA, não o ficheiro merged.', 'error');
@@ -1467,51 +1458,46 @@ export class SettingsPage extends LitElement {
     }
 
     this._firmwareBusy = true;
-    this._firmwareUploadProgress = 0;
+    this._firmwareUploadProgress = 10;
 
     try {
       const form = new FormData();
       form.append('entry_id', this.config.entry_id);
       form.append('firmware', file, file.name);
 
-      const response = await new Promise<{ success: boolean; error?: string }>((resolve, reject) => {
-        const xhr = new XMLHttpRequest();
-        xhr.open('POST', '/api/hivefw_integration/firmware');
-        xhr.setRequestHeader('Authorization', `Bearer ${accessToken}`);
+      // Use Home Assistant's own authenticated fetch helper. Our panel never
+      // reads, copies or stores the HA access token, and the OTA credential is
+      // generated exclusively inside the backend immediately before upload.
+      const response = await this.hass.fetchWithAuth(
+        '/api/hivefw_integration/firmware',
+        {
+          method: 'POST',
+          body: form,
+        },
+      );
 
-        xhr.upload.onprogress = (event) => {
-          if (event.lengthComputable && event.total > 0) {
-            this._firmwareUploadProgress = Math.min(
-              95,
-              Math.round((event.loaded / event.total) * 95),
-            );
-          }
-        };
+      this._firmwareUploadProgress = 90;
 
-        xhr.onerror = () => reject(new Error('Falha de rede durante o upload para o Home Assistant.'));
-        xhr.onload = () => {
-          let payload: { success: boolean; error?: string };
-          try {
-            payload = JSON.parse(xhr.responseText || '{}');
-          } catch {
-            payload = { success: false, error: xhr.responseText || `HTTP ${xhr.status}` };
-          }
-          if (xhr.status >= 200 && xhr.status < 300 && payload.success) {
-            resolve(payload);
-          } else {
-            reject(new Error(payload.error || `HTTP ${xhr.status}`));
-          }
-        };
-        xhr.send(form);
-      });
+      let payload: { success?: boolean; error?: string } = {};
+      try {
+        payload = await response.json();
+      } catch {
+        payload = {};
+      }
 
-      if (!response.success) throw new Error(response.error || 'OTA falhou');
+      if (!response.ok || !payload.success) {
+        throw new Error(payload.error || `HTTP ${response.status}`);
+      }
+
       this._firmwareUploadProgress = 100;
       this._firmwareFile = null;
       this._showStatusMessage('Firmware enviado. O HiveFW está a reiniciar.', 'success');
       window.setTimeout(() => void this._refreshFirmwareOtaStatus(), 12000);
     } catch (error) {
-      this._showStatusMessage(`Firmware OTA: ${error instanceof Error ? error.message : String(error)}`, 'error');
+      this._showStatusMessage(
+        `Firmware OTA: ${error instanceof Error ? error.message : String(error)}`,
+        'error',
+      );
     } finally {
       this._firmwareBusy = false;
       window.setTimeout(() => {
