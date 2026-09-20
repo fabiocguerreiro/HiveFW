@@ -1241,6 +1241,9 @@ export class SettingsPage extends LitElement {
           <!-- Companion Device Card (full width at top) -->
           ${this.selectedDevice ? this._renderCompanionCard() : nothing}
 
+          <!-- Standalone firmware manager directly below the main device card -->
+          ${this.selectedDevice ? this._renderFirmwareOta() : nothing}
+
           <!-- Two-column grid for settings cards -->
           <div class="settings-grid">
             <!-- Companion Information -->
@@ -1283,9 +1286,6 @@ export class SettingsPage extends LitElement {
             </div>
 
           </div>
-
-          <!-- Standalone firmware manager -->
-          ${this.selectedDevice ? this._renderFirmwareOta() : nothing}
 
         </div>
       </div>
