@@ -5997,6 +5997,9 @@ let e,t,i,o,a,r,s,n,l,d,c,p,h,u,m,g,v,f,y,b,_,x,w,$,k,S,C,M,A,R,F,O,T,z,I,D,N,E,
           <!-- Companion Device Card (full width at top) -->
           ${0}
 
+          <!-- Standalone firmware manager directly below the main device card -->
+          ${0}
+
           <!-- Two-column grid for settings cards -->
           <div class="settings-grid">
             <!-- Companion Information -->
@@ -6039,9 +6042,6 @@ let e,t,i,o,a,r,s,n,l,d,c,p,h,u,m,g,v,f,y,b,_,x,w,$,k,S,C,M,A,R,F,O,T,z,I,D,N,E,
             </div>
 
           </div>
-
-          <!-- Standalone firmware manager -->
-          ${0}
 
         </div>
       </div>
@@ -6086,7 +6086,7 @@ let e,t,i,o,a,r,s,n,l,d,c,p,h,u,m,g,v,f,y,b,_,x,w,$,k,S,C,M,A,R,F,O,T,z,I,D,N,E,
         ?narrow=${0}
         @close=${0}>
       </meshcore-command-dialog>
-    `),this.selectedDevice?this._renderCompanionCard():bn,this._renderDeviceInfo(),this._renderRadioSettings(),this._renderRepeaterSettings(),this._renderRegionsScopes(),this._renderLocation(),this.selectedDevice?this._renderFirmwareOta():bn,this._contextMenu?vn($a||($a=ks`
+    `),this.selectedDevice?this._renderCompanionCard():bn,this.selectedDevice?this._renderFirmwareOta():bn,this._renderDeviceInfo(),this._renderRadioSettings(),this._renderRepeaterSettings(),this._renderRegionsScopes(),this._renderLocation(),this._contextMenu?vn($a||($a=ks`
         <div class="modal-overlay"
              @pointerdown=${0}
              @click=${0}>
