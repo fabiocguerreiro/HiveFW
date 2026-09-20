@@ -803,6 +803,10 @@ class HiveFWPanel extends BasePanel {
         .hivefw-console-input { flex-basis:100%; min-width:0; }
       }
       .hivefw-console-card {
+        min-width:0;
+        max-width:100%;
+        overflow:hidden;
+        box-sizing:border-box;
         border:1px solid var(--divider-color);
         border-radius:16px;
         background:var(--card-background-color);
@@ -831,7 +835,9 @@ class HiveFWPanel extends BasePanel {
       .hivefw-console-time { color:#7b8794; margin-right:7px; }
       .hivefw-console-input {
         flex:1 1 420px;
-        min-width:180px;
+        width:100%;
+        max-width:100%;
+        min-width:0;
         box-sizing:border-box;
         border:1px solid var(--divider-color);
         border-radius:11px;
@@ -5853,7 +5859,7 @@ class HiveFWPanel extends BasePanel {
 
     const presetSelect = document.createElement("select");
     presetSelect.className = "hivefw-console-input";
-    presetSelect.style.flex = "1 1 100%";
+    presetSelect.style.cssText = "flex:1 1 100%;width:100%;max-width:100%;min-width:0;";
     const placeholder = document.createElement("option");
     placeholder.value = "";
     placeholder.textContent = "Selecionar comando…";
