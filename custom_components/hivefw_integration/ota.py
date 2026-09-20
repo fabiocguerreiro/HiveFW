@@ -259,17 +259,26 @@ async def async_upload_firmware_bytes(
                 url,
                 data=form,
                 auth=BasicAuth(OTA_USERNAME, token),
-                timeout=ClientTimeout(total=120),
+                # The V1.11 OTA handler can reboot before the final HTTP
+                # response is fully delivered. Keep enough time for the
+                # firmware body to upload, but do not leave HA waiting two
+                # minutes for a response from an ESP that has already rebooted.
+                timeout=ClientTimeout(
+                    total=60,
+                    sock_connect=8,
+                    sock_read=12,
+                ),
             ) as response:
                 body = (await response.text()).strip()
                 if response.status != 200 or body != "OK":
                     raise HiveFWOtaError(
                         f"Radio rejected OTA upload (HTTP {response.status}: {body or 'empty response'})"
                     )
-        except ClientConnectionError as ex:
-            # HiveFW V1.11 could reboot quickly enough to close the socket
-            # before aiohttp received the final 200/OK. Do not report a false
-            # failure if the ESP demonstrably rebooted and returned on the LAN.
+        except (ClientConnectionError, asyncio.TimeoutError) as ex:
+            # HiveFW V1.11 could reboot quickly enough to close the socket or
+            # leave aiohttp waiting for the final response body. Do not report
+            # a false failure if the ESP demonstrably rebooted and returned on
+            # the LAN.
             if await _wait_for_web_ota_return(hass, host):
                 response_lost_during_reboot = True
             else:
