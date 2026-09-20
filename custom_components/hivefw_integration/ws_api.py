@@ -2402,6 +2402,7 @@ async def ws_set_duty_cycle(hass, connection, msg):
     {
         vol.Required("type"): "hivefw_integration/get_firmware_ota_status",
         vol.Optional("entry_id"): str,
+        vol.Optional("force", default=False): bool,
     }
 )
 @websocket_api.require_admin
@@ -2409,7 +2410,11 @@ async def ws_set_duty_cycle(hass, connection, msg):
 async def ws_get_firmware_ota_status(hass, connection, msg):
     """Return non-secret OTA capability and release metadata."""
     try:
-        result = await async_get_ota_status(hass, msg.get("entry_id"))
+        result = await async_get_ota_status(
+            hass,
+            msg.get("entry_id"),
+            force_release=bool(msg.get("force", False)),
+        )
         connection.send_result(msg["id"], result)
     except HiveFWOtaError as ex:
         connection.send_error(msg["id"], "ota_status_failed", str(ex))

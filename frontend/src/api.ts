@@ -563,6 +563,7 @@ export interface FirmwareOtaStatus {
   release_url?: string | null;
   release_name?: string | null;
   release_available: boolean;
+  update_available: boolean;
 }
 
 export interface FirmwareInstallResult {
@@ -581,11 +582,13 @@ export interface FirmwareInstallResult {
 export async function getFirmwareOtaStatus(
   hass: HomeAssistant,
   entryId?: string,
+  force = false,
 ): Promise<FirmwareOtaStatus> {
   const msg: Record<string, unknown> = {
     type: 'hivefw_integration/get_firmware_ota_status',
   };
   if (entryId) msg.entry_id = entryId;
+  if (force) msg.force = true;
   return hass.callWS<FirmwareOtaStatus>(msg);
 }
 

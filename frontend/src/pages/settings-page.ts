@@ -125,6 +125,7 @@ export class SettingsPage extends LitElement {
   @state() private _firmwareOtaStatus: FirmwareOtaStatus | null = null;
   @state() private _firmwareFile: File | null = null;
   @state() private _firmwareBusy = false;
+  @state() private _firmwareChecking = false;
   @state() private _firmwareUploadStage: 'uploading' | 'rebooting' | 'reconnecting' | null = null;
   @state() private _dutyCycleValue = 10;
   @state() private _dutyCycleReadValue: number | null = null;
@@ -1327,9 +1328,11 @@ export class SettingsPage extends LitElement {
             <div style="font-size:13px;font-weight:700;">Firmware OTA</div>
             <div style="font-size:11px;color:var(--secondary-text-color);margin-top:3px;">
               Instalado: <strong>${installed}</strong>
-              ${ota?.release_available
-                ? html` · Disponível: <strong>${latest}</strong>`
-                : nothing}
+              ${ota?.update_available
+                ? html` · Atualização: <strong>${latest}</strong>`
+                : ota?.release_available
+                  ? html` · Última Release: <strong>${latest}</strong>`
+                  : nothing}
             </div>
           </div>
           ${ota?.host
@@ -1386,6 +1389,14 @@ export class SettingsPage extends LitElement {
                     de cada atualização e nunca é mostrada nem guardada pela integração.
                   </div>
 
+                  <button
+                    class="apply-button"
+                    style="width:100%;margin-top:10px;"
+                    ?disabled=${this._firmwareBusy || this._firmwareChecking}
+                    @click=${this._checkFirmwareUpdates}>
+                    ${this._firmwareChecking ? 'A verificar…' : 'Verificar atualizações'}
+                  </button>
+
                   <div style="display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:end;margin-top:12px;">
                     <div>
                       <label class="form-label">Firmware .bin</label>
@@ -1422,7 +1433,7 @@ export class SettingsPage extends LitElement {
                       `
                     : nothing}
 
-                  ${ota.release_available
+                  ${ota.update_available
                     ? html`
                         <button
                           class="apply-button"
@@ -1436,6 +1447,39 @@ export class SettingsPage extends LitElement {
                 `}
       </div>
     `;
+  }
+
+  private async _checkFirmwareUpdates() {
+    if (!this.hass) return;
+    this._firmwareChecking = true;
+    try {
+      const status = await getFirmwareOtaStatus(
+        this.hass,
+        this.config?.entry_id,
+        true,
+      );
+      this._firmwareOtaStatus = status;
+      if (status.update_available) {
+        this._showStatusMessage(
+          `Nova versão disponível: ${status.latest_version || 'firmware mais recente'}.`,
+          'success',
+        );
+      } else if (status.release_available) {
+        this._showStatusMessage(
+          `Sem atualizações. Última Release: ${status.latest_version || 'atual'}.`,
+          'success',
+        );
+      } else {
+        this._showStatusMessage('Ainda não existe uma Release OTA pública.', 'success');
+      }
+    } catch (error) {
+      this._showStatusMessage(
+        `Verificação de firmware: ${error instanceof Error ? error.message : String(error)}`,
+        'error',
+      );
+    } finally {
+      this._firmwareChecking = false;
+    }
   }
 
   private async _refreshFirmwareOtaStatus() {

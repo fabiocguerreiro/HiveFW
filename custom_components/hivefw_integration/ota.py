@@ -475,6 +475,8 @@ async def async_detect_secure_ota(
 async def async_get_ota_status(
     hass: HomeAssistant,
     entry_id: str | None,
+    *,
+    force_release: bool = False,
 ) -> dict[str, Any]:
     coordinator = _get_coordinator(hass, entry_id)
     if coordinator is None:
@@ -493,10 +495,20 @@ async def async_get_ota_status(
 
     release = None
     try:
-        release = await async_get_latest_release(hass)
+        release = await async_get_latest_release(hass, force=force_release)
     except HiveFWOtaError:
         # Release discovery failure must not hide local OTA state.
         pass
+
+    latest_version = str(release.get("version") or "") if release else ""
+    installed_tuple = _version_tuple(firmware)
+    latest_tuple = _version_tuple(latest_version)
+    if release and latest_tuple and installed_tuple:
+        update_available = latest_tuple > installed_tuple
+    elif release and latest_version and firmware:
+        update_available = latest_version != firmware
+    else:
+        update_available = False
 
     return {
         "supported": supported,
@@ -504,10 +516,11 @@ async def async_get_ota_status(
         "bootstrap_required": supported and not secure_ota,
         "host": host,
         "installed_version": firmware or None,
-        "latest_version": release.get("version") if release else None,
+        "latest_version": latest_version or None,
         "release_url": release.get("url") if release else None,
         "release_name": release.get("name") if release else None,
         "release_available": bool(release),
+        "update_available": update_available,
     }
 
 
