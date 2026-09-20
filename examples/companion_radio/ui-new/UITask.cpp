@@ -62,7 +62,7 @@ static const uint8_t HIVEFW_CONTACTS_ROOT_COUNT = 5;
 //
 // MP-00 — FIRST
 //   ├── MENSAGENS / BLE / GPS
-//   ├── SMARTPHONE BLE: nome do dispositivo ou Desligado
+//   ├── LIGAÇÃO: smartphone BLE (BLE) ou IP local (Wi-Fi)
 //   └── NICKNAME: nome do nó
 // MP-01 — MENSAGENS
 //   ├── NOVA MENSAGEM
@@ -2172,6 +2172,57 @@ class HomeScreen : public UIScreen {
   }
 
 
+  void getDashboardConnectionLabel(
+    char* dest,
+    size_t dest_len
+  ) {
+
+    if (
+      dest == NULL ||
+      dest_len == 0
+    ) {
+      return;
+    }
+
+#if defined(WIFI_SSID)
+
+    // No Companion Wi-Fi, a segunda linha do dashboard identifica
+    // diretamente o endereço pelo qual o rádio está acessível na LAN.
+    // Isto é independente de existir neste instante um cliente TCP ligado.
+    if (WiFi.status() == WL_CONNECTED) {
+
+      String ip =
+        WiFi.localIP().toString();
+
+      snprintf(
+        dest,
+        dest_len,
+        "%s",
+        ip.c_str()
+      );
+
+    } else {
+
+      snprintf(
+        dest,
+        dest_len,
+        "Desligado"
+      );
+    }
+
+#else
+
+    // Builds BLE mantêm exatamente o comportamento existente:
+    // nome do peer remoto quando disponível, ou estado da ligação.
+    getCompanionPeerName(
+      dest,
+      dest_len
+    );
+
+#endif
+  }
+
+
   void renderCompanionInfo(DisplayDriver& display) {
     char counter[8];
     char title[24];
@@ -3633,15 +3684,15 @@ class HomeScreen : public UIScreen {
     // ------------------------------------------------------
     // LINHA 2:
     //
-    // nome real do smartphone BLE
-    // ou "Desligado"
+    // BLE  -> nome real do smartphone / estado da ligação
+    // Wi-Fi -> endereço IP local do Companion
     // ------------------------------------------------------
 
-    char peer_name[48];
+    char connection_label[48];
 
-    getCompanionPeerName(
-      peer_name,
-      sizeof(peer_name)
+    getDashboardConnectionLabel(
+      connection_label,
+      sizeof(connection_label)
     );
 
     display.setColor(
@@ -3651,7 +3702,7 @@ class HomeScreen : public UIScreen {
     drawCenteredClippedText(
       display,
       36,
-      peer_name
+      connection_label
     );
 
     // ------------------------------------------------------
