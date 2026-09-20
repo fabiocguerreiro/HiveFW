@@ -43,6 +43,8 @@ class AsyncElegantOtaClass{
         String _username = "";
         String _password = "";
         bool _authRequired = false;
+        bool _restartPending = false;
+        unsigned long _restartAt = 0;
 
 };
 

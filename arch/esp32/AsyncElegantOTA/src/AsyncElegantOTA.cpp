@@ -109,15 +109,20 @@ void AsyncElegantOtaClass::begin(AsyncWebServer *server, const char* username, c
     });
 }
 
-// deprecated, keeping for backward compatibility
+// Keep loop() active so OTA can schedule a reboot without blocking the
+// AsyncWebServer request callback. This gives the TCP stack time to flush the
+// final HTTP 200/OK response back to Home Assistant before the ESP restarts.
 void AsyncElegantOtaClass::loop() {
+    if (_restartPending && (long)(millis() - _restartAt) >= 0) {
+        _restartPending = false;
+        yield();
+        ESP.restart();
+    }
 }
 
 void AsyncElegantOtaClass::restart() {
-    yield();
-    delay(1000);
-    yield();
-    ESP.restart();
+    _restartPending = true;
+    _restartAt = millis() + 2000;
 }
 
 String AsyncElegantOtaClass::getID(){

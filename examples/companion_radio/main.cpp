@@ -384,6 +384,10 @@ void loop() {
 #endif
   }
 
+#if defined(ESP32) && defined(WIFI_SSID) && defined(WEB_OTA_ENABLED)
+  AsyncElegantOTA.loop();
+#endif
+
 #if defined(ESP32) && defined(WIFI_SSID)
   // Safely attempt to reconnect every 10 seconds if flagged
   if (wifi_needs_reconnect && (millis() - last_wifi_reconnect_attempt > 10000)) {
