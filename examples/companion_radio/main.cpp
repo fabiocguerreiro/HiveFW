@@ -45,6 +45,15 @@ MultiSerialInterface interface_manager;
   #endif
 #endif
 
+// Web OTA for ESP32 Wi-Fi Companion builds.
+// Uses the same Wi-Fi connection as the Companion TCP transport but serves
+// firmware updates independently over HTTP on port 80.
+#if defined(ESP32) && defined(WIFI_SSID) && defined(WEB_OTA_ENABLED)
+  #include <ESPAsyncWebServer.h>
+  #include <AsyncElegantOTA.h>
+  AsyncWebServer web_ota_server(80);
+#endif
+
 // include usb interface
 #if defined(ENABLE_USB_INTERFACE)
   #include <helpers/ArduinoSerialInterface.h>
@@ -208,6 +217,38 @@ void setup() {
   WiFi.begin(WIFI_SSID, WIFI_PWD);
   wifi_interface.begin(TCP_PORT);
   interface_manager.addInterface(InterfaceType::WiFi, &wifi_interface);
+
+  #if defined(ESP32) && defined(WEB_OTA_ENABLED)
+    // Default credentials deliberately reuse the Wi-Fi password so no OTA
+    // secret needs to be committed. WEB_OTA_USER / WEB_OTA_PASSWORD can be
+    // overridden in platformio.local.ini if desired.
+    #ifndef WEB_OTA_USER
+      #define WEB_OTA_USER "hivefw"
+    #endif
+    #ifndef WEB_OTA_PASSWORD
+      #define WEB_OTA_PASSWORD WIFI_PWD
+    #endif
+
+    web_ota_server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
+      request->send(
+        200,
+        "text/plain",
+        "HiveFW Companion-Repeater\nWeb OTA: /update\n"
+      );
+    });
+
+    AsyncElegantOTA.begin(
+      &web_ota_server,
+      WEB_OTA_USER,
+      WEB_OTA_PASSWORD
+    );
+    web_ota_server.begin();
+
+    WIFI_DEBUG_PRINTLN(
+      "Web OTA ready at http://%s/update",
+      WiFi.localIP().toString().c_str()
+    );
+  #endif
 #endif
 
 // add usb interface
