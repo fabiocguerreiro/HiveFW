@@ -1783,7 +1783,9 @@ export class SettingsPage extends LitElement {
     const repeat = Boolean(this._editValues['repeat'] ?? status.repeat);
     const multiAcks = Number(this._editValues['multi_acks'] ?? status.radio.multi_acks ?? 0);
     const rxDelay = Number(this._editValues['rx_delay'] ?? status.tuning.rx_delay ?? 0);
-    const airtimeFactor = Number(this._editValues['airtime_factor'] ?? status.tuning.airtime_factor ?? 0);
+    const airtimeFactor = Number(status.tuning.airtime_factor ?? 0);
+    const currentDuty = Math.max(10, Math.min(50, Math.round(100 / (1 + Math.max(1, Math.min(9, airtimeFactor))))));
+    const dutyCycle = Number(this._editValues['duty_cycle'] ?? currentDuty);
 
     return html`
       <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;padding:10px 12px;border-radius:8px;background:var(--secondary-background-color);">
@@ -1837,17 +1839,18 @@ export class SettingsPage extends LitElement {
 
       <div class="section-row">
         <div class="form-group-inline">
-          <label class="form-label">Airtime Factor</label>
-          <input
-            class="form-input"
-            type="number"
-            step="0.001"
-            .value=${String(airtimeFactor)}
-            @input=${(e: Event) => {
-              this._editValues['airtime_factor'] = Number((e.target as HTMLInputElement).value);
+          <label class="form-label">Duty Cycle</label>
+          <select
+            class="form-select"
+            .value=${String(dutyCycle)}
+            @change=${(e: Event) => {
+              this._editValues['duty_cycle'] = Number((e.target as HTMLSelectElement).value);
               this._editValues = { ...this._editValues };
-            }}
-          />
+            }}>
+            ${Array.from({ length: 41 }, (_, i) => i + 10).map(
+              (value) => html`<option value=${value}>${value}%</option>`,
+            )}
+          </select>
         </div>
       </div>
 
@@ -1874,7 +1877,23 @@ export class SettingsPage extends LitElement {
       repeat: Boolean(this._editValues['repeat'] ?? status.repeat),
       multi_acks: Number(this._editValues['multi_acks'] ?? status.radio.multi_acks ?? 0),
       rx_delay: Number(this._editValues['rx_delay'] ?? status.tuning.rx_delay ?? 0),
-      airtime_factor: Number(this._editValues['airtime_factor'] ?? status.tuning.airtime_factor ?? 0),
+      airtime_factor: (() => {
+        const currentAirtimeFactor = Number(status.tuning.airtime_factor ?? 0);
+        const currentDuty = Math.max(
+          10,
+          Math.min(
+            50,
+            Math.round(
+              100 / (1 + Math.max(1, Math.min(9, currentAirtimeFactor))),
+            ),
+          ),
+        );
+        const duty = Math.max(
+          10,
+          Math.min(50, Number(this._editValues['duty_cycle'] ?? currentDuty)),
+        );
+        return (100 / duty) - 1;
+      })(),
     };
 
     this._saving = true;
@@ -1885,7 +1904,7 @@ export class SettingsPage extends LitElement {
         return;
       }
 
-      for (const key of ['repeat', 'multi_acks', 'rx_delay', 'airtime_factor']) {
+      for (const key of ['repeat', 'multi_acks', 'rx_delay', 'duty_cycle']) {
         delete this._editValues[key];
       }
       this._editValues = { ...this._editValues };
