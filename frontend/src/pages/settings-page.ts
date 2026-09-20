@@ -1250,15 +1250,45 @@ export class SettingsPage extends LitElement {
           : nothing}
 
         <div class="actions-row">
-          <button class="action-btn" ?disabled=${!isOnline} @click=${() => this._executeCompanionAction('send_advert', undefined, 'Local Advert')}>Local Advert</button>
-          <button class="action-btn" ?disabled=${!isOnline} @click=${() => this._executeCompanionAction('send_advert', {flood: true}, 'Flood Advert')}>Flood Advert</button>
-          <button class="action-btn" ?disabled=${!isOnline} @click=${() => this._executeCompanionAction('set_time', {val: Math.floor(Date.now() / 1000)}, 'Sync Clock')}>Sync Clock</button>
-          <button class="action-btn" ?disabled=${!isOnline} @click=${this._onCompanionTrace}>Trace</button>
-          <button class="action-btn danger" ?disabled=${!isOnline} @click=${() => {
-            if (window.confirm('Reiniciar agora o HiveFW?')) {
-              void this._executeCompanionAction('reboot', undefined, 'Reboot');
-            }
-          }}>Reboot</button>
+          <button
+            class="apply-button"
+            style="flex:1 1 120px;"
+            ?disabled=${!isOnline}
+            @click=${() => this._executeCompanionAction('send_advert', undefined, 'Local Advert')}>
+            Local Advert
+          </button>
+          <button
+            class="apply-button"
+            style="flex:1 1 120px;"
+            ?disabled=${!isOnline}
+            @click=${() => this._executeCompanionAction('send_advert', {flood: true}, 'Flood Advert')}>
+            Flood Advert
+          </button>
+          <button
+            class="apply-button"
+            style="flex:1 1 120px;"
+            ?disabled=${!isOnline}
+            @click=${() => this._executeCompanionAction('set_time', {val: Math.floor(Date.now() / 1000)}, 'Sync Clock')}>
+            Sync Clock
+          </button>
+          <button
+            class="apply-button"
+            style="flex:1 1 100px;"
+            ?disabled=${!isOnline}
+            @click=${this._onCompanionTrace}>
+            Trace
+          </button>
+          <button
+            class="danger-button"
+            style="flex:1 1 100px;"
+            ?disabled=${!isOnline}
+            @click=${() => {
+              if (window.confirm('Reiniciar agora o HiveFW?')) {
+                void this._executeCompanionAction('reboot', undefined, 'Reboot');
+              }
+            }}>
+            Reboot
+          </button>
         </div>
       </div>
     `;
