@@ -3236,19 +3236,18 @@ void MyMesh::handleCmdFrame(size_t len) {
     // HiveFW: expose Repeater AUTOADVERT through the standard Companion
     // custom-variable commands, so Home Assistant and other Companion
     // clients can read/write the same setting used by the local UI.
-    if (dp - custom_start < 140) {
+    const char *auto_advert_name = "auto_advert:";
+    const size_t auto_advert_needed =
+      strlen(auto_advert_name) + 1 + (dp != custom_start ? 1 : 0);
+
+    if ((size_t)(dp - custom_start) + auto_advert_needed <= 140) {
       if (dp != custom_start) {
         *dp++ = ',';
       }
 
-      const char *name = "auto_advert:";
-      while (*name && dp - custom_start < 139) {
-        *dp++ = *name++;
-      }
-
-      if (dp - custom_start < 140) {
-        *dp++ = _prefs.isAutoAdvertEn() ? '1' : '0';
-      }
+      strcpy(dp, auto_advert_name);
+      dp += strlen(auto_advert_name);
+      *dp++ = _prefs.isAutoAdvertEn() ? '1' : '0';
     }
 
     _serial->writeFrame(out_frame, dp - (char *)out_frame);
