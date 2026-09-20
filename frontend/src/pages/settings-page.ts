@@ -1885,13 +1885,18 @@ export class SettingsPage extends LitElement {
             <label class="form-label">Valor</label>
             <select
               class="form-select"
-              .value=${String(this._dutyCycleValue)}
               ?disabled=${this._dutyCycleBusy !== null}
               @change=${(e: Event) => {
                 this._dutyCycleValue = Number((e.target as HTMLSelectElement).value);
               }}>
               ${Array.from({ length: 41 }, (_, i) => i + 10).map(
-                (value) => html`<option value=${value}>${value}%</option>`,
+                (value) => html`
+                  <option
+                    value=${String(value)}
+                    ?selected=${value === this._dutyCycleValue}>
+                    ${value}%
+                  </option>
+                `,
               )}
             </select>
           </div>
@@ -1933,6 +1938,7 @@ export class SettingsPage extends LitElement {
       const result = await getDutyCycle(this.hass, this.config?.entry_id);
       this._dutyCycleReadValue = Number(result.duty_cycle);
       this._dutyCycleValue = Number(result.duty_cycle);
+      this.requestUpdate();
       this._showStatusMessage(`Duty Cycle lido: ${result.duty_cycle}%`, 'success');
     } catch (error) {
       const e = error as { code?: string; message?: string };
@@ -1954,6 +1960,7 @@ export class SettingsPage extends LitElement {
       const result = await setDutyCycle(this.hass, duty, this.config?.entry_id);
       this._dutyCycleReadValue = Number(result.duty_cycle);
       this._dutyCycleValue = Number(result.duty_cycle);
+      this.requestUpdate();
       this._showStatusMessage(
         `Duty Cycle aplicado e confirmado: ${result.duty_cycle}%`,
         'success',
