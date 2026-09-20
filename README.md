@@ -25,6 +25,9 @@ Visão geral e configuração do rádio:
 - estado Companion / Repeater;
 - relógio interno e sincronização;
 - Local Advert, Flood Advert, Trace e Reboot;
+- atualização de firmware Web OTA diretamente no Home Assistant;
+- upload manual de `.bin` e entidade nativa `update`;
+- descoberta e instalação de Releases públicas HiveFW com validação SHA-256;
 - Regions & Scopes;
 - RX Log com informação de RSSI, SNR, hops e path;
 - configuração do rádio e do modo Repeater.
@@ -169,6 +172,30 @@ O HiveFW procura evitar polling RF desnecessário.
 Dados recebidos da mesh devem ser tratados como não confiáveis. Nomes, mensagens e outros
 campos provenientes do rádio são renderizados como texto, e operações administrativas são
 protegidas no backend pelo Home Assistant.
+
+### Firmware OTA
+
+Para HiveFW V1.11 ou superior, a integração gere o Web OTA sem armazenar uma password OTA:
+
+- antes de cada atualização, o backend gera um token aleatório de 192 bits;
+- o token é enviado ao rádio pelo canal Companion como variável write-only;
+- o browser nunca recebe a credencial OTA;
+- o frontend usa `hass.fetchWithAuth()`, pelo que o código HiveFW também não lê nem copia
+  o access token do Home Assistant;
+- o token não é persistido na configuração da integração;
+- filtros dedicados impedem que o token, ou a sua representação hexadecimal nos frames,
+  seja escrito nos logs de debug;
+- o firmware gera uma nova credencial após reboot, invalidando a anterior;
+- imagens de factory/merged são recusadas pelo backend OTA;
+- Releases automáticas são verificadas por SHA-256 antes do envio ao rádio.
+
+A V1.11 é uma migração única para equipamentos já instalados: deve ser compilada localmente
+e instalada uma última vez pelo Web OTA existente. Nessa inicialização, as credenciais Wi-Fi
+são migradas para a NVS do ESP32. Atualizações posteriores podem usar imagens públicas sem
+SSID/password incorporados.
+
+O transporte Web OTA entre Home Assistant e ESP32 continua a ser HTTP na LAN, sem TLS.
+Utiliza esta funcionalidade apenas numa rede local de confiança.
 
 Ver [SECURITY.md](SECURITY.md).
 
