@@ -2136,6 +2136,7 @@ async def ws_get_local_repeater_status(hass, connection, msg):
         device_clock = await _payload(commands.get_time) or {}
         telemetry = await _payload(commands.get_self_telemetry) or {}
         repeat_freqs = await _payload(commands.get_allowed_repeat_freq) or {}
+        custom_vars = await _payload(commands.get_custom_vars) or {}
         core = await _payload(commands.get_stats_core) or {}
         radio = await _payload(commands.get_stats_radio) or {}
         packets = await _payload(commands.get_stats_packets) or {}
@@ -2144,6 +2145,13 @@ async def ws_get_local_repeater_status(hass, connection, msg):
         repeat_enabled = bool(
             device.get("repeat", self_info.get("adv_type") == 2)
         )
+        auto_advert_supported = "auto_advert" in custom_vars
+        auto_advert = str(custom_vars.get("auto_advert", "0")).strip().lower() in {
+            "1",
+            "true",
+            "on",
+            "yes",
+        }
 
         # Tuning values are thousandths on the wire.
         tuning_view = {}
@@ -2157,6 +2165,8 @@ async def ws_get_local_repeater_status(hass, connection, msg):
             {
                 "supported": repeater_capable,
                 "repeat": repeat_enabled,
+                "auto_advert_supported": auto_advert_supported,
+                "auto_advert": auto_advert,
                 "name": coordinator.name or self_info.get("name") or "",
                 "firmware": device.get("ver") or coordinator.device_info.get("sw_version", ""),
                 "model": device.get("model") or coordinator.device_info.get("model", ""),
@@ -2598,6 +2608,23 @@ async def ws_set_device_config(hass, connection, msg):
                 )
                 return
             changed.append("multi_acks")
+
+        # HiveFW Repeater AUTOADVERT is exposed through the official
+        # Companion custom-variable extension point. This deliberately avoids
+        # adding a private command code while still controlling the exact same
+        # persisted preference used by the device UI.
+        if "auto_advert" in settings:
+            result = await coordinator.api.mesh_core.commands.set_custom_var(
+                "auto_advert",
+                "1" if bool(settings["auto_advert"]) else "0",
+            )
+            reason = _device_config_failure_reason(result)
+            if reason is not None:
+                _send_device_config_failure(
+                    connection, msg["id"], "auto_advert", reason, changed
+                )
+                return
+            changed.append("auto_advert")
 
         # Companion tuning values are floats in the UI but thousandths on wire.
         if "rx_delay" in settings or "airtime_factor" in settings:

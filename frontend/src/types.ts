@@ -406,6 +406,8 @@ export interface HiveNeighborsResponse {
 export interface LocalRepeaterStatus {
   supported: boolean;
   repeat: boolean;
+  auto_advert_supported: boolean;
+  auto_advert: boolean;
   name: string;
   firmware: string;
   model: string;

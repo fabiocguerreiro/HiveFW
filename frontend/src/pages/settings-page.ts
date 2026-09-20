@@ -1781,6 +1781,8 @@ export class SettingsPage extends LitElement {
     }
 
     const repeat = Boolean(this._editValues['repeat'] ?? status.repeat);
+    const autoAdvertSupported = Boolean(status.auto_advert_supported);
+    const autoAdvert = Boolean(this._editValues['auto_advert'] ?? status.auto_advert);
     const multiAcks = Number(this._editValues['multi_acks'] ?? status.radio.multi_acks ?? 0);
     const rxDelay = Number(this._editValues['rx_delay'] ?? status.tuning.rx_delay ?? 0);
     const airtimeFactor = Number(status.tuning.airtime_factor ?? 0);
@@ -1805,6 +1807,29 @@ export class SettingsPage extends LitElement {
             }}
           />
           ${repeat ? 'Ativo' : 'Desligado'}
+        </label>
+      </div>
+
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;padding:10px 12px;border-radius:8px;background:var(--secondary-background-color);">
+        <div>
+          <div style="font-size:13px;font-weight:600;">AutoAdvert</div>
+          <div style="font-size:11px;color:var(--secondary-text-color);margin-top:2px;">
+            ${autoAdvertSupported
+              ? (autoAdvert ? 'Ativo — Smart Advert automático' : 'Desligado')
+              : 'Requer firmware HiveFW com controlo remoto de AutoAdvert'}
+          </div>
+        </div>
+        <label style="display:flex;align-items:center;gap:8px;font-size:12px;">
+          <input
+            type="checkbox"
+            .checked=${autoAdvert}
+            ?disabled=${!autoAdvertSupported}
+            @change=${(e: Event) => {
+              this._editValues['auto_advert'] = (e.target as HTMLInputElement).checked;
+              this._editValues = { ...this._editValues };
+            }}
+          />
+          ${autoAdvert ? 'Ativo' : 'Desligado'}
         </label>
       </div>
 
@@ -1896,6 +1921,12 @@ export class SettingsPage extends LitElement {
       })(),
     };
 
+    if (status.auto_advert_supported) {
+      settings.auto_advert = Boolean(
+        this._editValues['auto_advert'] ?? status.auto_advert,
+      );
+    }
+
     this._saving = true;
     try {
       const result = await setDeviceConfig(this.hass, settings, this.config?.entry_id);
@@ -1904,7 +1935,7 @@ export class SettingsPage extends LitElement {
         return;
       }
 
-      for (const key of ['repeat', 'multi_acks', 'rx_delay', 'duty_cycle']) {
+      for (const key of ['repeat', 'auto_advert', 'multi_acks', 'rx_delay', 'duty_cycle']) {
         delete this._editValues[key];
       }
       this._editValues = { ...this._editValues };
