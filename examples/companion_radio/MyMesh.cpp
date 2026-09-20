@@ -3233,22 +3233,47 @@ void MyMesh::handleCmdFrame(size_t len) {
       dp = strchr(dp, 0);
     }
 
-    // HiveFW: expose Repeater AUTOADVERT through the standard Companion
-    // custom-variable commands, so Home Assistant and other Companion
-    // clients can read/write the same setting used by the local UI.
-    const char *auto_advert_name = "auto_advert:";
-    const size_t auto_advert_needed =
-      strlen(auto_advert_name) + 1 + (dp != custom_start ? 1 : 0);
+    // HiveFW Repeater controls exposed through the standard Companion
+    // custom-variable extension point. Keeping these values here means remote
+    // clients operate on the exact same persisted preferences as the local UI.
+    auto appendCustomVar = [&](const char *name, const char *value) {
+      const size_t needed =
+        strlen(name) + 1 + strlen(value) + (dp != custom_start ? 1 : 0);
 
-    if ((size_t)(dp - custom_start) + auto_advert_needed <= 140) {
+      if ((size_t)(dp - custom_start) + needed > 140) {
+        return false;
+      }
+
       if (dp != custom_start) {
         *dp++ = ',';
       }
 
-      strcpy(dp, auto_advert_name);
-      dp += strlen(auto_advert_name);
-      *dp++ = _prefs.isAutoAdvertEn() ? '1' : '0';
-    }
+      strcpy(dp, name);
+      dp += strlen(name);
+      *dp++ = ':';
+      strcpy(dp, value);
+      dp += strlen(value);
+      return true;
+    };
+
+    appendCustomVar(
+      "auto_advert",
+      _prefs.isAutoAdvertEn() ? "1" : "0"
+    );
+
+    float duty_af = _prefs.airtime_factor;
+    if (duty_af < 1.0f) duty_af = 1.0f;
+    if (duty_af > 9.0f) duty_af = 9.0f;
+
+    int duty_percent =
+      (int)(100.0f / (1.0f + duty_af) + 0.5f);
+
+    if (duty_percent < 10) duty_percent = 10;
+    if (duty_percent > 50) duty_percent = 50;
+
+    char duty_value[4];
+    snprintf(duty_value, sizeof(duty_value), "%d", duty_percent);
+    appendCustomVar("duty_cycle", duty_value);
 
     _serial->writeFrame(out_frame, dp - (char *)out_frame);
   } else if (cmd_frame[0] == CMD_SET_CUSTOM_VAR && len >= 4) {
@@ -3260,12 +3285,27 @@ void MyMesh::handleCmdFrame(size_t len) {
 
       bool success = false;
 
-      // HiveFW Repeater: AUTOADVERT is a persisted NodePrefs setting rather
-      // than a sensor setting, but CMD_SET_CUSTOM_VAR is the official
-      // Companion extension point for remotely writable custom values.
+      // HiveFW Repeater preferences are exposed through
+      // CMD_SET_CUSTOM_VAR so Companion clients can operate on the exact same
+      // settings as the local display menu without a private command opcode.
       if (strcmp(sp, "auto_advert") == 0) {
         if (strcmp(np, "0") == 0 || strcmp(np, "1") == 0) {
           _prefs.setAutoAdvertEn(np[0] == '1');
+          savePrefs();
+          success = true;
+        }
+      } else if (strcmp(sp, "duty_cycle") == 0) {
+        char *endp = nullptr;
+        long duty = strtol(np, &endp, 10);
+
+        if (
+          endp != np &&
+          *endp == '\0' &&
+          duty >= 10 &&
+          duty <= 50
+        ) {
+          _prefs.airtime_factor =
+            (100.0f / (float)duty) - 1.0f;
           savePrefs();
           success = true;
         }
