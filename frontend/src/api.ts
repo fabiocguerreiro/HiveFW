@@ -259,6 +259,38 @@ export interface SetDeviceConfigResponse {
   rename?: SetDeviceConfigRenameResult;
 }
 
+export interface DutyCycleResponse {
+  success: boolean;
+  duty_cycle: number;
+  raw?: string;
+}
+
+/** Read Repeater Duty Cycle directly from HiveFW firmware. */
+export async function getDutyCycle(
+  hass: HomeAssistant,
+  entryId?: string,
+): Promise<DutyCycleResponse> {
+  const msg: Record<string, unknown> = {
+    type: 'hivefw_integration/get_duty_cycle',
+  };
+  if (entryId) msg.entry_id = entryId;
+  return hass.callWS<DutyCycleResponse>(msg);
+}
+
+/** Write Repeater Duty Cycle directly and require firmware read-back. */
+export async function setDutyCycle(
+  hass: HomeAssistant,
+  dutyCycle: number,
+  entryId?: string,
+): Promise<DutyCycleResponse> {
+  const msg: Record<string, unknown> = {
+    type: 'hivefw_integration/set_duty_cycle',
+    duty_cycle: dutyCycle,
+  };
+  if (entryId) msg.entry_id = entryId;
+  return hass.callWS<DutyCycleResponse>(msg);
+}
+
 /**
  * Set device configuration
  */

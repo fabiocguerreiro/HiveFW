@@ -653,6 +653,8 @@ def async_register_ws_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_get_managed_devices)
     websocket_api.async_register_command(hass, ws_get_device_config)
     websocket_api.async_register_command(hass, ws_get_local_repeater_status)
+    websocket_api.async_register_command(hass, ws_get_duty_cycle)
+    websocket_api.async_register_command(hass, ws_set_duty_cycle)
     websocket_api.async_register_command(hass, ws_set_device_config)
     websocket_api.async_register_command(hass, ws_execute_local)
     websocket_api.async_register_command(hass, ws_execute_remote)
@@ -2241,6 +2243,148 @@ async def ws_get_local_repeater_status(hass, connection, msg):
             msg["id"],
             ex,
             handler="ws_get_local_repeater_status",
+        )
+
+
+# ─── HiveFW Repeater Duty Cycle ─────────────────────────────────────────
+# Dedicated read/write surface. This intentionally bypasses the generic
+# device-config handler so Duty Cycle can be diagnosed and controlled in
+# isolation from radio/repeater/tuning settings.
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hivefw_integration/get_duty_cycle",
+        vol.Optional("entry_id"): str,
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_get_duty_cycle(hass, connection, msg):
+    """Read HiveFW Repeater Duty Cycle directly from firmware custom vars."""
+    coordinator = _get_coordinator(hass, msg.get("entry_id"))
+    if not coordinator:
+        connection.send_error(msg["id"], "not_found", "No HiveFW coordinator found")
+        return
+
+    try:
+        result = await coordinator.api.mesh_core.commands.get_custom_vars()
+        reason = _device_config_failure_reason(result)
+        if reason is not None:
+            connection.send_error(msg["id"], "duty_cycle_read_failed", reason)
+            return
+
+        payload = getattr(result, "payload", {}) or {}
+        if "duty_cycle" not in payload:
+            connection.send_error(
+                msg["id"],
+                "duty_cycle_unsupported",
+                "Firmware does not expose duty_cycle",
+            )
+            return
+
+        raw = str(payload.get("duty_cycle", "")).strip()
+        try:
+            duty = int(raw)
+        except (TypeError, ValueError):
+            connection.send_error(
+                msg["id"],
+                "duty_cycle_invalid",
+                f"Firmware returned invalid duty_cycle: {raw!r}",
+            )
+            return
+
+        if not 10 <= duty <= 50:
+            connection.send_error(
+                msg["id"],
+                "duty_cycle_invalid",
+                f"Firmware returned out-of-range duty_cycle: {duty}",
+            )
+            return
+
+        connection.send_result(
+            msg["id"],
+            {
+                "success": True,
+                "duty_cycle": duty,
+                "raw": raw,
+            },
+        )
+    except Exception as ex:
+        _ws_send_error_safe(
+            connection,
+            msg["id"],
+            ex,
+            handler="ws_get_duty_cycle",
+        )
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hivefw_integration/set_duty_cycle",
+        vol.Optional("entry_id"): str,
+        vol.Required("duty_cycle"): vol.All(int, vol.Range(min=10, max=50)),
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_set_duty_cycle(hass, connection, msg):
+    """Write HiveFW Repeater Duty Cycle and verify the firmware read-back."""
+    coordinator = _get_coordinator(hass, msg.get("entry_id"))
+    if not coordinator:
+        connection.send_error(msg["id"], "not_found", "No HiveFW coordinator found")
+        return
+
+    duty = int(msg["duty_cycle"])
+
+    try:
+        result = await coordinator.api.mesh_core.commands.set_custom_var(
+            "duty_cycle",
+            str(duty),
+        )
+        reason = _device_config_failure_reason(result)
+        if reason is not None:
+            connection.send_error(msg["id"], "duty_cycle_write_failed", reason)
+            return
+
+        verified = await coordinator.api.mesh_core.commands.get_custom_vars()
+        reason = _device_config_failure_reason(verified)
+        if reason is not None:
+            connection.send_error(
+                msg["id"],
+                "duty_cycle_verify_failed",
+                reason,
+            )
+            return
+
+        payload = getattr(verified, "payload", {}) or {}
+        raw = str(payload.get("duty_cycle", "")).strip()
+        try:
+            actual = int(raw)
+        except (TypeError, ValueError):
+            actual = -1
+
+        if actual != duty:
+            connection.send_error(
+                msg["id"],
+                "duty_cycle_mismatch",
+                f"Duty Cycle verification failed: requested {duty}%, read {actual}%",
+            )
+            return
+
+        connection.send_result(
+            msg["id"],
+            {
+                "success": True,
+                "duty_cycle": actual,
+                "raw": raw,
+            },
+        )
+    except Exception as ex:
+        _ws_send_error_safe(
+            connection,
+            msg["id"],
+            ex,
+            handler="ws_set_duty_cycle",
         )
 
 

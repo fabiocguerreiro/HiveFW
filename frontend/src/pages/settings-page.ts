@@ -4,6 +4,8 @@ import type { HomeAssistant, PanelConfig, DeviceConfig, MeshCoreDevice, LocalRep
 import {
   getDeviceConfig,
   getLocalRepeaterStatus,
+  getDutyCycle,
+  setDutyCycle,
   getManagedDevices,
   getFloodScopes,
   setFloodScopes,
@@ -114,6 +116,9 @@ export class SettingsPage extends LitElement {
   @state() private _error: string | null = null;
   @state() private _editValues: Record<string, unknown> = {};
   @state() private _saving = false;
+  @state() private _dutyCycleValue = 10;
+  @state() private _dutyCycleReadValue: number | null = null;
+  @state() private _dutyCycleBusy: 'read' | 'apply' | null = null;
   @state() private _commandDialogOpen = false;
   @state() private _confirmAction: ConfirmAction | null = null;
   @state() private _confirmDialogOpen = false;
@@ -963,6 +968,13 @@ export class SettingsPage extends LitElement {
       // older Companion cannot answer the newer stats/tuning queries.
       try {
         this._repeaterStatus = await getLocalRepeaterStatus(this.hass, this.config?.entry_id);
+        if (
+          this._repeaterStatus?.duty_cycle !== undefined &&
+          this._dutyCycleReadValue === null
+        ) {
+          this._dutyCycleValue = Number(this._repeaterStatus.duty_cycle);
+          this._dutyCycleReadValue = Number(this._repeaterStatus.duty_cycle);
+        }
       } catch {
         this._repeaterStatus = null;
       }
@@ -1785,13 +1797,6 @@ export class SettingsPage extends LitElement {
     const autoAdvert = Boolean(this._editValues['auto_advert'] ?? status.auto_advert);
     const multiAcks = Number(this._editValues['multi_acks'] ?? status.radio.multi_acks ?? 0);
     const rxDelay = Number(this._editValues['rx_delay'] ?? status.tuning.rx_delay ?? 0);
-    const airtimeFactor = Number(status.tuning.airtime_factor ?? 0);
-    const legacyDuty = Math.max(
-      10,
-      Math.min(50, Math.round(100 / (1 + Math.max(1, Math.min(9, airtimeFactor))))),
-    );
-    const currentDuty = Number(status.duty_cycle ?? legacyDuty);
-    const dutyCycle = Number(this._editValues['duty_cycle'] ?? currentDuty);
 
     return html`
       <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;padding:10px 12px;border-radius:8px;background:var(--secondary-background-color);">
@@ -1866,20 +1871,42 @@ export class SettingsPage extends LitElement {
         </div>
       </div>
 
-      <div class="section-row">
-        <div class="form-group-inline">
-          <label class="form-label">Duty Cycle</label>
-          <select
-            class="form-select"
-            .value=${String(dutyCycle)}
-            @change=${(e: Event) => {
-              this._editValues['duty_cycle'] = Number((e.target as HTMLSelectElement).value);
-              this._editValues = { ...this._editValues };
-            }}>
-            ${Array.from({ length: 41 }, (_, i) => i + 10).map(
-              (value) => html`<option value=${value}>${value}%</option>`,
-            )}
-          </select>
+      <div
+        style="margin:14px 0;padding:12px;border:1px solid var(--divider-color);border-radius:8px;background:var(--secondary-background-color);"
+        data-hive-duty-cycle-control>
+        <div style="font-size:13px;font-weight:600;margin-bottom:8px;">Duty Cycle</div>
+        <div style="font-size:11px;color:var(--secondary-text-color);margin-bottom:10px;">
+          ${this._dutyCycleReadValue !== null
+            ? html`Valor lido do rádio: <strong>${this._dutyCycleReadValue}%</strong>`
+            : 'Valor ainda não lido do rádio'}
+        </div>
+        <div style="display:grid;grid-template-columns:minmax(90px,1fr) auto auto;gap:8px;align-items:end;">
+          <div>
+            <label class="form-label">Valor</label>
+            <select
+              class="form-select"
+              .value=${String(this._dutyCycleValue)}
+              ?disabled=${this._dutyCycleBusy !== null}
+              @change=${(e: Event) => {
+                this._dutyCycleValue = Number((e.target as HTMLSelectElement).value);
+              }}>
+              ${Array.from({ length: 41 }, (_, i) => i + 10).map(
+                (value) => html`<option value=${value}>${value}%</option>`,
+              )}
+            </select>
+          </div>
+          <button
+            class="action-btn"
+            ?disabled=${this._dutyCycleBusy !== null}
+            @click=${this._readDutyCycle}>
+            ${this._dutyCycleBusy === 'read' ? 'A ler...' : 'Ler'}
+          </button>
+          <button
+            class="action-btn"
+            ?disabled=${this._dutyCycleBusy !== null}
+            @click=${this._applyDutyCycle}>
+            ${this._dutyCycleBusy === 'apply' ? 'A aplicar...' : 'Aplicar'}
+          </button>
         </div>
       </div>
 
@@ -1896,6 +1923,50 @@ export class SettingsPage extends LitElement {
         adverts, sync de relógio e reboot continuam no cartão do Companion.
       </div>
     `;
+  }
+
+  private async _readDutyCycle() {
+    if (!this.hass) return;
+
+    this._dutyCycleBusy = 'read';
+    try {
+      const result = await getDutyCycle(this.hass, this.config?.entry_id);
+      this._dutyCycleReadValue = Number(result.duty_cycle);
+      this._dutyCycleValue = Number(result.duty_cycle);
+      this._showStatusMessage(`Duty Cycle lido: ${result.duty_cycle}%`, 'success');
+    } catch (error) {
+      const e = error as { code?: string; message?: string };
+      const message = e?.message
+        ? (e.code ? `${e.message} (${e.code})` : e.message)
+        : String(error);
+      this._showStatusMessage(`Duty Cycle: ${message}`, 'error');
+    } finally {
+      this._dutyCycleBusy = null;
+    }
+  }
+
+  private async _applyDutyCycle() {
+    if (!this.hass) return;
+
+    const duty = Math.max(10, Math.min(50, Math.round(this._dutyCycleValue)));
+    this._dutyCycleBusy = 'apply';
+    try {
+      const result = await setDutyCycle(this.hass, duty, this.config?.entry_id);
+      this._dutyCycleReadValue = Number(result.duty_cycle);
+      this._dutyCycleValue = Number(result.duty_cycle);
+      this._showStatusMessage(
+        `Duty Cycle aplicado e confirmado: ${result.duty_cycle}%`,
+        'success',
+      );
+    } catch (error) {
+      const e = error as { code?: string; message?: string };
+      const message = e?.message
+        ? (e.code ? `${e.message} (${e.code})` : e.message)
+        : String(error);
+      this._showStatusMessage(`Duty Cycle: ${message}`, 'error');
+    } finally {
+      this._dutyCycleBusy = null;
+    }
   }
 
   private async _applyRepeaterSettings() {
@@ -1920,19 +1991,6 @@ export class SettingsPage extends LitElement {
     if (status.auto_advert_supported && this._editValues['auto_advert'] !== undefined) {
       settings.auto_advert = Boolean(this._editValues['auto_advert']);
     }
-    if (this._editValues['duty_cycle'] !== undefined) {
-      const duty = Math.max(
-        10,
-        Math.min(50, Number(this._editValues['duty_cycle'])),
-      );
-      if (status.duty_cycle_supported) {
-        settings.duty_cycle = duty;
-      } else {
-        // Compatibility fallback for pre-direct-control HiveFW firmware.
-        settings.airtime_factor = (100 / duty) - 1;
-      }
-    }
-
     if (Object.keys(settings).length === 0) {
       this._showStatusMessage('No Repeater settings changed', 'success');
       return;
@@ -1949,7 +2007,7 @@ export class SettingsPage extends LitElement {
         return;
       }
 
-      for (const key of ['repeat', 'auto_advert', 'multi_acks', 'rx_delay', 'duty_cycle']) {
+      for (const key of ['repeat', 'auto_advert', 'multi_acks', 'rx_delay']) {
         delete this._editValues[key];
       }
       this._editValues = { ...this._editValues };
