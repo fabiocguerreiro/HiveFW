@@ -148,6 +148,11 @@ class HiveFWPanel extends BasePanel {
     this.__otaProgress = null;
     this.__otaProgressTimer = null;
     this.__otaProgressBusy = false;
+
+    this.__wifiPortalHost = "";
+    this.__wifiPortalSupported = null;
+    this.__wifiPortalLoading = false;
+    this.__wifiPortalLoadedEntry = null;
   }
 
   updated(changedProperties) {
@@ -2738,10 +2743,18 @@ class HiveFWPanel extends BasePanel {
       this.__enhanceCompanionMeta(sroot);
     }
 
-    // These two cards have native first-paint hosts but their content remains
-    // HiveFW wrapper-specific for now.
+    // These cards remain wrapper-specific.
     this.__renderRxLogCard(sroot, grid);
     this.__renderObservabilityCard(sroot, grid);
+    this.__renderWifiPortalCard(sroot, grid);
+
+    const wifiEntry = this.__entryId() || null;
+    if (
+      this.__wifiPortalLoadedEntry !== wifiEntry &&
+      !this.__wifiPortalLoading
+    ) {
+      void this.__loadWifiPortalInfo();
+    }
 
     this.__enhanceCompanionHero(sroot);
     this.__ensureMetricSettingsMenu(settingsPage,sroot);
@@ -2749,6 +2762,138 @@ class HiveFWPanel extends BasePanel {
 
     this.__settingsObserver?.takeRecords();
     this.__settingsObserver?.observe(sroot, { childList: true, subtree: true });
+  }
+
+  async __loadWifiPortalInfo() {
+    if (!this.hass || this.__wifiPortalLoading) return;
+    this.__wifiPortalLoading = true;
+    const entryId = this.__entryId() || null;
+
+    try {
+      const msg = { type: "hivefw_integration/get_firmware_ota_status" };
+      if (entryId) msg.entry_id = entryId;
+      const status = await this.hass.callWS(msg);
+      this.__wifiPortalHost = String(status?.host || "").trim();
+      this.__wifiPortalSupported = !!status?.supported;
+      this.__wifiPortalLoadedEntry = entryId;
+    } catch (error) {
+      console.debug("HiveFW Wi-Fi portal info unavailable:", error);
+      this.__wifiPortalHost = "";
+      this.__wifiPortalSupported = false;
+      this.__wifiPortalLoadedEntry = entryId;
+    } finally {
+      this.__wifiPortalLoading = false;
+      if (this._activeTab === "settings") this.__enhanceSettingsPage();
+    }
+  }
+
+  __renderWifiPortalCard(sroot, grid) {
+    let card = sroot.querySelector("#hive-wifi-portal-card");
+
+    // The portal exists only on the supported Heltec V3 TCP/Wi-Fi target.
+    if (
+      this.__wifiPortalLoadedEntry !== null &&
+      this.__wifiPortalSupported === false
+    ) {
+      card?.remove();
+      return;
+    }
+
+    if (!card) {
+      card = document.createElement("div");
+      card.id = "hive-wifi-portal-card";
+      card.className = "device-section";
+      grid.appendChild(card);
+    }
+
+    const host = String(this.__wifiPortalHost || "").trim();
+    const sig = JSON.stringify([
+      host,
+      this.__wifiPortalSupported,
+      this.__wifiPortalLoading,
+      this.__wifiPortalLoadedEntry,
+    ]);
+    if (card.dataset.hiveRenderSig === sig) return;
+    card.dataset.hiveRenderSig = sig;
+    card.replaceChildren();
+
+    const title = document.createElement("div");
+    title.className = "card-title";
+    title.textContent = "Wi-Fi do Companion";
+    card.appendChild(title);
+
+    const desc = document.createElement("div");
+    desc.className = "hive-settings-note";
+    desc.textContent =
+      "No Heltec V3, o SSID e a password ficam guardados na NVS. Para mudar de router ou de rede Wi-Fi, abre a página /wifi do próprio rádio. A alteração só é gravada quando confirmas no portal.";
+    card.appendChild(desc);
+
+    const setup = document.createElement("div");
+    setup.className = "hive-settings-note";
+    setup.innerHTML =
+      "<strong>Primeira instalação:</strong> se o V3 ainda não tiver Wi-Fi configurado, liga-te à rede temporária com o nome do dispositivo e abre <strong>http://192.168.4.1/wifi</strong>. Login: <strong>hivefw / hivefw</strong>.";
+    card.appendChild(setup);
+
+    if (this.__wifiPortalLoading && !host) {
+      const loading = document.createElement("div");
+      loading.className = "hive-settings-note";
+      loading.textContent = "A obter o endereço atual do Companion…";
+      card.appendChild(loading);
+      return;
+    }
+
+    if (!host) {
+      const note = document.createElement("div");
+      note.className = "hive-settings-note";
+      note.textContent =
+        "Quando o V3 estiver ligado por TCP/Wi-Fi, o endereço atual do portal aparece aqui.";
+      card.appendChild(note);
+      return;
+    }
+
+    const url = "http://" + host + "/wifi";
+
+    const meta = document.createElement("div");
+    meta.className = "hive-settings-note";
+    meta.style.marginTop = "12px";
+    const strong = document.createElement("strong");
+    strong.textContent = "Portal atual: ";
+    const code = document.createElement("code");
+    code.textContent = url;
+    code.style.userSelect = "all";
+    meta.append(strong, code);
+    card.appendChild(meta);
+
+    const actions = document.createElement("div");
+    actions.className = "actions-row";
+    actions.style.marginTop = "12px";
+
+    const open = document.createElement("button");
+    open.className = "action-btn";
+    open.textContent = "Abrir configuração Wi-Fi";
+    open.addEventListener("click", () => {
+      window.open(url, "_blank", "noopener,noreferrer");
+    });
+
+    const copy = document.createElement("button");
+    copy.className = "action-btn";
+    copy.textContent = "Copiar endereço";
+    copy.addEventListener("click", async () => {
+      const result = await this.__copyManualOtaText(url, code);
+      copy.textContent = result === "copied" ? "Copiado" : "Selecionado";
+      window.setTimeout(() => {
+        if (copy.isConnected) copy.textContent = "Copiar endereço";
+      }, 1400);
+    });
+
+    actions.append(open, copy);
+    card.appendChild(actions);
+
+    const warning = document.createElement("div");
+    warning.className = "hive-settings-note";
+    warning.textContent =
+      "Depois de mudares de rede o V3 reinicia e pode receber outro IP do router. Nesse caso, reconfigura o endereço TCP da integração para o novo IP.";
+    card.appendChild(warning);
   }
 
   async __loadObservabilitySettings() {
