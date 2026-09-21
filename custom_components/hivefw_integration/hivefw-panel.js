@@ -1341,11 +1341,9 @@ class HiveFWPanel extends BasePanel {
       .hivefw-header-logo {
         display:inline-block;
         width:128px;
-        height:13px;
+        height:32px;
         flex:0 0 auto;
-        background:var(--primary-text-color);
-        -webkit-mask:url('/hivefw_integration_panel/hivefw-wordmark.png') center/contain no-repeat;
-        mask:url('/hivefw_integration_panel/hivefw-wordmark.png') center/contain no-repeat;
+        background:url('/hivefw_integration_panel/hivefw-wordmark.png') center/contain no-repeat;
       }
       .hivefw-header-product {
         font-weight:600;
@@ -1404,25 +1402,26 @@ class HiveFWPanel extends BasePanel {
       }
       .hivefw-header-brand-white {
         display:inline-block;
-        width:112px;
-        height:28px;
+        width:128px;
+        height:34px;
         flex:0 0 auto;
         border-radius:8px;
-        background:rgba(17,17,17,.92);
-        position:relative;
-        box-shadow:inset 0 0 0 1px rgba(255,255,255,.08);
+        background:
+          #fff
+          url('/hivefw_integration_panel/hivefw-wordmark.png')
+          center/116px auto
+          no-repeat;
+        box-shadow:
+          inset 0 0 0 1px rgba(0,0,0,.10),
+          0 1px 2px rgba(0,0,0,.08);
       }
       .hivefw-header-brand-white::before {
-        content:"";
-        position:absolute;
-        inset:6px 9px;
-        background:#fff;
-        -webkit-mask:url('/hivefw_integration_panel/hivefw-wordmark.png') center/contain no-repeat;
-        mask:url('/hivefw_integration_panel/hivefw-wordmark.png') center/contain no-repeat;
+        content:none;
       }
       :host([narrow]) .hivefw-header-brand-white {
-        width:82px;
-        height:26px;
+        width:104px;
+        height:30px;
+        background-size:94px auto;
       }
 
       .hivefw-console-page {
