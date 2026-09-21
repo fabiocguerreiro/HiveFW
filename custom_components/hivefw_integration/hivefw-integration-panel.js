@@ -4556,10 +4556,10 @@ let e,t,i,o,r,a,s,n,l,d,c,p,h,u,m,g,v,f,y,b,_,x,w,$,k,S,C,M,A,R,F,T,O,z,I,N,D,E,
       <section class="panel column">
         <div class="panel-head">
           <div>
-            <div class="eyebrow">Passivo · Tabela Repeater</div>
+            <div class="eyebrow">Passivo · Advert Path</div>
             <h2 class="title">Vizinhos</h2>
             <div class="subtitle">
-              Repeaters realmente ouvidos diretamente pelo rádio HiveFW.
+              Repeaters cujo último advert chegou diretamente ao HiveFW.
             </div>
           </div>
           <button
@@ -4583,7 +4583,7 @@ let e,t,i,o,r,a,s,n,l,d,c,p,h,u,m,g,v,f,y,b,_,x,w,$,k,S,C,M,A,R,F,T,O,z,I,N,D,E,
           ${0}
         </div>
       </section>
-    `),this._loading,()=>this._refreshNeighbors(),this._metric("Diretos",e?String(e.count):"—","zero-hop"),this._metric("Último advert",null==t?"—":this._age(t),"cache local"),this._metric("Método","Tabela","sem TX"),this._metric("Repeater",!1===(null==e?void 0:e.repeater_enabled)?"OFF":"ON","HiveFW local"),this._error?Rn(ri||(ri=Es`<div class="error">${0}</div>`),this._error):On,e?e.supported?0===e.neighbors.length?this._empty("Ainda não foi ouvido diretamente nenhum Repeater desde o arranque."):[...e.neighbors].sort((e,t)=>e.secs_ago-t.secs_ago).map(e=>this._knownNeighbor(e)):this._empty("A tabela de vizinhos requer HiveFW V1.11.12 ou superior."):this._empty("A carregar os vizinhos conhecidos…"))}_renderDiscovery(){var e;const t=this._discovery,i=(null==t?void 0:t.results)||[];return Rn(ai||(ai=Es`
+    `),this._loading,()=>this._refreshNeighbors(),this._metric("Diretos",e?String(e.count):"—","zero-hop"),this._metric("Último advert",null==t?"—":this._age(t),"cache local"),this._metric("Método","Advert","sem TX"),this._metric("Repeater",!1===(null==e?void 0:e.repeater_enabled)?"OFF":"ON","HiveFW local"),this._error?Rn(ri||(ri=Es`<div class="error">${0}</div>`),this._error):On,e?e.supported?0===e.neighbors.length?this._empty("Ainda não existe nenhum Repeater zero-hop na cache de adverts."):[...e.neighbors].sort((e,t)=>e.secs_ago-t.secs_ago).map(e=>this._knownNeighbor(e)):this._empty("A consulta Advert Path não está disponível."):this._empty("A carregar os vizinhos conhecidos…"))}_renderDiscovery(){var e;const t=this._discovery,i=(null==t?void 0:t.results)||[];return Rn(ai||(ai=Es`
       <section class="panel column">
         <div class="panel-head">
           <div>
