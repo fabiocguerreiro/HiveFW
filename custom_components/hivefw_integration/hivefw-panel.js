@@ -1341,14 +1341,16 @@ class HiveFWPanel extends BasePanel {
       .hivefw-wordmark,
       .hivefw-header-logo {
         display:inline-block;
-        width:128px;
-        height:32px;
+        width:152px;
+        height:38px;
         flex:0 0 auto;
+        position:relative;
         background:
           transparent
-          url('/hivefw_integration_panel/hivefw-wordmark.png?v=orange-1')
+          url('/hivefw_integration_panel/hivefw-wordmark.png?v=dark-1')
           center/contain
           no-repeat !important;
+        filter:invert(1) hue-rotate(180deg);
         -webkit-mask:none !important;
         mask:none !important;
       }
@@ -1409,29 +1411,26 @@ class HiveFWPanel extends BasePanel {
       }
       .hivefw-header-brand-white {
         display:inline-block;
-        width:128px;
-        height:34px;
+        width:152px;
+        height:38px;
         flex:0 0 auto;
-        border-radius:8px;
-        background:rgba(17,17,17,.92);
         position:relative;
-        overflow:hidden;
-        box-shadow:inset 0 0 0 1px rgba(255,255,255,.08);
+        overflow:visible;
+        background:transparent;
       }
-      .hivefw-header-brand-white::before,
-      .hivefw-header-brand-white::after {
+      .hivefw-header-brand-white::before {
         content:"";
         position:absolute;
-        inset:5px 8px;
-        background:url('/hivefw_integration_panel/hivefw-wordmark.png?v=orange-2') center/contain no-repeat;
+        inset:0;
+        background:url('/hivefw_integration_panel/hivefw-wordmark.png?v=dark-1') center/contain no-repeat;
+        filter:invert(1) hue-rotate(180deg);
       }
       .hivefw-header-brand-white::after {
-        filter:brightness(0) invert(1);
-        clip-path:inset(0 0 0 29%);
+        content:none;
       }
       :host([narrow]) .hivefw-header-brand-white {
-        width:104px;
-        height:30px;
+        width:132px;
+        height:33px;
       }
 
       .hivefw-console-page {
