@@ -171,6 +171,36 @@ async def _rotate_ota_token(coordinator) -> str:
     return token
 
 
+async def async_create_manual_ota_session(
+    hass: HomeAssistant,
+    coordinator,
+) -> dict[str, Any]:
+    """Create one ephemeral browser-login session for the radio Web OTA page.
+
+    The credential is generated in Home Assistant memory, pushed to the radio
+    through the existing authenticated Companion connection, returned once to
+    the requesting HA admin, and never persisted by the integration. It remains
+    valid only until the radio reboots or another OTA token is rotated.
+    """
+    entry = coordinator.config_entry
+    if entry.data.get(CONF_CONNECTION_TYPE) != CONNECTION_TYPE_TCP:
+        raise HiveFWOtaError("Manual Web OTA requires the HiveFW TCP/Wi-Fi connection")
+
+    host = str(entry.data.get(CONF_TCP_HOST, "")).strip()
+    if not host:
+        raise HiveFWOtaError("No TCP host is configured for this HiveFW device")
+
+    token = await _rotate_ota_token(coordinator)
+    return {
+        "success": True,
+        "host": host,
+        "url": f"http://{host}/update",
+        "username": OTA_USERNAME,
+        "password": token,
+        "expires": "radio_reboot_or_next_token_rotation",
+    }
+
+
 async def _wait_for_web_ota_return(
     hass: HomeAssistant,
     host: str,
