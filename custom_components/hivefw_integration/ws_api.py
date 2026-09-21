@@ -2177,6 +2177,23 @@ async def ws_get_local_repeater_status(hass, connection, msg):
             except (TypeError, ValueError):
                 duty_cycle = None
 
+        cad_diag = {}
+        raw_cad_diag = str(custom_vars.get("cad_diag", "")).strip()
+        if raw_cad_diag:
+            try:
+                cad_parts = [int(part) for part in raw_cad_diag.split("/")]
+                if len(cad_parts) == 6:
+                    cad_diag = {
+                        "timeouts": cad_parts[0],
+                        "recoveries": cad_parts[1],
+                        "forced_tx": cad_parts[2],
+                        "last_busy_ms": cad_parts[3],
+                        "max_busy_ms": cad_parts[4],
+                        "last_timeout_age_secs": cad_parts[5],
+                    }
+            except (TypeError, ValueError):
+                pass
+
         # Tuning values are thousandths on the wire.
         tuning_view = {}
         if "rx_delay" in tuning:
@@ -2247,6 +2264,7 @@ async def ws_get_local_repeater_status(hass, connection, msg):
                     "core": core,
                     "radio": radio,
                     "packets": packets,
+                    "cad": cad_diag,
                 },
             },
         )
