@@ -366,94 +366,262 @@ export class NeighborsPage extends LitElement {
   }
 
   render() {
-    const data = this._data;
-    const latest = data?.neighbors.length
-      ? Math.min(...data.neighbors.map((n) => n.secs_ago))
-      : null;
-
     return html`
       <div class="page">
-        <div class="wrap">
-          <section class="hero">
-            <div>
-              <div class="eyebrow">◉ Repeater · Zero-hop</div>
-              <h1>Vizinhos</h1>
-              <p class="subtitle">
-                Repeaters cujo último advert guardado pelo Companion foi recebido diretamente,
-                com zero hops. A consulta usa a cache Advert Path existente no firmware e
-                não gera tráfego LoRa.
-              </p>
-            </div>
-            <button ?disabled=${this._loading} @click=${() => this._load()}>
-              ${this._loading ? 'A atualizar…' : '↻ Atualizar'}
-            </button>
-          </section>
-
-          ${this._error
-            ? this._state('Erro ao carregar', this._error)
-            : this._loading && !data
-              ? this._state('A carregar', 'A consultar os caminhos dos adverts guardados pelo Companion.')
-              : !data?.supported
-                ? this._state('Consulta indisponível', 'O Companion não disponibiliza os dados necessários.')
-                : !data.repeater_enabled
-                  ? this._state('Modo Repeater desligado', 'O Companion está ligado, mas o modo Repeater encontra-se desligado.')
-                  : html`
-                      <section class="summary">
-                        ${this._metric('Vizinhos', String(data.count), 'Repeaters diretos')}
-                        ${this._metric('Método', 'Zero-hop', 'Advert Path')}
-                        ${this._metric('Último advert', latest == null ? '—' : this._age(latest), 'mais recente')}
-                        ${this._metric('Modo', 'Ativo', 'HiveFW')}
-                      </section>
-
-                      <div class="toolbar">
-                        <div class="section-title">Repeaters diretos</div>
-                        <div class="sort">
-                          <button class=${this._sort === 'recent' ? 'active' : ''} @click=${() => (this._sort = 'recent')}>Recentes</button>
-                          <button class=${this._sort === 'name' ? 'active' : ''} @click=${() => (this._sort = 'name')}>Nome</button>
-                        </div>
-                      </div>
-
-                      ${data.neighbors.length === 0
-                        ? this._state('Ainda sem vizinhos zero-hop', 'Nenhum contacto Repeater tem neste momento um Advert Path direto guardado no Companion.')
-                        : html`<div class="grid">${this._sorted().map((n) => this._neighbor(n))}</div>`}
-                    `}
+        <div class="layout">
+          ${this._renderKnownNeighbors()}
+          ${this._renderDiscovery()}
+          ${this._renderMap()}
         </div>
       </div>
     `;
   }
 
-  private _metric(label: string, value: string, sub: string) {
-    return html`<div class="metric">
-      <div class="metric-label">${label}</div>
-      <div class="metric-value">${value}</div>
-      <div class="metric-sub">${sub}</div>
-    </div>`;
-  }
+  private _renderKnownNeighbors() {
+    const data = this._neighbors;
+    const latest = this._latestNeighborAge();
 
-  private _state(title: string, text: string) {
-    return html`<div class="state">
-      <div class="state-title">${title}</div>
-      <div class="state-text">${text}</div>
-    </div>`;
-  }
-
-  private _neighbor(n: HiveNeighborInfo) {
-    return html`<article class="card">
-      <div class="icon">⌁</div>
-      <div>
-        <div class="name">${n.name || n.pubkey_prefix}</div>
-        <div class="prefix">${n.pubkey_prefix.toUpperCase()}</div>
-        <div class="meta">
-          <span class="pill">ZERO-HOP</span>
-          <span>${n.known_contact ? 'Contacto adicionado' : 'Descoberto'}</span>
+    return html`
+      <section class="panel column">
+        <div class="panel-head">
+          <div>
+            <div class="eyebrow">Passivo · Advert Path</div>
+            <h2 class="title">Vizinhos</h2>
+            <div class="subtitle">
+              Repeaters cujo último advert chegou diretamente ao HiveFW.
+            </div>
+          </div>
+          <button
+            ?disabled=${this._loading}
+            @click=${() => this._refreshNeighbors()}>
+            ↻
+          </button>
         </div>
-      </div>
-      <div class="side">
-        <div class="age">${this._age(n.secs_ago)}</div>
-        <div class="side-label">último advert</div>
-      </div>
-    </article>`;
+
+        <div class="metrics">
+          ${this._metric('Diretos', data ? String(data.count) : '—', 'zero-hop')}
+          ${this._metric(
+            'Último advert',
+            latest == null ? '—' : this._age(latest),
+            'cache local',
+          )}
+          ${this._metric('Método', 'Advert', 'sem TX')}
+          ${this._metric(
+            'Repeater',
+            data?.repeater_enabled === false ? 'OFF' : 'ON',
+            'HiveFW local',
+          )}
+        </div>
+
+        ${this._error
+          ? html`<div class="error">${this._error}</div>`
+          : nothing}
+
+        <div class="list">
+          <div class="list-title">Vizinhos consolidados</div>
+          ${!data
+            ? this._empty('A carregar os vizinhos conhecidos…')
+            : !data.supported
+              ? this._empty('A consulta Advert Path não está disponível.')
+              : data.neighbors.length === 0
+                ? this._empty(
+                    'Ainda não existe nenhum Repeater zero-hop na cache de adverts.',
+                  )
+                : [...data.neighbors]
+                    .sort((a, b) => a.secs_ago - b.secs_ago)
+                    .map((item) => this._knownNeighbor(item))}
+        </div>
+      </section>
+    `;
   }
+
+  private _renderDiscovery() {
+    const discovery = this._discovery;
+    const results = discovery?.results || [];
+
+    return html`
+      <section class="panel column">
+        <div class="panel-head">
+          <div>
+            <div class="eyebrow">Ativo · RF zero-hop</div>
+            <h2 class="title">Repetidores descobertos</h2>
+            <div class="subtitle">
+              Pedido oficial MeshCore apenas a Repeaters em alcance direto.
+            </div>
+          </div>
+          <button
+            class="primary"
+            ?disabled=${this._discovering || Boolean(discovery?.active)}
+            @click=${() => this._startDiscovery()}>
+            ${this._discovering
+              ? 'A iniciar…'
+              : discovery?.active
+                ? String(discovery.remaining_seconds) + 's'
+                : 'Descobrir'}
+          </button>
+        </div>
+
+        ${discovery?.active
+          ? html`
+              <div class="discovery-status">
+                <div class="status-line">
+                  <span style="display:flex;align-items:center;gap:8px;">
+                    <span class="pulse"></span>
+                    <strong>À escuta de respostas</strong>
+                  </span>
+                  <span>${discovery.count} encontrados</span>
+                </div>
+                <div style="margin-top:5px;color:var(--secondary-text-color);">
+                  Janela zero-hop ativa por mais ${discovery.remaining_seconds}s.
+                  A lista e o mapa atualizam à medida que chegam respostas.
+                </div>
+              </div>
+            `
+          : discovery?.started_at
+            ? html`
+                <div class="discovery-status">
+                  Pesquisa concluída · <strong>${discovery.count}</strong>
+                  Repeater${discovery.count === 1 ? '' : 's'}
+                  encontrado${discovery.count === 1 ? '' : 's'}.
+                </div>
+              `
+            : html`
+                <div class="discovery-status">
+                  Carrega em <strong>Descobrir</strong> para emitir
+                  um único DISCOVER_REQ zero-hop.
+                </div>
+              `}
+
+        <div class="list">
+          <div class="list-title">Resultados em tempo real</div>
+          ${results.length === 0
+            ? this._empty(
+                discovery?.active
+                  ? 'A aguardar respostas dos Repeaters em alcance…'
+                  : 'Ainda não foi executada uma descoberta ativa.',
+              )
+            : results.map((item) => this._discoveryItem(item))}
+        </div>
+      </section>
+    `;
+  }
+
+  private _renderMap() {
+    const located = this._discoveredWithLocation();
+    const total = this._discovery?.results.length || 0;
+
+    return html`
+      <section class="panel column map-panel">
+        <div class="panel-head">
+          <div>
+            <div class="eyebrow">Descoberta ativa</div>
+            <h2 class="title">Mapa</h2>
+            <div class="subtitle">
+              Repeaters encontrados com localização anunciada conhecida.
+            </div>
+          </div>
+        </div>
+
+        <div class="map-wrap">
+          ${!this._mapReady
+            ? html`<div class="map-note">A carregar o mapa do Home Assistant…</div>`
+            : located.length === 0
+              ? html`
+                  <div class="map-note">
+                    ${total === 0
+                      ? 'Os Repeaters encontrados aparecerão aqui quando a descoberta começar.'
+                      : String(total)
+                        + ' Repeater'
+                        + (total === 1 ? '' : 's')
+                        + ' encontrado'
+                        + (total === 1 ? '' : 's')
+                        + ', mas ainda sem localização conhecida.'}
+                  </div>
+                `
+              : html`
+                  <div class="map-count">
+                    ${located.length}/${total} com localização
+                  </div>
+                  <ha-map
+                    .entities=${[]}
+                    .editableLocations=${this._mapLocations()}
+                    .autoFit=${true}
+                    .clusterMarkers=${true}
+                    .scaleRuler=${true}
+                    @editable-location-clicked=${this._onMapClicked}>
+                  </ha-map>
+                `}
+        </div>
+      </section>
+    `;
+  }
+
+  private _metric(label: string, value: string, sub: string) {
+    return html`
+      <div class="metric">
+        <div class="metric-label">${label}</div>
+        <div class="metric-value">${value}</div>
+        <div class="metric-sub">${sub}</div>
+      </div>
+    `;
+  }
+
+  private _empty(text: string) {
+    return html`<div class="empty">${text}</div>`;
+  }
+
+  private _knownNeighbor(item: HiveNeighborInfo) {
+    return html`
+      <article class="neighbor">
+        <div>
+          <div class="name">${item.name || item.pubkey_prefix}</div>
+          <div class="prefix">${item.pubkey_prefix.toUpperCase()}</div>
+          <div class="meta">
+            <span class="pill">ZERO-HOP</span>
+            <span>${item.known_contact ? 'Contacto' : 'Descoberto'}</span>
+          </div>
+        </div>
+        <div class="side">
+          <div class="signal">${this._age(item.secs_ago)}</div>
+          <div class="side-label">advert</div>
+        </div>
+      </article>
+    `;
+  }
+
+  private _discoveryItem(item: HiveNeighborDiscoveryResult) {
+    const id = item.pubkey || item.pubkey_prefix;
+    const selected = id === this._mapFocusId;
+    const hasLocation =
+      Number.isFinite(Number(item.latitude))
+      && Number.isFinite(Number(item.longitude));
+
+    return html`
+      <article
+        class=${'discovery-item ' + (selected ? 'selected' : '')}
+        @click=${() => this._focusDiscovery(item)}>
+        <div>
+          <div class="name">${item.name || item.pubkey_prefix}</div>
+          <div class="prefix">${item.pubkey_prefix.toUpperCase()}</div>
+          <div class="meta">
+            <span class="pill">ZERO-HOP</span>
+            <span>${item.known_contact ? 'Conhecido' : 'Novo'}</span>
+            ${hasLocation ? html`<span>📍 GPS</span>` : nothing}
+            ${item.request_snr != null
+              ? html`<span>REQ ${Number(item.request_snr).toFixed(1)} dB</span>`
+              : nothing}
+          </div>
+        </div>
+        <div class="side">
+          <div class="signal">
+            ${item.snr == null ? '—' : Number(item.snr).toFixed(1) + ' dB'}
+          </div>
+          <div class="side-label">SNR resposta</div>
+        </div>
+      </article>
+    `;
+  }
+
 }
 
 declare global {
