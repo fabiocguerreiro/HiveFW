@@ -1,9 +1,18 @@
 import { LitElement, html, css, nothing } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
-import type { HomeAssistant, PanelConfig, HiveNeighborInfo, HiveNeighborsResponse } from '../types';
-import { getHiveNeighbors } from '../api';
-
-type SortMode = 'recent' | 'name';
+import type {
+  HomeAssistant,
+  PanelConfig,
+  HiveNeighborInfo,
+  HiveNeighborsResponse,
+  HiveNeighborDiscoveryResult,
+  HiveNeighborDiscoveryResponse,
+} from '../types';
+import {
+  getHiveNeighbors,
+  getHiveNeighborDiscovery,
+  startHiveNeighborDiscovery,
+} from '../api';
 
 @customElement('meshcore-neighbors-page')
 export class NeighborsPage extends LitElement {
@@ -11,195 +20,608 @@ export class NeighborsPage extends LitElement {
   @property({ type: Object }) config?: PanelConfig;
   @property({ type: Boolean }) narrow = false;
 
-  @state() private _data: HiveNeighborsResponse | null = null;
+  @state() private _neighbors: HiveNeighborsResponse | null = null;
+  @state() private _discovery: HiveNeighborDiscoveryResponse | null = null;
   @state() private _loading = true;
+  @state() private _discovering = false;
   @state() private _error: string | null = null;
-  @state() private _sort: SortMode = 'recent';
+  @state() private _mapReady = customElements.get('ha-map') !== undefined;
+  @state() private _mapFocusId = '';
+
+  private _pollTimer?: ReturnType<typeof setInterval>;
+  private _mapMarkerElements = new Map<string, HTMLElement>();
 
   firstUpdated() {
-    void this._load();
+    void this._loadAll();
+    if (!this._mapReady) {
+      void customElements.whenDefined('ha-map').then(() => {
+        this._mapReady = true;
+      });
+    }
   }
 
   updated(changed: Map<string, unknown>) {
-    if (changed.has('config') && this.hasUpdated) void this._load();
+    if (changed.has('config') && this.hasUpdated) {
+      void this._loadAll();
+    }
+  }
+
+  disconnectedCallback() {
+    super.disconnectedCallback();
+    this._stopPolling();
   }
 
   static styles = css`
-    :host { display:block; height:100%; overflow:hidden; color:var(--primary-text-color); }
+    :host { display:block; width:100%; height:100%; min-height:0; overflow:hidden; color:var(--primary-text-color); }
     .page {
-      height:100%; overflow-y:auto; box-sizing:border-box; padding:18px;
-      background:radial-gradient(circle at 96% 0%, color-mix(in srgb,var(--primary-color) 10%,transparent), transparent 34%),var(--primary-background-color);
+      width:100%; height:100%; min-height:0; box-sizing:border-box; padding:14px; overflow:hidden;
+      background:radial-gradient(circle at 96% 0%,color-mix(in srgb,var(--primary-color) 8%,transparent),transparent 30%),var(--primary-background-color);
     }
-    .wrap { width:min(1160px,100%); margin:0 auto; }
-    .hero {
-      display:flex; justify-content:space-between; align-items:flex-start; gap:20px;
-      padding:22px 24px; border:1px solid var(--divider-color); border-radius:18px;
-      background:var(--card-background-color); box-shadow:0 8px 28px rgba(0,0,0,.055);
+    .layout {
+      display:grid;
+      grid-template-columns:minmax(270px,.9fr) minmax(320px,1.05fr) minmax(360px,1.45fr);
+      gap:12px; width:100%; height:100%; min-height:0;
     }
-    .eyebrow { margin-bottom:7px; color:var(--primary-color); font-size:11px; font-weight:760; letter-spacing:.12em; text-transform:uppercase; }
-    h1 { margin:0; font-size:25px; line-height:1.1; font-weight:720; }
-    .subtitle { max-width:700px; margin:8px 0 0; color:var(--secondary-text-color); font-size:13px; line-height:1.48; }
+    .panel {
+      min-width:0; min-height:0; border:1px solid var(--divider-color); border-radius:15px;
+      background:var(--card-background-color); overflow:hidden; box-shadow:0 4px 16px rgba(0,0,0,.035);
+    }
+    .column { display:flex; flex-direction:column; min-height:0; }
+    .panel-head {
+      display:flex; align-items:flex-start; justify-content:space-between; gap:10px; padding:15px 16px 13px;
+      border-bottom:1px solid var(--divider-color); flex:0 0 auto;
+    }
+    .eyebrow {
+      margin-bottom:4px; color:var(--primary-color); font-size:9px; font-weight:760;
+      letter-spacing:.11em; text-transform:uppercase;
+    }
+    .title { margin:0; font-size:16px; line-height:1.2; font-weight:730; }
+    .subtitle { margin-top:5px; color:var(--secondary-text-color); font-size:10px; line-height:1.4; }
     button {
-      border:1px solid var(--divider-color); border-radius:11px; padding:9px 12px;
+      border:1px solid var(--divider-color); border-radius:9px; padding:8px 10px;
       background:var(--secondary-background-color); color:var(--primary-text-color);
-      cursor:pointer; font:inherit; font-size:12px; font-weight:650;
+      cursor:pointer; font:inherit; font-size:11px; font-weight:680;
     }
-    button:hover { border-color:var(--primary-color); }
-    button:disabled { opacity:.55; cursor:default; }
-    .summary { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:11px; margin-top:13px; }
-    .metric { min-height:82px; box-sizing:border-box; padding:14px 15px; border:1px solid var(--divider-color); border-radius:15px; background:var(--card-background-color); }
-    .metric-label { margin-bottom:7px; color:var(--secondary-text-color); font-size:10px; font-weight:700; letter-spacing:.075em; text-transform:uppercase; }
-    .metric-value { font-size:20px; font-weight:730; }
-    .metric-sub { margin-top:5px; color:var(--secondary-text-color); font-size:10px; }
-    .toolbar { display:flex; justify-content:space-between; align-items:center; gap:12px; margin:18px 0 10px; }
-    .section-title { font-size:14px; font-weight:720; }
-    .sort { display:inline-flex; gap:3px; padding:3px; border:1px solid var(--divider-color); border-radius:11px; background:var(--secondary-background-color); }
-    .sort button { border:0; padding:7px 10px; background:transparent; color:var(--secondary-text-color); font-size:11px; }
-    .sort button.active { background:var(--primary-color); color:var(--text-primary-color,#fff); }
-    .grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; padding-bottom:22px; }
-    .card {
-      position:relative; overflow:hidden; display:grid; grid-template-columns:42px minmax(0,1fr) auto;
-      align-items:center; gap:14px; padding:16px; border:1px solid var(--divider-color);
-      border-radius:16px; background:var(--card-background-color);
+    button:hover:not(:disabled) { border-color:var(--primary-color); }
+    button:disabled { opacity:.5; cursor:default; }
+    .primary {
+      background:var(--primary-color); border-color:var(--primary-color);
+      color:var(--text-primary-color,#fff); white-space:nowrap;
     }
-    .card::before { content:''; position:absolute; inset:0 auto 0 0; width:3px; background:var(--primary-color); }
-    .icon { width:42px; height:42px; display:grid; place-items:center; border-radius:13px; background:color-mix(in srgb,var(--primary-color) 10%,var(--card-background-color)); color:var(--primary-color); font-size:20px; }
-    .name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:14px; font-weight:700; }
-    .prefix { margin-top:4px; color:var(--secondary-text-color); font:11px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; letter-spacing:.035em; }
-    .meta { display:flex; flex-wrap:wrap; align-items:center; gap:7px; margin-top:8px; color:var(--secondary-text-color); font-size:11px; }
-    .pill { border-radius:999px; padding:3px 8px; background:color-mix(in srgb,var(--primary-color) 10%,transparent); color:var(--primary-color); font-size:10px; font-weight:700; }
-    .side { text-align:right; min-width:64px; }
-    .age { font-size:13px; font-weight:700; }
-    .side-label { margin-top:4px; color:var(--secondary-text-color); font-size:9px; letter-spacing:.07em; text-transform:uppercase; }
-    .state { margin-top:14px; padding:34px 24px; border:1px dashed var(--divider-color); border-radius:17px; background:var(--card-background-color); text-align:center; }
-    .state-title { font-size:15px; font-weight:700; }
-    .state-text { max-width:590px; margin:7px auto 0; color:var(--secondary-text-color); font-size:12px; line-height:1.5; }
-    @media (max-width:820px) { .page{padding:12px}.hero{flex-direction:column;padding:18px}.summary{grid-template-columns:repeat(2,minmax(0,1fr))}.grid{grid-template-columns:1fr} }
+    .metrics {
+      display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; padding:12px; flex:0 0 auto;
+    }
+    .metric { min-width:0; padding:10px 11px; border-radius:10px; background:var(--secondary-background-color); }
+    .metric-label {
+      color:var(--secondary-text-color); font-size:8px; font-weight:720;
+      letter-spacing:.065em; text-transform:uppercase;
+    }
+    .metric-value {
+      margin-top:4px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+      font-size:16px; font-weight:740;
+    }
+    .metric-sub { margin-top:2px; color:var(--secondary-text-color); font-size:9px; }
+    .list { min-height:0; overflow-y:auto; padding:0 10px 12px; }
+    .list-title {
+      padding:3px 2px 8px; color:var(--secondary-text-color); font-size:9px;
+      font-weight:720; letter-spacing:.07em; text-transform:uppercase;
+    }
+    .neighbor,.discovery-item {
+      display:grid; grid-template-columns:minmax(0,1fr) auto; gap:9px; align-items:center;
+      padding:10px; border:1px solid var(--divider-color); border-radius:10px;
+      background:var(--primary-background-color);
+    }
+    .neighbor + .neighbor,.discovery-item + .discovery-item { margin-top:7px; }
+    .discovery-item { cursor:pointer; transition:border-color .15s,background .15s; }
+    .discovery-item:hover,.discovery-item.selected {
+      border-color:var(--primary-color);
+      background:color-mix(in srgb,var(--primary-color) 6%,var(--primary-background-color));
+    }
+    .name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; font-weight:700; }
+    .prefix {
+      margin-top:2px; color:var(--secondary-text-color);
+      font:9px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    }
+    .meta { display:flex; flex-wrap:wrap; gap:5px; margin-top:5px; color:var(--secondary-text-color); font-size:9px; }
+    .pill {
+      display:inline-flex; align-items:center; padding:2px 6px; border-radius:999px;
+      background:color-mix(in srgb,var(--primary-color) 10%,transparent);
+      color:var(--primary-color); font-size:8px; font-weight:750;
+    }
+    .side { min-width:52px; text-align:right; }
+    .signal { font-size:12px; font-weight:720; }
+    .side-label { margin-top:2px; color:var(--secondary-text-color); font-size:8px; text-transform:uppercase; }
+    .empty {
+      margin:0 10px 12px; padding:18px 14px; border:1px dashed var(--divider-color);
+      border-radius:10px; color:var(--secondary-text-color); text-align:center;
+      font-size:10px; line-height:1.45;
+    }
+    .discovery-status {
+      margin:12px; padding:10px 11px; border-radius:10px;
+      background:color-mix(in srgb,var(--primary-color) 8%,transparent);
+      font-size:10px; line-height:1.4; flex:0 0 auto;
+    }
+    .status-line { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+    .pulse {
+      width:7px; height:7px; border-radius:50%; background:var(--primary-color);
+      box-shadow:0 0 0 0 color-mix(in srgb,var(--primary-color) 30%,transparent);
+      animation:pulse 1.5s infinite; flex:0 0 auto;
+    }
+    @keyframes pulse {
+      0% { box-shadow:0 0 0 0 color-mix(in srgb,var(--primary-color) 35%,transparent); }
+      70% { box-shadow:0 0 0 7px transparent; }
+      100% { box-shadow:0 0 0 0 transparent; }
+    }
+    .map-panel { position:relative; min-height:0; }
+    .map-wrap { position:relative; width:100%; height:100%; min-height:0; }
+    .map-wrap ha-map { display:block; width:100%; height:100%; min-height:360px; }
+    .map-note {
+      display:grid; place-items:center; height:100%; min-height:320px; box-sizing:border-box;
+      padding:24px; color:var(--secondary-text-color); text-align:center; font-size:11px; line-height:1.45;
+    }
+    .map-count {
+      position:absolute; top:10px; right:10px; z-index:30; padding:5px 8px;
+      border:1px solid var(--divider-color); border-radius:999px;
+      background:color-mix(in srgb,var(--card-background-color) 92%,transparent);
+      box-shadow:0 1px 5px rgba(0,0,0,.16); font-size:9px; font-weight:700; pointer-events:none;
+    }
+    .error {
+      margin:12px; padding:10px; border-radius:9px;
+      background:color-mix(in srgb,var(--error-color,#db4437) 10%,transparent);
+      color:var(--error-color,#db4437); font-size:10px;
+    }
+    @media (max-width:1050px) {
+      :host { overflow:auto; }
+      .page { height:auto; min-height:100%; overflow:visible; }
+      .layout { grid-template-columns:1fr; height:auto; }
+      .panel { min-height:360px; }
+      .map-panel { min-height:480px; }
+    }
   `;
 
-  private async _load() {
+  private async _loadAll() {
     if (!this.hass) return;
     this._loading = true;
     this._error = null;
     try {
-      this._data = await getHiveNeighbors(this.hass, this.config?.entry_id);
+      const [neighbors, discovery] = await Promise.all([
+        getHiveNeighbors(this.hass, this.config?.entry_id),
+        getHiveNeighborDiscovery(this.hass, this.config?.entry_id),
+      ]);
+      this._neighbors = neighbors;
+      this._discovery = discovery;
+      if (discovery.active) this._startPolling();
     } catch (err) {
-      this._error = err instanceof Error ? err.message : 'Não foi possível carregar os vizinhos.';
+      this._error = this._errorText(err, 'Não foi possível carregar os vizinhos.');
     } finally {
       this._loading = false;
     }
   }
 
+  private async _refreshNeighbors() {
+    if (!this.hass) return;
+    try {
+      this._neighbors = await getHiveNeighbors(this.hass, this.config?.entry_id);
+    } catch (err) {
+      this._error = this._errorText(err, 'Falha ao atualizar os vizinhos.');
+    }
+  }
+
+  private async _startDiscovery() {
+    if (!this.hass || this._discovering) return;
+    this._discovering = true;
+    this._error = null;
+    try {
+      this._discovery = await startHiveNeighborDiscovery(
+        this.hass,
+        this.config?.entry_id,
+      );
+      this._mapFocusId = '';
+      this._startPolling();
+    } catch (err) {
+      this._error = this._errorText(err, 'Não foi possível iniciar a descoberta.');
+    } finally {
+      this._discovering = false;
+    }
+  }
+
+  private _startPolling() {
+    this._stopPolling();
+    this._pollTimer = setInterval(() => {
+      void this._pollDiscovery();
+    }, 1000);
+  }
+
+  private _stopPolling() {
+    if (this._pollTimer) {
+      clearInterval(this._pollTimer);
+      this._pollTimer = undefined;
+    }
+  }
+
+  private async _pollDiscovery() {
+    if (!this.hass) return;
+    try {
+      const result = await getHiveNeighborDiscovery(
+        this.hass,
+        this.config?.entry_id,
+      );
+      this._discovery = result;
+      if (!result.active) this._stopPolling();
+    } catch {
+      // Keep the last result set visible during a transient WS hiccup.
+    }
+  }
+
+  private _errorText(err: unknown, fallback: string): string {
+    if (err instanceof Error) return err.message || fallback;
+    if (typeof err === 'object' && err && 'message' in err) {
+      return String((err as { message?: unknown }).message || fallback);
+    }
+    return fallback;
+  }
+
   private _age(seconds: number): string {
     const value = Math.max(0, Math.floor(seconds || 0));
     if (value < 10) return 'agora';
-    if (value < 60) return `${value}s`;
+    if (value < 60) return String(value) + 's';
     const minutes = Math.floor(value / 60);
-    if (minutes < 60) return `${minutes} min`;
+    if (minutes < 60) return String(minutes) + ' min';
     const hours = Math.floor(minutes / 60);
-    if (hours < 24) return `${hours} h`;
-    return `${Math.floor(hours / 24)} d`;
+    if (hours < 24) return String(hours) + ' h';
+    return String(Math.floor(hours / 24)) + ' d';
   }
 
-  private _sorted(): HiveNeighborInfo[] {
-    const list = [...(this._data?.neighbors || [])];
-    if (this._sort === 'name') {
-      list.sort((a, b) => a.name.localeCompare(b.name));
-    } else {
-      list.sort((a, b) => a.secs_ago - b.secs_ago);
+  private _latestNeighborAge(): number | null {
+    const list = this._neighbors?.neighbors || [];
+    return list.length ? Math.min(...list.map((item) => item.secs_ago)) : null;
+  }
+
+  private _discoveredWithLocation(): HiveNeighborDiscoveryResult[] {
+    return (this._discovery?.results || []).filter((item) => {
+      const lat = Number(item.latitude);
+      const lon = Number(item.longitude);
+      return Number.isFinite(lat)
+        && Number.isFinite(lon)
+        && lat >= -90 && lat <= 90
+        && lon >= -180 && lon <= 180
+        && !(lat === 0 && lon === 0);
+    });
+  }
+
+  private _markerFor(item: HiveNeighborDiscoveryResult): HTMLElement {
+    const id = item.pubkey || item.pubkey_prefix;
+    let marker = this._mapMarkerElements.get(id);
+    if (!marker) {
+      marker = document.createElement('div');
+      this._mapMarkerElements.set(id, marker);
     }
-    return list;
+
+    const selected = this._mapFocusId === id;
+    marker.style.width = '30px';
+    marker.style.height = '30px';
+    marker.style.borderRadius = '50%';
+    marker.style.display = 'grid';
+    marker.style.placeItems = 'center';
+    marker.style.fontSize = '9px';
+    marker.style.fontWeight = '750';
+    marker.style.background = selected
+      ? 'var(--warning-color,#ff9800)'
+      : 'var(--primary-color,#03a9f4)';
+    marker.style.color = 'white';
+    marker.style.border = selected ? '3px solid white' : '2px solid white';
+    marker.style.boxShadow = selected
+      ? '0 0 0 3px rgba(255,152,0,.30),0 2px 7px rgba(0,0,0,.32)'
+      : '0 1px 5px rgba(0,0,0,.30)';
+    marker.textContent = (item.name || item.pubkey_prefix || '?').slice(0, 2).toUpperCase();
+    return marker;
+  }
+
+  private _mapLocations() {
+    const active = new Set<string>();
+    const locations = this._discoveredWithLocation().map((item) => {
+      const id = item.pubkey || item.pubkey_prefix;
+      active.add(id);
+      return {
+        id,
+        location: [Number(item.latitude), Number(item.longitude)] as [number, number],
+        element: this._markerFor(item),
+        elementSize: [36, 36] as [number, number],
+        title: item.name || item.pubkey_prefix,
+        locationEditable: false,
+        activatable: true,
+      };
+    });
+
+    for (const id of this._mapMarkerElements.keys()) {
+      if (!active.has(id)) this._mapMarkerElements.delete(id);
+    }
+    return locations;
+  }
+
+  private _focusDiscovery(item: HiveNeighborDiscoveryResult) {
+    const id = item.pubkey || item.pubkey_prefix;
+    this._mapFocusId = id;
+    this.requestUpdate();
+
+    const lat = Number(item.latitude);
+    const lon = Number(item.longitude);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+
+    void this.updateComplete.then(() => {
+      const map = this.renderRoot.querySelector('ha-map') as
+        (HTMLElement & {
+          setView?: (center: [number, number], zoom?: number) => void;
+        }) | null;
+      map?.setView?.([lat, lon], 14);
+    });
+  }
+
+  private _onMapClicked(e: CustomEvent<{ id: string }>) {
+    const item = (this._discovery?.results || []).find(
+      (candidate) =>
+        (candidate.pubkey || candidate.pubkey_prefix) === e.detail?.id,
+    );
+    if (item) this._focusDiscovery(item);
   }
 
   render() {
-    const data = this._data;
-    const latest = data?.neighbors.length
-      ? Math.min(...data.neighbors.map((n) => n.secs_ago))
-      : null;
-
     return html`
       <div class="page">
-        <div class="wrap">
-          <section class="hero">
-            <div>
-              <div class="eyebrow">◉ Repeater · Zero-hop</div>
-              <h1>Vizinhos</h1>
-              <p class="subtitle">
-                Repeaters cujo último advert guardado pelo Companion foi recebido diretamente,
-                com zero hops. A consulta usa a cache Advert Path existente no firmware e
-                não gera tráfego LoRa.
-              </p>
-            </div>
-            <button ?disabled=${this._loading} @click=${() => this._load()}>
-              ${this._loading ? 'A atualizar…' : '↻ Atualizar'}
-            </button>
-          </section>
-
-          ${this._error
-            ? this._state('Erro ao carregar', this._error)
-            : this._loading && !data
-              ? this._state('A carregar', 'A consultar os caminhos dos adverts guardados pelo Companion.')
-              : !data?.supported
-                ? this._state('Consulta indisponível', 'O Companion não disponibiliza os dados necessários.')
-                : !data.repeater_enabled
-                  ? this._state('Modo Repeater desligado', 'O Companion está ligado, mas o modo Repeater encontra-se desligado.')
-                  : html`
-                      <section class="summary">
-                        ${this._metric('Vizinhos', String(data.count), 'Repeaters diretos')}
-                        ${this._metric('Método', 'Zero-hop', 'Advert Path')}
-                        ${this._metric('Último advert', latest == null ? '—' : this._age(latest), 'mais recente')}
-                        ${this._metric('Modo', 'Ativo', 'HiveFW')}
-                      </section>
-
-                      <div class="toolbar">
-                        <div class="section-title">Repeaters diretos</div>
-                        <div class="sort">
-                          <button class=${this._sort === 'recent' ? 'active' : ''} @click=${() => (this._sort = 'recent')}>Recentes</button>
-                          <button class=${this._sort === 'name' ? 'active' : ''} @click=${() => (this._sort = 'name')}>Nome</button>
-                        </div>
-                      </div>
-
-                      ${data.neighbors.length === 0
-                        ? this._state('Ainda sem vizinhos zero-hop', 'Nenhum contacto Repeater tem neste momento um Advert Path direto guardado no Companion.')
-                        : html`<div class="grid">${this._sorted().map((n) => this._neighbor(n))}</div>`}
-                    `}
+        <div class="layout">
+          ${this._renderKnownNeighbors()}
+          ${this._renderDiscovery()}
+          ${this._renderMap()}
         </div>
       </div>
     `;
   }
 
-  private _metric(label: string, value: string, sub: string) {
-    return html`<div class="metric">
-      <div class="metric-label">${label}</div>
-      <div class="metric-value">${value}</div>
-      <div class="metric-sub">${sub}</div>
-    </div>`;
-  }
+  private _renderKnownNeighbors() {
+    const data = this._neighbors;
+    const latest = this._latestNeighborAge();
 
-  private _state(title: string, text: string) {
-    return html`<div class="state">
-      <div class="state-title">${title}</div>
-      <div class="state-text">${text}</div>
-    </div>`;
-  }
-
-  private _neighbor(n: HiveNeighborInfo) {
-    return html`<article class="card">
-      <div class="icon">⌁</div>
-      <div>
-        <div class="name">${n.name || n.pubkey_prefix}</div>
-        <div class="prefix">${n.pubkey_prefix.toUpperCase()}</div>
-        <div class="meta">
-          <span class="pill">ZERO-HOP</span>
-          <span>${n.known_contact ? 'Contacto adicionado' : 'Descoberto'}</span>
+    return html`
+      <section class="panel column">
+        <div class="panel-head">
+          <div>
+            <div class="eyebrow">Passivo · Advert Path</div>
+            <h2 class="title">Vizinhos</h2>
+            <div class="subtitle">
+              Repeaters cujo último advert chegou diretamente ao HiveFW.
+            </div>
+          </div>
+          <button
+            ?disabled=${this._loading}
+            @click=${() => this._refreshNeighbors()}>
+            ↻
+          </button>
         </div>
-      </div>
-      <div class="side">
-        <div class="age">${this._age(n.secs_ago)}</div>
-        <div class="side-label">último advert</div>
-      </div>
-    </article>`;
+
+        <div class="metrics">
+          ${this._metric('Diretos', data ? String(data.count) : '—', 'zero-hop')}
+          ${this._metric(
+            'Último advert',
+            latest == null ? '—' : this._age(latest),
+            'cache local',
+          )}
+          ${this._metric('Método', 'Advert', 'sem TX')}
+          ${this._metric(
+            'Repeater',
+            data?.repeater_enabled === false ? 'OFF' : 'ON',
+            'HiveFW local',
+          )}
+        </div>
+
+        ${this._error
+          ? html`<div class="error">${this._error}</div>`
+          : nothing}
+
+        <div class="list">
+          <div class="list-title">Vizinhos consolidados</div>
+          ${!data
+            ? this._empty('A carregar os vizinhos conhecidos…')
+            : !data.supported
+              ? this._empty('A consulta Advert Path não está disponível.')
+              : data.neighbors.length === 0
+                ? this._empty(
+                    'Ainda não existe nenhum Repeater zero-hop na cache de adverts.',
+                  )
+                : [...data.neighbors]
+                    .sort((a, b) => a.secs_ago - b.secs_ago)
+                    .map((item) => this._knownNeighbor(item))}
+        </div>
+      </section>
+    `;
   }
+
+  private _renderDiscovery() {
+    const discovery = this._discovery;
+    const results = discovery?.results || [];
+
+    return html`
+      <section class="panel column">
+        <div class="panel-head">
+          <div>
+            <div class="eyebrow">Ativo · RF zero-hop</div>
+            <h2 class="title">Repetidores descobertos</h2>
+            <div class="subtitle">
+              Pedido oficial MeshCore apenas a Repeaters em alcance direto.
+            </div>
+          </div>
+          <button
+            class="primary"
+            ?disabled=${this._discovering || Boolean(discovery?.active)}
+            @click=${() => this._startDiscovery()}>
+            ${this._discovering
+              ? 'A iniciar…'
+              : discovery?.active
+                ? String(discovery.remaining_seconds) + 's'
+                : 'Descobrir'}
+          </button>
+        </div>
+
+        ${discovery?.active
+          ? html`
+              <div class="discovery-status">
+                <div class="status-line">
+                  <span style="display:flex;align-items:center;gap:8px;">
+                    <span class="pulse"></span>
+                    <strong>À escuta de respostas</strong>
+                  </span>
+                  <span>${discovery.count} encontrados</span>
+                </div>
+                <div style="margin-top:5px;color:var(--secondary-text-color);">
+                  Janela zero-hop ativa por mais ${discovery.remaining_seconds}s.
+                  A lista e o mapa atualizam à medida que chegam respostas.
+                </div>
+              </div>
+            `
+          : discovery?.started_at
+            ? html`
+                <div class="discovery-status">
+                  Pesquisa concluída · <strong>${discovery.count}</strong>
+                  Repeater${discovery.count === 1 ? '' : 's'}
+                  encontrado${discovery.count === 1 ? '' : 's'}.
+                </div>
+              `
+            : html`
+                <div class="discovery-status">
+                  Carrega em <strong>Descobrir</strong> para emitir
+                  um único DISCOVER_REQ zero-hop.
+                </div>
+              `}
+
+        <div class="list">
+          <div class="list-title">Resultados em tempo real</div>
+          ${results.length === 0
+            ? this._empty(
+                discovery?.active
+                  ? 'A aguardar respostas dos Repeaters em alcance…'
+                  : 'Ainda não foi executada uma descoberta ativa.',
+              )
+            : results.map((item) => this._discoveryItem(item))}
+        </div>
+      </section>
+    `;
+  }
+
+  private _renderMap() {
+    const located = this._discoveredWithLocation();
+    const total = this._discovery?.results.length || 0;
+
+    return html`
+      <section class="panel column map-panel">
+        <div class="panel-head">
+          <div>
+            <div class="eyebrow">Descoberta ativa</div>
+            <h2 class="title">Mapa</h2>
+            <div class="subtitle">
+              Repeaters encontrados com localização anunciada conhecida.
+            </div>
+          </div>
+        </div>
+
+        <div class="map-wrap">
+          ${!this._mapReady
+            ? html`<div class="map-note">A carregar o mapa do Home Assistant…</div>`
+            : located.length === 0
+              ? html`
+                  <div class="map-note">
+                    ${total === 0
+                      ? 'Os Repeaters encontrados aparecerão aqui quando a descoberta começar.'
+                      : String(total)
+                        + ' Repeater'
+                        + (total === 1 ? '' : 's')
+                        + ' encontrado'
+                        + (total === 1 ? '' : 's')
+                        + ', mas ainda sem localização conhecida.'}
+                  </div>
+                `
+              : html`
+                  <div class="map-count">
+                    ${located.length}/${total} com localização
+                  </div>
+                  <ha-map
+                    .entities=${[]}
+                    .editableLocations=${this._mapLocations()}
+                    .autoFit=${true}
+                    .clusterMarkers=${true}
+                    .scaleRuler=${true}
+                    @editable-location-clicked=${this._onMapClicked}>
+                  </ha-map>
+                `}
+        </div>
+      </section>
+    `;
+  }
+
+  private _metric(label: string, value: string, sub: string) {
+    return html`
+      <div class="metric">
+        <div class="metric-label">${label}</div>
+        <div class="metric-value">${value}</div>
+        <div class="metric-sub">${sub}</div>
+      </div>
+    `;
+  }
+
+  private _empty(text: string) {
+    return html`<div class="empty">${text}</div>`;
+  }
+
+  private _knownNeighbor(item: HiveNeighborInfo) {
+    return html`
+      <article class="neighbor">
+        <div>
+          <div class="name">${item.name || item.pubkey_prefix}</div>
+          <div class="prefix">${item.pubkey_prefix.toUpperCase()}</div>
+          <div class="meta">
+            <span class="pill">ZERO-HOP</span>
+            <span>${item.known_contact ? 'Contacto' : 'Descoberto'}</span>
+          </div>
+        </div>
+        <div class="side">
+          <div class="signal">${this._age(item.secs_ago)}</div>
+          <div class="side-label">advert</div>
+        </div>
+      </article>
+    `;
+  }
+
+  private _discoveryItem(item: HiveNeighborDiscoveryResult) {
+    const id = item.pubkey || item.pubkey_prefix;
+    const selected = id === this._mapFocusId;
+    const hasLocation =
+      Number.isFinite(Number(item.latitude))
+      && Number.isFinite(Number(item.longitude));
+
+    return html`
+      <article
+        class=${'discovery-item ' + (selected ? 'selected' : '')}
+        @click=${() => this._focusDiscovery(item)}>
+        <div>
+          <div class="name">${item.name || item.pubkey_prefix}</div>
+          <div class="prefix">${item.pubkey_prefix.toUpperCase()}</div>
+          <div class="meta">
+            <span class="pill">ZERO-HOP</span>
+            <span>${item.known_contact ? 'Conhecido' : 'Novo'}</span>
+            ${hasLocation ? html`<span>📍 GPS</span>` : nothing}
+            ${item.request_snr != null
+              ? html`<span>REQ ${Number(item.request_snr).toFixed(1)} dB</span>`
+              : nothing}
+          </div>
+        </div>
+        <div class="side">
+          <div class="signal">
+            ${item.snr == null ? '—' : Number(item.snr).toFixed(1) + ' dB'}
+          </div>
+          <div class="side-label">SNR resposta</div>
+        </div>
+      </article>
+    `;
+  }
+
 }
 
 declare global {

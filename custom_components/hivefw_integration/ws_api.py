@@ -673,6 +673,8 @@ def async_register_ws_commands(hass: HomeAssistant) -> None:
 
     # Neighbor management commands
     websocket_api.async_register_command(hass, ws_get_hive_neighbors)
+    websocket_api.async_register_command(hass, ws_start_hive_neighbor_discovery)
+    websocket_api.async_register_command(hass, ws_get_hive_neighbor_discovery)
     websocket_api.async_register_command(hass, ws_get_neighbors)
     websocket_api.async_register_command(hass, ws_remove_neighbor)
     websocket_api.async_register_command(hass, ws_cleanup_stale_neighbors)
@@ -3570,6 +3572,311 @@ async def ws_get_hive_neighbors(hass, connection, msg):
             ex,
             handler="ws_get_hive_neighbors",
         )
+
+
+
+# ─── hivefw_integration active zero-hop discovery ───────────────────────
+
+_HIVE_NEIGHBOR_DISCOVERY_SECONDS = 60
+_MESHCORE_ADV_TYPE_REPEATER = 2
+_MESHCORE_REPEATER_FILTER = 1 << _MESHCORE_ADV_TYPE_REPEATER
+
+
+def _stop_hive_neighbor_discovery(coordinator, *, cancel_timer: bool = True) -> None:
+    """Stop the current discovery listener without deleting its results."""
+    subscription = getattr(
+        coordinator, "_hivefw_neighbor_discovery_subscription", None
+    )
+    if subscription is not None:
+        try:
+            subscription.unsubscribe()
+        except Exception:
+            pass
+    coordinator._hivefw_neighbor_discovery_subscription = None
+
+    if cancel_timer:
+        timer = getattr(coordinator, "_hivefw_neighbor_discovery_timer", None)
+        if timer is not None and not timer.done():
+            timer.cancel()
+        coordinator._hivefw_neighbor_discovery_timer = None
+
+    state = getattr(coordinator, "_hivefw_neighbor_discovery", None)
+    if isinstance(state, dict):
+        state["active"] = False
+
+
+def _hive_neighbor_discovery_payload(coordinator) -> dict:
+    """Return the current discovery session in a frontend-safe shape."""
+    state = getattr(coordinator, "_hivefw_neighbor_discovery", None)
+    if not isinstance(state, dict):
+        return {
+            "supported": True,
+            "active": False,
+            "started_at": "",
+            "ends_at": "",
+            "remaining_seconds": 0,
+            "count": 0,
+            "results": [],
+            "error": "",
+        }
+
+    now = time.time()
+    ends_ts = float(state.get("ends_ts") or 0)
+    active = bool(state.get("active")) and ends_ts > now
+    if state.get("active") and not active:
+        _stop_hive_neighbor_discovery(coordinator)
+
+    raw_results = state.get("results", {})
+    results = []
+    if isinstance(raw_results, dict):
+        for item in raw_results.values():
+            if not isinstance(item, dict):
+                continue
+            result = dict(item)
+            seen_ts = float(result.pop("_seen_ts", 0) or 0)
+            result["secs_ago"] = max(0, int(now - seen_ts)) if seen_ts else 0
+            results.append(result)
+
+    results.sort(
+        key=lambda item: (
+            -float(item.get("snr") if item.get("snr") is not None else -999),
+            str(item.get("name") or ""),
+        )
+    )
+
+    return {
+        "supported": True,
+        "active": active,
+        "started_at": state.get("started_at", ""),
+        "ends_at": state.get("ends_at", ""),
+        "remaining_seconds": max(0, int(ends_ts - now)) if active else 0,
+        "count": len(results),
+        "results": results,
+        "error": str(state.get("error") or ""),
+    }
+
+
+def _match_discovered_repeater_contact(
+    contacts: list[dict], pubkey: str
+) -> dict | None:
+    """Resolve a full/prefix discovery key against known HA contact metadata."""
+    candidate = str(pubkey or "").strip().lower()
+    if not candidate:
+        return None
+
+    for contact in contacts:
+        key = str(
+            contact.get("public_key")
+            or contact.get("pubkey_prefix")
+            or ""
+        ).strip().lower()
+        if not key:
+            continue
+        if key.startswith(candidate) or candidate.startswith(key):
+            return contact
+    return None
+
+
+def _valid_contact_location(contact: dict | None) -> tuple[float, float] | None:
+    if not contact:
+        return None
+    lat_raw = contact.get("latitude", contact.get("adv_lat"))
+    lon_raw = contact.get("longitude", contact.get("adv_lon"))
+    try:
+        lat = float(lat_raw)
+        lon = float(lon_raw)
+    except (TypeError, ValueError):
+        return None
+    if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+        return None
+    if lat == 0 and lon == 0:
+        return None
+    return lat, lon
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hivefw_integration/start_hive_neighbor_discovery",
+        vol.Optional("entry_id"): str,
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_start_hive_neighbor_discovery(hass, connection, msg):
+    """Transmit one standard MeshCore zero-hop Repeater discovery request."""
+    from meshcore.events import EventType
+
+    coordinator = _get_coordinator(hass, msg.get("entry_id"))
+    if not coordinator or not coordinator.api.mesh_core:
+        connection.send_error(msg["id"], "not_found", "No MeshCore coordinator found")
+        return
+    if not getattr(coordinator.api, "connected", False):
+        connection.send_error(msg["id"], "not_connected", "HiveFW radio is offline")
+        return
+
+    mesh_core = coordinator.api.mesh_core
+    commands = mesh_core.commands
+    if not hasattr(commands, "send_node_discover_req"):
+        connection.send_error(
+            msg["id"],
+            "unsupported",
+            "The installed meshcore Python library does not support node discovery",
+        )
+        return
+
+    _stop_hive_neighbor_discovery(coordinator)
+
+    contacts = await _get_contacts_via_service(hass, msg.get("entry_id"))
+    contacts = [
+        contact for contact in (contacts or [])
+        if isinstance(contact, dict) and int(contact.get("type") or 0) == 2
+    ]
+
+    now = time.time()
+    tag = int.from_bytes(os.urandom(4), "little") or 1
+    tag_hex = tag.to_bytes(4, "little").hex()
+
+    state = {
+        "active": True,
+        "started_at": datetime.now().astimezone().isoformat(),
+        "ends_at": datetime.fromtimestamp(
+            now + _HIVE_NEIGHBOR_DISCOVERY_SECONDS
+        ).astimezone().isoformat(),
+        "ends_ts": now + _HIVE_NEIGHBOR_DISCOVERY_SECONDS,
+        "tag": tag_hex,
+        "results": {},
+        "error": "",
+    }
+    coordinator._hivefw_neighbor_discovery = state
+
+    def _on_discover_response(event) -> None:
+        current = getattr(coordinator, "_hivefw_neighbor_discovery", None)
+        if current is not state or not state.get("active"):
+            return
+        payload = getattr(event, "payload", None)
+        if not isinstance(payload, dict):
+            return
+        if str(payload.get("tag") or "").lower() != tag_hex:
+            return
+        if int(payload.get("node_type") or 0) != _MESHCORE_ADV_TYPE_REPEATER:
+            return
+
+        try:
+            path_len = int(payload.get("path_len") or 0)
+        except (TypeError, ValueError):
+            path_len = 0
+        if path_len != 0:
+            return
+
+        pubkey = str(payload.get("pubkey") or "").strip().lower()
+        if len(pubkey) < 12:
+            return
+
+        prefix = pubkey[:12]
+        contact = _match_discovered_repeater_contact(contacts, pubkey)
+        name = ""
+        if contact:
+            name = str(
+                contact.get("adv_name")
+                or contact.get("name")
+                or ""
+            ).strip()
+        location = _valid_contact_location(contact)
+
+        item = {
+            "name": name or prefix.upper(),
+            "pubkey": pubkey,
+            "pubkey_prefix": prefix,
+            "known_contact": bool(contact),
+            "snr": payload.get("SNR"),
+            "request_snr": payload.get("SNR_in"),
+            "rssi": payload.get("RSSI"),
+            "path_len": 0,
+            "discovered_at": datetime.now().astimezone().isoformat(),
+            "_seen_ts": time.time(),
+        }
+        if location:
+            item["latitude"], item["longitude"] = location
+        if contact and contact.get("map_entity_id"):
+            item["map_entity_id"] = contact.get("map_entity_id")
+
+        state["results"][pubkey] = item
+
+    subscription = mesh_core.dispatcher.subscribe(
+        EventType.DISCOVER_RESPONSE,
+        _on_discover_response,
+    )
+    coordinator._hivefw_neighbor_discovery_subscription = subscription
+
+    async def _finish_discovery() -> None:
+        try:
+            await asyncio.sleep(_HIVE_NEIGHBOR_DISCOVERY_SECONDS)
+        except asyncio.CancelledError:
+            return
+        state["active"] = False
+        _stop_hive_neighbor_discovery(coordinator, cancel_timer=False)
+        coordinator._hivefw_neighbor_discovery_timer = None
+
+    timer = hass.async_create_task(_finish_discovery())
+    coordinator._hivefw_neighbor_discovery_timer = timer
+
+    try:
+        result = await commands.send_node_discover_req(
+            filter=_MESHCORE_REPEATER_FILTER,
+            prefix_only=False,
+            tag=tag,
+            since=0,
+        )
+        if (
+            result is None
+            or getattr(result, "type", None) == EventType.ERROR
+            or (hasattr(result, "is_error") and result.is_error())
+        ):
+            reason = ""
+            payload = getattr(result, "payload", None)
+            if isinstance(payload, dict):
+                reason = str(payload.get("reason") or payload.get("error") or "")
+            state["error"] = reason or "Discovery request was rejected"
+            _stop_hive_neighbor_discovery(coordinator)
+            connection.send_error(
+                msg["id"],
+                "discovery_failed",
+                state["error"],
+            )
+            return
+
+        connection.send_result(
+            msg["id"],
+            _hive_neighbor_discovery_payload(coordinator),
+        )
+    except Exception as ex:
+        state["error"] = str(ex)
+        _stop_hive_neighbor_discovery(coordinator)
+        _ws_send_error_safe(
+            connection,
+            msg["id"],
+            ex,
+            handler="ws_start_hive_neighbor_discovery",
+        )
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hivefw_integration/get_hive_neighbor_discovery",
+        vol.Optional("entry_id"): str,
+    }
+)
+@callback
+def ws_get_hive_neighbor_discovery(hass, connection, msg):
+    """Return the live/current active-discovery result set."""
+    coordinator = _get_coordinator(hass, msg.get("entry_id"))
+    if not coordinator or not coordinator.api.mesh_core:
+        connection.send_error(msg["id"], "not_found", "No MeshCore coordinator found")
+        return
+    connection.send_result(
+        msg["id"],
+        _hive_neighbor_discovery_payload(coordinator),
+    )
 
 
 # ─── meshcore/get_neighbors ─────────────────────────────────────────────
