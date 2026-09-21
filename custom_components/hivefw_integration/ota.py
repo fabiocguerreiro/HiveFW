@@ -644,13 +644,24 @@ async def _download_release_asset(
 
     session = async_get_clientsession(hass)
     if progress:
-        progress(5)
+        progress(0)
+
     async with session.get(url, timeout=ClientTimeout(total=120)) as response:
         if response.status != 200:
             raise HiveFWOtaError(
                 f"Firmware download failed with HTTP {response.status}"
             )
-        firmware = await response.read()
+
+        total = int(response.headers.get("Content-Length") or 0)
+        data = bytearray()
+        async for chunk in response.content.iter_chunked(64 * 1024):
+            data.extend(chunk)
+            if len(data) > OTA_MAX_FIRMWARE_BYTES:
+                raise HiveFWOtaError("Firmware image exceeds the 4 MiB safety limit")
+            if progress and total > 0:
+                progress(min(100, round(len(data) * 100 / total)))
+
+        firmware = bytes(data)
 
     _validate_firmware(firmware, filename)
 
@@ -669,7 +680,7 @@ async def _download_release_asset(
             raise HiveFWOtaError("Firmware SHA-256 verification failed")
 
     if progress:
-        progress(20)
+        progress(100)
     return firmware, filename
 
 
@@ -678,24 +689,59 @@ async def async_install_latest_release(
     coordinator,
     progress: Callable[[int], None] | None = None,
 ) -> dict[str, Any]:
-    release = await async_get_latest_release(hass, force=True)
-    if not release:
-        raise HiveFWOtaError("No public HiveFW V3 OTA release is available")
-    firmware, filename = await _download_release_asset(hass, release, progress)
-    result = await async_upload_firmware_bytes(
+    entry_id = str(coordinator.config_entry.entry_id)
+    _set_ota_progress(
         hass,
-        coordinator,
-        firmware,
-        filename,
-        (
-            (lambda pct: progress(min(100, 20 + round(pct * 0.8))))
-            if progress
-            else None
-        ),
-        expected_version=str(release.get("version") or "") or None,
+        entry_id,
+        stage="downloading",
+        percent=1,
+        detail="A consultar a última Release",
     )
-    result["version"] = release.get("version")
-    return result
+
+    try:
+        release = await async_get_latest_release(hass, force=True)
+        if not release:
+            raise HiveFWOtaError("No public HiveFW V3 OTA release is available")
+
+        def download_progress(pct: int) -> None:
+            overall = 1 + round(max(0, min(100, pct)) * 0.07)
+            _set_ota_progress(
+                hass,
+                entry_id,
+                stage="downloading",
+                percent=overall,
+                detail=f"A descarregar firmware · {pct}%",
+            )
+            if progress:
+                progress(overall)
+
+        firmware, filename = await _download_release_asset(
+            hass,
+            release,
+            download_progress,
+        )
+
+        result = await async_upload_firmware_bytes(
+            hass,
+            coordinator,
+            firmware,
+            filename,
+            progress,
+            expected_version=str(release.get("version") or "") or None,
+        )
+        result["version"] = release.get("version")
+        return result
+    except Exception as ex:
+        current = get_ota_progress(hass, entry_id)
+        _set_ota_progress(
+            hass,
+            entry_id,
+            stage="error",
+            percent=int(current.get("percent", 0) or 0),
+            detail="Falha no processo OTA",
+            error=str(ex),
+        )
+        raise
 
 
 async def async_detect_secure_ota(
@@ -814,6 +860,14 @@ class HiveFWFirmwareUploadView(HomeAssistantView):
                     break
                 if field.name == "entry_id":
                     entry_id = (await field.text()).strip()
+                    if entry_id:
+                        _set_ota_progress(
+                            hass,
+                            entry_id,
+                            stage="preparing",
+                            percent=1,
+                            detail="A receber o firmware no Home Assistant",
+                        )
                 elif field.name == "firmware":
                     filename = str(field.filename or "firmware.bin")
                     data = bytearray()
