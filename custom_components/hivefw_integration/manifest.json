@@ -1,0 +1,30 @@
+{
+  "domain": "hivefw_integration",
+  "name": "HiveFW",
+  "codeowners": [
+    "@fabiocguerreiro"
+  ],
+  "config_flow": true,
+  "dependencies": [
+    "frontend",
+    "http",
+    "websocket_api",
+    "logbook"
+  ],
+  "documentation": "https://github.com/fabiocguerreiro/HiveFW",
+  "integration_type": "device",
+  "iot_class": "local_polling",
+  "issue_tracker": "https://github.com/fabiocguerreiro/HiveFW/issues",
+  "loggers": [
+    "custom_components.hivefw_integration",
+    "meshcore"
+  ],
+  "requirements": [
+    "meshcore>=2.3.14",
+    "pycryptodome>=3.20.0",
+    "cachetools>=5.3.0",
+    "paho-mqtt>=1.6.0",
+    "pynacl>=1.5.0"
+  ],
+  "version": "1.12.0"
+}

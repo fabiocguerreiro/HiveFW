@@ -1,0 +1,240 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "HiveFW",
+        "description": "Configure HiveFW with one of the two supported targets: Heltec V3 over TCP/Wi-Fi or Heltec T114 over BLE. No separate MeshCore Home Assistant integration is required."
+      },
+      "wifi_setup": {
+        "title": "Prepare the Heltec V3 Wi-Fi connection",
+        "description": "If this is a clean HiveFW installation on a **Heltec V3**, the radio creates a temporary Wi-Fi network using the device's own name. Connect a phone or computer to that network, then open **http://192.168.4.1/wifi**. Log in with **hivefw / hivefw**, select your normal Wi-Fi network and save it. The V3 restarts and joins that network. Its new IP is shown on the Companion screen; continue here and enter that IP on the next step.\\n\\nIf the V3 is already configured and connected to your router, you can simply continue."
+      },
+      "tcp": {
+        "title": "Heltec V3 · Wi-Fi Companion",
+        "description": "Enter the IP address shown on the HiveFW Companion after it has joined your Wi-Fi network."
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "HiveFW is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "HiveFW HA Integration options",
+        "description": "Tune how long the message store retains conversation history. Changes take effect on the next message save and at the next Home Assistant restart.",
+        "data": {
+          "max_messages_per_conversation": "Max messages per conversation",
+          "message_retention_days": "Message retention (days)"
+        },
+        "data_description": {
+          "max_messages_per_conversation": "When a conversation exceeds this number, the oldest messages are trimmed first. Range: 50 – 5000. Default: 500.",
+          "message_retention_days": "Messages older than this are pruned at startup and during periodic cleanup. Range: 1 – 365. Default: 90."
+        }
+      }
+    }
+  },
+  "issues": {
+    "radio_engine_unavailable": {
+      "title": "HiveFW radio connection is unavailable",
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "HiveFW cannot reach the configured radio",
+            "description": "HiveFW owns the radio connection directly. Check the configured TCP/Wi-Fi, BLE or USB connection and reload the integration. No separate MeshCore Home Assistant integration is required."
+          }
+        }
+      }
+    },
+    "name_changed": {
+      "title": "HiveFW device renamed",
+      "description": "The HiveFW device was renamed from `{old_name}` to `{new_name}`. {count} entity IDs were automatically migrated from the `_{old_suffix}` suffix to `_{new_suffix}`.\n\n**Renamed entities:**\n\n{entity_list}\n\nIf you have automations, scripts, or dashboards referencing the old entity IDs, you will need to update them manually to use the new suffix.\n\nThis issue can be dismissed once you have verified your configuration."
+    }
+  },
+  "exceptions": {
+    "operation_failed": {
+      "message": "Operation failed"
+    },
+    "device_not_connected": {
+      "message": "Device not connected"
+    },
+    "operation_timed_out": {
+      "message": "Operation timed out"
+    },
+    "invalid_request": {
+      "message": "Invalid request parameters"
+    },
+    "no_hivefw_coordinator": {
+      "message": "No active HiveFW radio coordinator"
+    },
+    "invalid_key_length": {
+      "message": "Private key must be 64 or 128 hex characters"
+    },
+    "invalid_key_hex": {
+      "message": "Private key must contain only hex characters (0-9, a-f)"
+    },
+    "import_rejected": {
+      "message": "The device firmware rejected the new identity. The device's identity is unchanged."
+    },
+    "verify_failed": {
+      "message": "The new identity did not take effect on the device. The device's identity may be unchanged."
+    }
+  },
+  "entity": {
+    "binary_sensor": {
+      "err_pool_full": {
+        "name": "Radio Fault: Packet Pool Exhausted"
+      },
+      "err_cad_timeout": {
+        "name": "Radio Fault: CAD Timeout"
+      },
+      "err_rx_timeout": {
+        "name": "Radio Fault: RX-Start Timeout"
+      }
+    },
+    "sensor": {
+      "node_status": {
+        "name": "Node Status",
+        "state": {
+          "online": "Online",
+          "offline": "Offline"
+        }
+      },
+      "node_count": {
+        "name": "Node Count"
+      },
+      "last_rssi": {
+        "name": "Last RSSI"
+      },
+      "last_snr": {
+        "name": "Last SNR"
+      },
+      "battery": {
+        "name": "Battery"
+      },
+      "uptime": {
+        "name": "Uptime"
+      },
+      "airtime": {
+        "name": "Airtime"
+      },
+      "nb_sent": {
+        "name": "Messages Sent"
+      },
+      "nb_recv": {
+        "name": "Messages Received"
+      },
+      "out_path": {
+        "name": "Routing Path"
+      },
+      "out_path_len": {
+        "name": "Path Length"
+      },
+      "request_successes": {
+        "name": "Request Successes"
+      },
+      "request_failures": {
+        "name": "Request Failures"
+      },
+      "battery_voltage": {
+        "name": "Battery Voltage"
+      },
+      "battery_percentage": {
+        "name": "Battery Percentage"
+      },
+      "tx_power": {
+        "name": "TX Power"
+      },
+      "latitude": {
+        "name": "Latitude"
+      },
+      "longitude": {
+        "name": "Longitude"
+      },
+      "frequency": {
+        "name": "Frequency"
+      },
+      "bandwidth": {
+        "name": "Bandwidth"
+      },
+      "spreading_factor": {
+        "name": "Spreading Factor"
+      },
+      "status": {
+        "name": "Status"
+      },
+      "bat": {
+        "name": "Battery Voltage"
+      },
+      "tx_queue_len": {
+        "name": "TX Queue Length"
+      },
+      "noise_floor": {
+        "name": "Noise Floor"
+      },
+      "sent_flood": {
+        "name": "Sent Flood Messages"
+      },
+      "sent_direct": {
+        "name": "Sent Direct Messages"
+      },
+      "recv_flood": {
+        "name": "Received Flood Messages"
+      },
+      "recv_direct": {
+        "name": "Received Direct Messages"
+      },
+      "full_evts": {
+        "name": "Full Events"
+      },
+      "direct_dups": {
+        "name": "Direct Duplicates"
+      },
+      "flood_dups": {
+        "name": "Flood Duplicates"
+      },
+      "recv_errors": {
+        "name": "Receive Errors"
+      },
+      "airtime_utilization": {
+        "name": "Airtime Utilization"
+      },
+      "tx_airtime": {
+        "name": "TX Airtime"
+      },
+      "rx_airtime": {
+        "name": "RX Airtime"
+      },
+      "rx_airtime_utilization": {
+        "name": "RX Airtime Utilization"
+      },
+      "direct_dups_rate": {
+        "name": "Direct Duplicates Rate"
+      },
+      "flood_dups_rate": {
+        "name": "Flood Duplicates Rate"
+      },
+      "nb_recv_rate": {
+        "name": "Messages Received Rate"
+      },
+      "nb_sent_rate": {
+        "name": "Messages Sent Rate"
+      },
+      "recv_direct_rate": {
+        "name": "Received Direct Messages Rate"
+      },
+      "recv_flood_rate": {
+        "name": "Received Flood Messages Rate"
+      },
+      "sent_direct_rate": {
+        "name": "Sent Direct Messages Rate"
+      },
+      "sent_flood_rate": {
+        "name": "Sent Flood Messages Rate"
+      },
+      "recv_errors_rate": {
+        "name": "Receive Errors Rate"
+      }
+    }
+  }
+}

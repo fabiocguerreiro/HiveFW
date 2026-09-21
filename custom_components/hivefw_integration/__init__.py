@@ -1,0 +1,809 @@
+"""HiveFW standalone integration for Home Assistant.
+
+HiveFW owns the embedded MeshCore radio engine, Home Assistant entities and
+services, message history, WebSocket API and sidebar frontend. A separate
+MeshCore Home Assistant integration is neither required nor expected.
+"""
+from __future__ import annotations
+
+import hashlib
+import logging
+from datetime import datetime, timedelta
+from dataclasses import dataclass, field
+from typing import Any
+
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import Event, HomeAssistant, callback
+from homeassistant.components import persistent_notification
+from homeassistant.exceptions import ConfigEntryNotReady
+from homeassistant.helpers import issue_registry as ir
+from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.event import async_track_time_interval
+from homeassistant.helpers.storage import Store
+
+from .const import (
+    DOMAIN,
+    EVENT_MESHCORE_CONNECTED,
+    EVENT_MESHCORE_DELIVERY_UPDATE,
+    EVENT_MESHCORE_DISCONNECTED,
+    EVENT_MESHCORE_MESSAGE,
+    EVENT_HEALTH_TRANSITION,
+    MESHCORE_DOMAIN,
+)
+from .channel_scopes import ChannelScopeStore
+from .message_store import MessageStore
+from .panel import async_register_panel, async_remove_panel
+from .unread_tracking import EVENT_UNREAD_UPDATED, UnreadTracker
+from .utils import (
+    enrich_rx_log_entries,
+    hoist_flood_scope,
+    wildcard_global_allowlisted,
+)
+
+_LOGGER = logging.getLogger(__name__)
+
+
+@dataclass
+class HiveFWRuntimeData:
+    """Per-entry runtime state for the HiveFW companion.
+
+    Stored on ``entry.runtime_data`` (HA Bronze convention, post-2024.6).
+    Process-global state (panel registration, WS commands, unread tracker)
+    continues to live on ``hass.data[DOMAIN]`` because it is shared across
+    config entries — though the companion's config flow is single-instance,
+    so in practice there is at most one entry per HA process.
+    """
+
+    store: MessageStore
+    node_meta_store: Store | None = None
+    node_meta: dict[str, dict[str, Any]] = field(default_factory=dict)
+    trace_history: list[dict[str, Any]] = field(default_factory=list)
+    observability_settings: dict[str, Any] = field(default_factory=dict)
+    health_state: dict[str, Any] = field(default_factory=dict)
+
+
+# Type alias for ConfigEntry parameterized with our runtime data shape.
+# Lets typecheckers verify ``entry.runtime_data`` is the expected type.
+type HiveFWConfigEntry = ConfigEntry[HiveFWRuntimeData]
+
+
+# ─── Upstream-presence helpers ───────────────────────────────────────────
+#
+# ``_internal_engine_present`` and ``_sync_engine_repair_issue`` are
+# the canonical readiness/repair surface for the upstream ``meshcore``
+# integration. They are intentionally module-level (not nested inside
+# ``async_setup_entry``) so that ``ws_api.py`` can back-import
+# ``_sync_engine_repair_issue`` and drive the repair issue from the
+# WS-command path (i.e. reactively whenever the chat panel discovers
+# upstream is missing or has returned at runtime, not just at HA boot).
+#
+# The helpers MUST be defined above the ``from .ws_api import ...`` line
+# below so the symbol exists on the partially-initialized package when
+# ``ws_api.py`` executes its top-level imports during package load.
+
+
+def _internal_engine_present(hass: HomeAssistant) -> bool:
+    """Return True when HiveFW's embedded radio engine owns a coordinator.
+
+    The domain bucket also stores process-global panel/WebSocket state, so the
+    bucket being non-empty is not sufficient. Only a value exposing the radio
+    API counts as a live coordinator.
+    """
+    bucket = hass.data.get(DOMAIN, {})
+    return any(hasattr(value, "api") for value in bucket.values())
+
+
+@callback
+def _sync_engine_repair_issue(hass: HomeAssistant) -> None:
+    """Create or delete the upstream_meshcore_unavailable repair issue based on state.
+
+    Idempotent — HA dedupes by (domain, issue_id), and async_delete_issue
+    on a non-existent issue is a no-op. Safe to call from any code path
+    that has just observed the embedded engine presence/absence (setup-time
+    block in ``async_setup_entry``, WS-command discovery in ``ws_api``).
+    """
+    if _internal_engine_present(hass):
+        ir.async_delete_issue(hass, DOMAIN, "radio_engine_unavailable")
+    else:
+        ir.async_create_issue(
+            hass,
+            DOMAIN,
+            "radio_engine_unavailable",
+            is_fixable=True,
+            severity=ir.IssueSeverity.ERROR,
+            translation_key="radio_engine_unavailable",
+        )
+
+
+# NOTE: ws_api.py imports ``HiveFWRuntimeData`` and
+# ``_sync_engine_repair_issue`` from this module. Keep this import
+# below the dataclass + helper definitions so the symbols exist on the
+# partially-initialized package when ws_api.py executes its top-level
+# imports during package load. The deliberate-ordering noqa silences the
+# E402 module-level-import-not-at-top warning.
+DEFAULT_OBSERVABILITY_SETTINGS: dict[str, Any] = {
+    "noise_floor_warn": -105.0,
+    "tx_queue_warn": 5.0,
+    "recv_errors_rate_warn": 0.5,
+    "reliability_warn": 70.0,
+    "reliability_min_requests": 20,
+    "persistent_notifications": False,
+}
+
+
+def _observability_settings(runtime: HiveFWRuntimeData) -> dict[str, Any]:
+    """Return defaults merged with persisted per-entry thresholds."""
+    result = dict(DEFAULT_OBSERVABILITY_SETTINGS)
+    result.update(runtime.observability_settings or {})
+    return result
+
+
+def _numeric_state_for_unique_key(
+    hass: HomeAssistant,
+    entry_id: str,
+    key: str,
+) -> float | None:
+    registry = er.async_get(hass)
+    for entity in er.async_entries_for_config_entry(registry, entry_id):
+        unique_id = str(entity.unique_id or "")
+        if f"_{key}_" not in unique_id and not unique_id.endswith(f"_{key}"):
+            continue
+        state = hass.states.get(entity.entity_id)
+        if state is None:
+            continue
+        try:
+            return float(state.state)
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def _binary_state_for_unique_key(
+    hass: HomeAssistant,
+    entry_id: str,
+    key: str,
+) -> bool:
+    registry = er.async_get(hass)
+    for entity in er.async_entries_for_config_entry(registry, entry_id):
+        unique_id = str(entity.unique_id or "")
+        if f"_{key}_" not in unique_id and not unique_id.endswith(f"_{key}"):
+            continue
+        state = hass.states.get(entity.entity_id)
+        if state is not None and state.state == "on":
+            return True
+    return False
+
+
+async def _async_evaluate_health(
+    hass: HomeAssistant,
+    entry: HiveFWConfigEntry,
+) -> None:
+    """Evaluate cached HA diagnostics and emit events only on transitions."""
+    runtime = entry.runtime_data
+    if not isinstance(runtime, HiveFWRuntimeData):
+        return
+    settings = _observability_settings(runtime)
+
+    alerts: dict[str, str] = {}
+    noise = _numeric_state_for_unique_key(hass, entry.entry_id, "noise_floor")
+    if noise is not None and noise > float(settings["noise_floor_warn"]):
+        alerts["noise_floor"] = f"Noise floor {noise:.1f} dBm"
+
+    queue = _numeric_state_for_unique_key(hass, entry.entry_id, "tx_queue_len")
+    if queue is not None and queue > float(settings["tx_queue_warn"]):
+        alerts["tx_queue"] = f"TX queue {queue:.0f}"
+
+    recv_errors = _numeric_state_for_unique_key(
+        hass, entry.entry_id, "recv_errors_rate"
+    )
+    if recv_errors is not None and recv_errors > float(
+        settings["recv_errors_rate_warn"]
+    ):
+        alerts["recv_errors"] = f"RX errors {recv_errors:.2f}/min"
+
+    successes = _numeric_state_for_unique_key(
+        hass, entry.entry_id, "request_successes"
+    )
+    failures = _numeric_state_for_unique_key(
+        hass, entry.entry_id, "request_failures"
+    )
+    if successes is not None and failures is not None:
+        total = successes + failures
+        if total >= int(settings["reliability_min_requests"]) and total > 0:
+            reliability = successes / total * 100.0
+            if reliability < float(settings["reliability_warn"]):
+                alerts["reliability"] = f"Reliability {reliability:.0f}%"
+
+    for key, label in (
+        ("err_pool_full", "Packet pool exhausted"),
+        ("err_cad_timeout", "CAD timeout"),
+        ("err_rx_timeout", "RX timeout"),
+    ):
+        if _binary_state_for_unique_key(hass, entry.entry_id, key):
+            alerts[key] = label
+
+    previous = runtime.health_state.get("active", {})
+    if not isinstance(previous, dict):
+        previous = {}
+    if previous == alerts:
+        return
+
+    entered = {key: value for key, value in alerts.items() if key not in previous}
+    cleared = {key: value for key, value in previous.items() if key not in alerts}
+    runtime.health_state = {
+        "active": alerts,
+        "updated_at": datetime.now().astimezone().isoformat(),
+    }
+
+    event_data = {
+        "entry_id": entry.entry_id,
+        "device_name": entry.data.get("name") or entry.title or "HiveFW",
+        "state": "alert" if alerts else "ok",
+        "active_alerts": alerts,
+        "entered": entered,
+        "cleared": cleared,
+        "thresholds": settings,
+    }
+    hass.bus.async_fire(EVENT_HEALTH_TRANSITION, event_data)
+
+    if settings.get("persistent_notifications") and entered:
+        persistent_notification.async_create(
+            hass,
+            "\n".join(entered.values()),
+            title=f"HiveFW health alert · {event_data['device_name']}",
+            notification_id=f"hivefw_health_{entry.entry_id}",
+        )
+    elif not alerts:
+        persistent_notification.async_dismiss(
+            hass, f"hivefw_health_{entry.entry_id}"
+        )
+
+    if runtime.node_meta_store is not None:
+        await runtime.node_meta_store.async_save(
+            {
+                "nodes": runtime.node_meta,
+                "traces": runtime.trace_history[-100:],
+                "observability": runtime.observability_settings,
+                "health_state": runtime.health_state,
+            }
+        )
+
+
+# Deferred imports: ws_api back-imports the runtime-data class plus
+# observability defaults/helpers from this module. Keep these imports below
+# all of those definitions so partial package initialization cannot expose
+# missing symbols.
+from .ws_api import async_register_ws_commands  # noqa: E402
+from .ota import async_register_ota_http  # noqa: E402
+from .engine.integration import async_setup_entry as async_setup_engine_entry  # noqa: E402
+from .engine.integration import async_unload_entry as async_unload_engine_entry  # noqa: E402
+
+
+async def async_setup_entry(
+    hass: HomeAssistant, entry: HiveFWConfigEntry
+) -> bool:
+    """Set up the unified HiveFW radio engine and UI from one config entry."""
+    # Register the HiveFW sidebar as soon as this entry starts. The panel
+    # remains available during temporary radio outages instead of disappearing.
+    bucket = hass.data.setdefault(DOMAIN, {})
+    if not bucket.get("_panel_registered"):
+        await async_register_panel(hass)
+        bucket["_panel_registered"] = True
+        _LOGGER.debug("HiveFW panel registered")
+
+    # The embedded radio engine owns the physical TCP/BLE/USB connection,
+    # creates HA entities/services and starts telemetry before the HiveFW
+    # panel/store layer subscribes to its events.
+    if not await async_setup_engine_entry(hass, entry):
+        return False
+    # Test-before-setup: refuse setup until the embedded HiveFW engine
+    # integration has at least one coordinator. The chat companion is
+    # useless without it, and HA will retry async_setup_entry
+    # automatically when the dependency becomes ready.
+    #
+    # ConfigEntryNotReady alone is invisible to non-developers — HA
+    # surfaces it as a generic "Setup retry" badge with no remediation
+    # text. Pair it with a Repairs issue so the user gets a clickable
+    # explanation of what to do (reconfigure the HiveFW radio connection, or remove
+    # hivefw_integration) on the Settings → System → Repairs page.
+    if not _internal_engine_present(hass):
+        _sync_engine_repair_issue(hass)
+        raise ConfigEntryNotReady(
+            "HiveFW internal radio engine did not create a coordinator."
+        )
+
+    # The embedded engine is ready — clear any stale repair
+    # issue so the Repairs panel doesn't show a fixed problem.
+    _sync_engine_repair_issue(hass)
+
+    # Initialize the per-entry message store and load its lightweight index.
+    store = MessageStore(hass, entry)
+    await store.async_load_index()
+
+    # Persist local node metadata (favorites/tags) in Home Assistant instead
+    # of browser localStorage so all dashboards/users see the same state.
+    node_meta_store = Store(
+        hass,
+        1,
+        f"hivefw_integration.{entry.entry_id}.node_meta",
+    )
+    raw_node_meta = await node_meta_store.async_load()
+    if isinstance(raw_node_meta, dict) and isinstance(raw_node_meta.get("nodes"), dict):
+        node_meta = raw_node_meta["nodes"]
+        raw_traces = raw_node_meta.get("traces", [])
+        trace_history = raw_traces if isinstance(raw_traces, list) else []
+        raw_observability = raw_node_meta.get("observability", {})
+        observability_settings = raw_observability if isinstance(raw_observability, dict) else {}
+        raw_health_state = raw_node_meta.get("health_state", {})
+        health_state = raw_health_state if isinstance(raw_health_state, dict) else {}
+    else:
+        # v1 migration: the old store was the node map itself.
+        node_meta = raw_node_meta if isinstance(raw_node_meta, dict) else {}
+        trace_history = []
+        observability_settings = {}
+        health_state = {}
+
+    # Per-entry runtime state lives on entry.runtime_data.
+    entry.runtime_data = HiveFWRuntimeData(
+        store=store,
+        node_meta_store=node_meta_store,
+        node_meta=node_meta,
+        trace_history=trace_history[-100:],
+        observability_settings=observability_settings,
+        health_state=health_state,
+    )
+
+    async def _scheduled_health_check(_now) -> None:
+        await _async_evaluate_health(hass, entry)
+
+    entry.async_on_unload(
+        async_track_time_interval(
+            hass,
+            _scheduled_health_check,
+            timedelta(minutes=1),
+        )
+    )
+    # Seed transition state immediately from the currently available entities.
+    hass.async_create_task(_async_evaluate_health(hass, entry))
+
+    # Best-effort retention pass at startup. Failures here must not block
+    # setup — they are logged and we continue.
+    try:
+        await store.cleanup_old_messages()
+    except Exception as ex:  # pragma: no cover - defensive
+        _LOGGER.warning(
+            "MessageStore retention cleanup failed at startup: %s", ex
+        )
+
+    # Process-global state container — singleton flags + unread tracker.
+    bucket = hass.data.setdefault(DOMAIN, {})
+
+    # Process-global: register the sidebar panel exactly once. The panel
+    # is not per-entry — the config-flow is single-instance, so in practice
+    # this is also one-per-config-entry, but the guard protects against
+    # accidental re-registration if that invariant ever changes.
+    if not bucket.get("_panel_registered"):
+        await async_register_panel(hass)
+        bucket["_panel_registered"] = True
+        _LOGGER.debug("HiveFW panel registered")
+
+    # Unread tracker is a process-wide singleton (not per-entry) — the
+    # frontend identifies conversations by entity_id, which is globally
+    # unique across config entries. Stash it on the domain bucket where the
+    # WS handlers expect to find it (hass.data[DOMAIN]["unread_tracker"]).
+    #
+    # ``entry_id`` is wired through so the tracker's persistent
+    # ``last_read`` Store key is parametrised. The Store is hydrated
+    # synchronously here so handlers reading the cursor map (``get_all_last_read``,
+    # ``get_last_read``) on first connect see the persisted state, not
+    # an empty dict.
+    if "unread_tracker" not in bucket:
+        tracker = UnreadTracker(hass, entry.entry_id)
+        await tracker.async_load()
+        bucket["unread_tracker"] = tracker
+
+    # Per-channel region-scope store is likewise a process-wide singleton.
+    # Scopes are keyed inside the store by (embedded HiveFW engine entry_id,
+    # channel index), so one instance serves every HiveFW coordinator on
+    # multi-entry setups. Hydrated here so ws_get_channels sees persisted
+    # scopes on first connect.
+    if "channel_scopes" not in bucket:
+        scopes = ChannelScopeStore(hass)
+        await scopes.async_load()
+        bucket["channel_scopes"] = scopes
+
+    # Register WS commands once (idempotent registration would be ideal but
+    # HA's websocket_api raises on duplicate types — guard with a flag on the
+    # domain bucket so multiple config entries don't collide).
+    if not bucket.get("_ws_registered"):
+        async_register_ws_commands(hass)
+        bucket["_ws_registered"] = True
+
+    # Admin-only multipart endpoint used by the Device page for manual .bin
+    # uploads. The view itself has a process-global duplicate-registration
+    # guard, so entry reloads never expose multiple routes.
+    async_register_ota_http(hass)
+
+    # One-shot detection of the embedded HiveFW engine service surface this
+    # companion depends on. Surfaces an INFO line per-process so support
+    # requests on degraded behavior (older meshcore) are diagnosable from
+    # the HA log without re-running anything.
+    if not bucket.get("_service_surface_logged"):
+        bucket["_service_surface_logged"] = True
+        _LOGGER.info(
+            "HiveFW startup — companion-integration services available: "
+            "get_contacts=%s get_channels=%s trace=%s",
+            hass.services.has_service(MESHCORE_DOMAIN, "get_contacts"),
+            hass.services.has_service(MESHCORE_DOMAIN, "get_channels"),
+            hass.services.has_service(MESHCORE_DOMAIN, "trace"),
+        )
+
+    # Subscribe to embedded HiveFW engine events. ``entry.async_on_unload``
+    # tracks each unsub callback and invokes it on unload — no manual
+    # listener-list bookkeeping needed.
+    entry.async_on_unload(hass.bus.async_listen(
+        EVENT_MESHCORE_MESSAGE,
+        _make_message_handler(hass, entry.entry_id),
+    ))
+    entry.async_on_unload(hass.bus.async_listen(
+        EVENT_MESHCORE_DELIVERY_UPDATE,
+        _make_delivery_update_handler(hass, entry.entry_id),
+    ))
+    entry.async_on_unload(hass.bus.async_listen(
+        EVENT_MESHCORE_CONNECTED,
+        _make_connection_state_handler(hass, entry.entry_id, connected=True),
+    ))
+    entry.async_on_unload(hass.bus.async_listen(
+        EVENT_MESHCORE_DISCONNECTED,
+        _make_connection_state_handler(hass, entry.entry_id, connected=False),
+    ))
+
+    # Re-run retention cleanup when options change (per-conversation cap
+    # is read lazily on each save and needs no listener; retention days
+    # do because the prune pass only runs at startup otherwise).
+    entry.async_on_unload(entry.add_update_listener(_async_options_updated))
+
+    _LOGGER.info(
+        "HiveFW configured for entry %s (%d conversations indexed)",
+        entry.entry_id,
+        len(store.get_message_index()),
+    )
+    return True
+
+
+async def async_unload_entry(
+    hass: HomeAssistant, entry: HiveFWConfigEntry
+) -> bool:
+    """Tear down a config entry.
+
+    Event-bus subscriptions and the options-update listener registered in
+    ``async_setup_entry`` were attached via ``entry.async_on_unload`` —
+    HA invokes their unsub callbacks itself as part of the unload pipeline,
+    so no manual listener loop is required here.
+    """
+    runtime = entry.runtime_data
+    if isinstance(runtime, HiveFWRuntimeData):
+        await runtime.store.async_unload()
+
+    # Flush any pending debounced last-read save before tearing down
+    # process-global state. The tracker is a singleton across entries,
+    # so flushing here covers the multi-entry case as well — a no-op
+    # when no debounce is pending. Without this, a `mark_read` followed
+    # immediately by HA stop could lose the cursor snapshot inside the
+    # 2 s debounce window.
+    bucket = hass.data.get(DOMAIN, {})
+    tracker = bucket.get("unread_tracker")
+    if tracker is not None:
+        await tracker._flush()
+
+    # If this was the last config entry, drop the process-global state
+    # too (panel registration, UnreadTracker counts). hass.config_entries
+    # still includes the entry being unloaded at this point, so exclude
+    # it explicitly when checking for siblings.
+    other_entries = [
+        e for e in hass.config_entries.async_entries(DOMAIN)
+        if e.entry_id != entry.entry_id
+    ]
+    if not other_entries:
+        if bucket.get("_panel_registered"):
+            await async_remove_panel(hass)
+            bucket.pop("_panel_registered", None)
+            _LOGGER.debug("HiveFW panel removed (last entry unloaded)")
+        # WS commands live for the lifetime of the HA process — there's
+        # no public unregister API. _ws_registered stays so a subsequent
+        # async_setup_entry doesn't try to re-register and trip HA's
+        # duplicate-registration error.
+        #
+        # UnreadTracker stays as the same instance (its closures may be
+        # referenced by live WS handlers and the bus subscription) but
+        # its in-memory counts are cleared so a re-added entry starts
+        # fresh rather than inheriting stale counts from the previous
+        # entry. ``clear()`` deliberately preserves the persistent
+        # ``_last_read`` map — cursors survive reload so the user doesn't
+        # lose read positions on routine integration restarts.
+        if tracker is not None:
+            tracker.clear()
+
+    engine_ok = await async_unload_engine_entry(hass, entry)
+    return bool(engine_ok)
+
+
+# ─── event handlers ─────────────────────────────────────────────────────
+
+
+def _store_message_id(payload: dict) -> str | None:
+    """Best-effort extraction of a stable message id from the event payload.
+
+    Upstream events use the ``id`` field once a message has been written
+    via the SDK helper; older paths use ``send_id`` (outgoing) or rely on
+    the receiver computing the deterministic SHA-256 id (timestamp|sender|text).
+    We accept either explicit field if present; we deliberately do NOT
+    recompute the deterministic id here because it requires the upstream
+    helper and we want to avoid duplicating that surface in the companion.
+    """
+    msg_id = payload.get("id") or payload.get("message_id") or payload.get("send_id")
+    return str(msg_id) if msg_id else None
+
+
+def _make_message_handler(hass: HomeAssistant, entry_id: str):
+    """Return a listener that persists incoming/outgoing HiveFW message events."""
+
+    async def _handle(event: Event) -> None:
+        store = _resolve_store(hass, entry_id)
+        if store is None:
+            return
+
+        data = event.data or {}
+        entity_id = data.get("entity_id")
+        if not entity_id:
+            # Without an entity_id we don't know which conversation to write
+            # to. The embedded HiveFW radio engine always sets this; bail
+            # quietly rather than scanning.
+            return
+
+        msg_id = _store_message_id(data)
+        if not msg_id:
+            # Fall back to a synthetic id from the event tuple, hashed the
+            # same way the frontend's generateId() in message-parser.ts
+            # does — sha256(f"{timestamp}|{sender}|{message}")[:12]. This
+            # matters for live-bubble dedup: the panel renders an "rt_"
+            # bubble immediately on the hivefw_message event using its
+            # own hash, and reconciles against stored ids on the next
+            # fetch. If the stored id is anything other than that exact
+            # 12-hex digest, the rt_ bubble cannot be matched and stays
+            # alongside the fetched copy → duplicate bubbles until the
+            # message-store is rebuilt (e.g. on conversation switch).
+            ts = data.get("timestamp", "")
+            sender = data.get("sender_name", "")
+            text = data.get("message") or data.get("text") or ""
+            raw = f"{ts}|{sender}|{text}"
+            msg_id = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:12]
+
+        # Build the stored record from whatever fields the event carries.
+        # Missing fields like hop_count and snr are simply not present in
+        # the dict.
+        record: dict[str, Any] = {
+            "id": msg_id,
+            "sender": data.get("sender_name") or data.get("sender") or "",
+            "text": data.get("message") or data.get("text") or "",
+            "timestamp": data.get("timestamp", ""),
+            "message_type": data.get("message_type", ""),
+            "outgoing": bool(data.get("outgoing", False)),
+        }
+        # Optional metadata — copy through only if present.
+        for k in (
+            "channel",
+            "channel_idx",
+            "pubkey_prefix",
+            "receiver_name",
+            "rx_log_data",
+            "repeater_count",
+            "hop_count",
+            "snr",
+            "ack_received",
+            "send_id",
+            "delivery_status",
+        ):
+            if k in data:
+                record[k] = data[k]
+
+        # Backfill path_nodes/hop_count on rx_log entries — the upstream
+        # coordinator this companion consumes emits `path` + `path_len` but
+        # not the convenience fields the frontend reads.
+        if record.get("rx_log_data"):
+            enrich_rx_log_entries(record["rx_log_data"])
+            # Mirror the store's scope hoist so a channel message that
+            # already carries rx_log_data at fire time shows its inbound
+            # region scope immediately (the late RX_LOG correlation patch
+            # re-hoists via MessageStore.update_message_rx_data).
+            hoist_flood_scope(record, wildcard_global_allowlisted(hass))
+
+        # Route-popup synth for DMs. Channel messages get per-repeater rx_log_data
+        # arrays via the upstream RX_LOG correlation pass; DMs don't — they
+        # carry hop_count + snr at the top level of the event payload (added
+        # by upstream PR #215). The frontend's
+        # message-bubble route popup keys off rx_log_data, so synthesize a
+        # single-entry array from the top-level fields when only those are
+        # present. The frontend then renders the popup as if it were a 1-entry
+        # rx_log; no frontend changes needed.
+        if record.get("hop_count") is not None and not record.get("rx_log_data"):
+            synth: dict[str, Any] = {"hop_count": record["hop_count"], "synthesized": True}
+            # Skip None values — the upstream event payload sometimes carries
+            # snr/rssi as None rather than omitting them, and the frontend
+            # renders "RSSI: null" if we pass them through unconditionally.
+            if record.get("snr") is not None:
+                synth["snr"] = record["snr"]
+            if record.get("rssi") is not None:
+                synth["rssi"] = record["rssi"]
+            record["rx_log_data"] = [synth]
+
+        # Default delivery_status. The upstream EVENT_MESHCORE_MESSAGE for
+        # outgoing fires AFTER its 4-second progressive RX_LOG collection
+        # window (handle_outgoing_message in upstream logbook.py) — so by
+        # the time we see it, the message has been transmitted and is
+        # definitively "sent". For DMs, ack_received is authoritative when
+        # present. Channel messages never have ack_received.
+        if record["outgoing"]:
+            ack = data.get("ack_received")
+            record.setdefault(
+                "delivery_status",
+                "delivered" if ack is True else "sent",
+            )
+        else:
+            record.setdefault("delivery_status", "sent")
+
+        await store.store_message(entity_id, record)
+
+        # Inbound (non-outgoing) messages may have advanced the unread
+        # count for this conversation. Compute the new derived count
+        # from the store + persistent cursor and fire
+        # EVENT_UNREAD_UPDATED with the new count attached so the
+        # panel's `_loadUnreadCounts` round-trip sees the updated value
+        # on refetch. This replaces the prior
+        # `tracker.mark_unread(entity_id)` call. The derivation reads
+        # from `store` (which has just been written to via
+        # `store.store_message` above) so the count reflects the post-
+        # write state. Eliminates the desync class where the in-memory
+        # counter reset on HA restart while the persistent cursor
+        # survived.
+        if not record["outgoing"]:
+            tracker = hass.data.get(DOMAIN, {}).get("unread_tracker")
+            if tracker is not None:
+                cursor = tracker.get_last_read(entity_id)
+                new_count = await store.count_unread_after(entity_id, cursor)
+                hass.bus.async_fire(
+                    EVENT_UNREAD_UPDATED,
+                    {"entity_id": entity_id, "unread_count": new_count},
+                )
+
+    return _handle
+
+
+def _make_delivery_update_handler(hass: HomeAssistant, entry_id: str):
+    """Return a listener that applies hivefw_delivery_update to a stored message.
+
+    If ``entity_id`` is missing on the event (older event format), fall
+    back to an all-conversations scan to locate the message by id.
+    """
+
+    async def _handle(event: Event) -> None:
+        store = _resolve_store(hass, entry_id)
+        if store is None:
+            return
+
+        data = event.data or {}
+        msg_id = _store_message_id(data)
+        if not msg_id:
+            return
+
+        # Progressive updates are intermediate enrichment fired from
+        # handle_outgoing_message's collection passes — they carry rx_log
+        # data accumulated so far but never carry an authoritative
+        # delivery_status. If we computed a status from a progressive
+        # event we'd downgrade an already-"sent" message back to "pending"
+        # and the bubble would flip to "Waiting…" mid-flight. So for
+        # progressive events, only the rx_log/repeater_count fields are
+        # written; delivery_status is left to whatever the final
+        # EVENT_MESHCORE_MESSAGE established.
+        progressive = bool(data.get("progressive"))
+
+        explicit_status = data.get("delivery_status")
+        if explicit_status:
+            status = explicit_status
+        elif progressive:
+            status = None  # don't touch
+        else:
+            status = "sent" if data.get("ack_received") else "pending"
+
+        kwargs: dict[str, Any] = {}
+        for k in ("rx_log_data", "repeater_count", "ack_received"):
+            if k in data:
+                kwargs[k] = data[k]
+
+        # Enrich rx_log entries (path_nodes/hop_count derived from path/path_len)
+        # before any persistence so updates and the rx_log mirror stay aligned
+        # with what _make_message_handler writes.
+        if "rx_log_data" in kwargs and kwargs["rx_log_data"]:
+            enrich_rx_log_entries(kwargs["rx_log_data"])
+
+        entity_id = data.get("entity_id")
+        if entity_id:
+            if status is not None:
+                await store.update_message_delivery(
+                    entity_id, msg_id, status, **kwargs
+                )
+            elif kwargs:
+                # Status untouched, but still propagate rx_log/repeater_count
+                # as a metadata-only update via the rx_data path below.
+                pass
+            # Some delivery updates carry the final rx_log_data — keep both
+            # the rx_log mirror and the delivery row in sync.
+            if "rx_log_data" in kwargs:
+                await store.update_message_rx_data(
+                    entity_id, msg_id, kwargs["rx_log_data"]
+                )
+        else:
+            # Pre-PR-B: scan all conversations.
+            located = None
+            if status is not None:
+                located = await store.update_message_delivery_any(
+                    msg_id, status, **kwargs
+                )
+            if located and "rx_log_data" in kwargs:
+                await store.update_message_rx_data(
+                    located, msg_id, kwargs["rx_log_data"]
+                )
+
+    return _handle
+
+
+def _make_connection_state_handler(
+    hass: HomeAssistant, entry_id: str, *, connected: bool
+):
+    """Return a listener for hivefw_connected / hivefw_disconnected.
+
+    The store does not currently persist node connection state — the panel
+    surfaces it from binary_sensor entity state. This handler is a hook
+    point for future use (e.g. inserting system messages into a
+    conversation timeline). For now it is a no-op stub that exists so the
+    subscription is in place and any future behavior change does not
+    require an integration restart.
+    """
+
+    @callback
+    def _handle(event: Event) -> None:
+        _LOGGER.debug(
+            "meshcore_%sconnected received (entry %s); no action taken",
+            "" if connected else "dis",
+            entry_id,
+        )
+
+    return _handle
+
+
+def _resolve_store(hass: HomeAssistant, entry_id: str) -> MessageStore | None:
+    """Look up the MessageStore for an entry, defensively."""
+    entry = hass.config_entries.async_get_entry(entry_id)
+    if entry is None or not isinstance(entry.runtime_data, HiveFWRuntimeData):
+        return None
+    return entry.runtime_data.store
+
+
+async def _async_options_updated(
+    hass: HomeAssistant, entry: HiveFWConfigEntry
+) -> None:
+    """Handle options-flow updates without requiring an HA restart.
+
+    Retention values are read lazily from ``entry.options`` on each
+    MessageStore call, so per-conversation caps take effect immediately
+    on the next save. The retention-window threshold, however, is only
+    applied during ``cleanup_old_messages`` — re-run it now so a tighter
+    retention window prunes immediately rather than at next HA startup.
+    """
+    store = _resolve_store(hass, entry.entry_id)
+    if store is None:
+        return
+    try:
+        await store.cleanup_old_messages()
+    except Exception as ex:  # pragma: no cover - defensive
+        _LOGGER.warning("Options-update retention pass failed: %s", ex)

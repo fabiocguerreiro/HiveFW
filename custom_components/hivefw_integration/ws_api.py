@@ -1,0 +1,6372 @@
+"""HiveFW WebSocket API backed by the embedded radio engine.
+
+All public command types use the ``hivefw_integration/*`` namespace.
+Coordinator state is owned by this integration in ``hass.data[DOMAIN]``;
+there is no external Home Assistant integration dependency.
+"""
+from __future__ import annotations
+
+import asyncio
+import hashlib
+import json
+import logging
+import math
+import os
+import time
+from datetime import datetime
+from pathlib import Path
+
+import voluptuous as vol
+from homeassistant.components import websocket_api
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import issue_registry as ir
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
+
+from . import (
+    DEFAULT_OBSERVABILITY_SETTINGS,
+    HiveFWRuntimeData,
+    _observability_settings,
+    _sync_engine_repair_issue,
+)
+from .const import (
+    CONF_FLOOD_SCOPES_UPSTREAM,
+    CONF_NAME_UPSTREAM,
+    DOMAIN,
+    ENTITY_DOMAIN_BINARY_SENSOR,
+    MESHCORE_DOMAIN,
+)
+from .message_store import MessageStore
+from .ota import (
+    HiveFWOtaError,
+    async_create_manual_ota_session,
+    async_get_ota_status,
+    async_install_latest_release,
+    get_ota_progress,
+)
+from .utils import format_entity_id, parse_flood_scope_allowlist, sanitize_name
+
+_LOGGER = logging.getLogger(__name__)
+
+
+# ─── Exception translations ──────────────────────────────────────────────
+#
+# `strings.json` and `translations/en.json` carry the canonical user-facing
+# exception messages keyed under the top-level ``exceptions`` block. The
+# WS error path looks them up via ``_t(translation_key)``.
+#
+# Today the lookup resolves against the bundled ``translations/en.json``
+# at module import — single locale, no per-user resolution. The hard-
+# coded fallback dict (``_EXCEPTION_FALLBACKS``) keeps the call path
+# resilient if the JSON shape changes or the file is missing in some
+# distribution scenarios.
+#
+# Future direction: when Home Assistant's translation API gains stable
+# Python-side support for non-entity contexts (WS handlers, in
+# particular), replace ``_t(key)`` with the API call and feed it the
+# active user's language. The translation keys used by ``_WS_ERROR_MAP``
+# are deliberately stable so the future swap touches only the helper
+# body — not the call sites or the ``strings.json`` schema.
+#
+# Reference: https://developers.home-assistant.io/docs/internationalization/core
+# (the ``async_get_exception_message`` helper covers entity / device
+# contexts but is not yet a clean fit for ad-hoc WS-handler errors).
+
+_EXCEPTION_FALLBACKS: dict[str, str] = {
+    "operation_failed": "Operation failed",
+    "device_not_connected": "Device not connected",
+    "operation_timed_out": "Operation timed out",
+    "invalid_request": "Invalid request parameters",
+    "no_hivefw_coordinator": "No active HiveFW radio coordinator",
+}
+
+
+def _load_bundled_exception_messages() -> dict[str, str]:
+    """Load ``exceptions.<key>.message`` from the bundled en translations.
+
+    Falls back to ``_EXCEPTION_FALLBACKS`` if the file is missing,
+    malformed, or a key is absent. This keeps the WS error path
+    resilient — a missing translation never raises, it just degrades to
+    the hard-coded English string.
+    """
+    path = Path(__file__).parent / "translations" / "en.json"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        block = data.get("exceptions") or {}
+    except (OSError, ValueError):  # pragma: no cover - defensive
+        return dict(_EXCEPTION_FALLBACKS)
+
+    resolved = dict(_EXCEPTION_FALLBACKS)
+    for key, entry in block.items():
+        if isinstance(entry, dict):
+            message = entry.get("message")
+            if isinstance(message, str) and message:
+                resolved[key] = message
+    return resolved
+
+
+_EXCEPTION_MESSAGES: dict[str, str] = _load_bundled_exception_messages()
+
+
+def _t(key: str) -> str:
+    """Look up a translated exception message.
+
+    Today: returns the en-locale literal from the bundled
+    ``translations/en.json`` (loaded once at import). Falls back to the
+    hard-coded English string in ``_EXCEPTION_FALLBACKS`` if the key is
+    absent. Never raises.
+
+    Future: integrate with HA's translation infrastructure for per-user
+    locale resolution. See the module-level comment above.
+    """
+    return _EXCEPTION_MESSAGES.get(key) or _EXCEPTION_FALLBACKS.get(key) or key
+
+
+def _resolve_coordinator(hass: HomeAssistant, entry_id: str | None = None):
+    """Discovery-only: locate the HiveFW embedded coordinator.
+
+    Pure lookup — no side effects. The wrapper ``_get_coordinator`` is
+    the public-ish entry point that adds the repair-issue sync; this
+    inner helper is what callers use when they need the discovery result
+    without triggering the issue create/delete (currently only the
+    wrapper itself).
+
+    Behavior:
+      - ``entry_id`` supplied and matches a registered coordinator → return it.
+      - ``entry_id`` supplied but no match → log WARNING and return None.
+        This is a frontend bug (wrong field passed as entry_id, stale
+        entry_id after an upstream entry was removed, etc.) and should
+        surface as a ``not_found`` WS error, not silently masquerade as
+        the first coordinator.
+      - ``entry_id`` omitted (None) → fall back to first coordinator.
+        This is the legitimate "I don't care which one" path used by
+        commands that operate on singleton state.
+
+    Note on scope: this hardening only protects code paths that actually
+    call ``_get_coordinator(...)`` / ``_resolve_coordinator(...)``. Handlers
+    that accept ``entry_id`` in their schema but ignore it at the body
+    level (SILENT-IGNORE — caught by
+    ``tests/components/hivefw_integration/test_ws_api_entry_id_audit.py``)
+    or route through a different resolver (e.g., ``_get_store`` — see
+    its symmetric hardening for the chat-companion lookup) need their
+    own coverage.
+    """
+    if MESHCORE_DOMAIN not in hass.data:
+        return None
+
+    if entry_id is not None:
+        coord = hass.data[MESHCORE_DOMAIN].get(entry_id)
+        if coord is None:
+            _LOGGER.warning(
+                "ws_api received unknown entry_id %r; valid: %s",
+                entry_id, list(hass.data[MESHCORE_DOMAIN]),
+            )
+            return None
+        return coord if hasattr(coord, "api") else None
+
+    # entry_id explicitly omitted — fall back to first coordinator.
+    for value in hass.data[MESHCORE_DOMAIN].values():
+        if hasattr(value, "api"):
+            return value
+    return None
+
+
+def _resolve_all_coordinators(hass: HomeAssistant) -> list:
+    """Discovery-only: enumerate all active HiveFW coordinators.
+
+    Pure lookup — no side effects. See ``_resolve_coordinator`` doc for
+    the inner-vs-wrapper split.
+    """
+    if MESHCORE_DOMAIN not in hass.data:
+        return []
+    return [
+        (entry_id, coord)
+        for entry_id, coord in hass.data[MESHCORE_DOMAIN].items()
+        if hasattr(coord, "api")
+    ]
+
+
+def _get_coordinator(hass: HomeAssistant, entry_id: str | None = None):
+    """Get the HiveFW embedded coordinator for ``entry_id``, or first available.
+
+    The companion does not own a coordinator — it consumes the embedded engine
+    integration's coordinator via ``hass.data[MESHCORE_DOMAIN][meshcore_entry_id]``.
+    The ``entry_id`` argument here, when supplied by the frontend, is the
+    *upstream* meshcore config-entry id (the chat panel discovers it via the
+    ``hivefw_integration/get_devices`` command, which in turn reads engine's
+    coordinator registry). When omitted, the first registered upstream
+    coordinator is used.
+
+    Side effect: synchronizes the ``radio_engine_unavailable`` repair
+    issue based on what discovery just observed. Idempotent (HA dedupes
+    by (domain, issue_id); delete-on-non-existent is a no-op), so the
+    panel-polling rate is safe.
+    """
+    coord = _resolve_coordinator(hass, entry_id)
+    _sync_engine_repair_issue(hass)
+    return coord
+
+
+def _get_all_coordinators(hass: HomeAssistant) -> list:
+    """Get all active HiveFW coordinators.
+
+    Side effect: synchronizes the ``radio_engine_unavailable`` repair
+    issue based on what discovery just observed (see ``_get_coordinator``
+    for the rationale).
+    """
+    coords = _resolve_all_coordinators(hass)
+    _sync_engine_repair_issue(hass)
+    return coords
+
+
+def _integration_supports_routed_contact_cleanup(hass: HomeAssistant) -> bool:
+    """True when the embedded HiveFW engine owns the routed contact
+    cleanup — i.e. its ``remove_contact`` handler also removes the per-contact
+    ``binary_sensor`` (and discards the pubkey) on large-mesh installs.
+
+    Probed via the presence of the ``meshcore.get_discovered_contact``
+    service, which is registered by the same integration build that carries
+    the routed cleanup. When the probe is false, callers fall back to their
+    own inlined SDK mutation + coordinator sync, which is correct on
+    integrations without the large-mesh entity lifecycle (no per-contact
+    ``binary_sensor`` exists there to orphan).
+    """
+    return hass.services.has_service(MESHCORE_DOMAIN, "get_discovered_contact")
+
+
+# Maps Python exception types to WS error codes + translation keys.
+# Order matters — first match wins. Add new entries above the catch-all
+# in ``_ws_send_error_safe`` to surface specific failures before they
+# fall through to "error".
+#
+# The third tuple element is a translation key from ``strings.json``'s
+# ``exceptions`` block, not a literal message. ``_ws_send_error_safe``
+# resolves it via ``_t(key)`` so the user-facing text lives in
+# ``strings.json`` / ``translations/en.json`` rather than scattered
+# across the code. The WS error *codes* (the second
+# tuple element) are unchanged — clients keying on ``timeout`` /
+# ``not_connected`` / ``invalid`` continue to work.
+_WS_ERROR_MAP: list[tuple[type[BaseException], str, str]] = [
+    (asyncio.TimeoutError, "timeout", "operation_timed_out"),
+    (ConnectionError, "not_connected", "device_not_connected"),
+    (vol.Invalid, "invalid", "invalid_request"),
+]
+
+
+def _ws_send_error_safe(
+    connection: websocket_api.ActiveConnection,
+    msg_id: int,
+    ex: Exception,
+    *,
+    handler: str,
+    default_code: str = "error",
+    default_translation_key: str = "operation_failed",
+) -> None:
+    """Log a WS handler exception with context and send a generic error.
+
+    Logs the full traceback at ERROR level for diagnosis. Sends a generic
+    user-facing message to the client — internal exception strings (which
+    may include path info, SDK details, or stack-trace fragments) are
+    deliberately not echoed.
+
+    User-facing messages are resolved via ``_t(translation_key)`` so the
+    canonical text lives in ``strings.json`` / ``translations/en.json``
+    rather than literal strings inline.
+    """
+    _LOGGER.exception("%s failed: %s", handler, ex)
+    for exc_type, code, translation_key in _WS_ERROR_MAP:
+        if isinstance(ex, exc_type):
+            connection.send_error(msg_id, code, _t(translation_key))
+            return
+    connection.send_error(msg_id, default_code, _t(default_translation_key))
+
+
+# One-shot guard so the legacy-fallback warning fires at most once per
+# process — without this, a busy panel that polls contacts every few
+# seconds against an old meshcore install would flood the log.
+_LEGACY_CONTACTS_FALLBACK_LOGGED = False
+
+
+def _build_ha_contact_location_index(
+    hass: HomeAssistant,
+) -> dict[str, tuple[float, float, str]]:
+    """Build a pubkey/prefix → coordinates + entity_id index from HA states."""
+
+    def _pair(attrs: dict) -> tuple[float, float] | None:
+        lat_raw = attrs.get("adv_lat", attrs.get("latitude"))
+        lon_raw = attrs.get("adv_lon", attrs.get("longitude"))
+        try:
+            lat = float(lat_raw)
+            lon = float(lon_raw)
+        except (TypeError, ValueError):
+            return None
+        if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+            return None
+        if lat == 0 and lon == 0:
+            return None
+        return lat, lon
+
+    index: dict[str, tuple[float, float, str]] = {}
+    for state in hass.states.async_all():
+        attrs = dict(state.attributes or {})
+        pair = _pair(attrs)
+        if pair is None:
+            continue
+
+        canonical_map_location = (
+            isinstance(attrs.get("latitude"), (int, float))
+            and isinstance(attrs.get("longitude"), (int, float))
+        )
+        map_entity_id = state.entity_id if canonical_map_location else ""
+
+        for raw_key in (
+            attrs.get("public_key"),
+            attrs.get("pubkey_prefix"),
+            attrs.get("contact_public_key"),
+        ):
+            key = str(raw_key or "").strip().lower()
+            if len(key) < 6:
+                continue
+            index[key] = (pair[0], pair[1], map_entity_id)
+            # meshcore-ha commonly identifies contacts by the 12-char pubkey
+            # prefix, so index it explicitly even when the entity exposes the
+            # full public key.
+            if len(key) >= 12:
+                index[key[:12]] = (pair[0], pair[1], map_entity_id)
+
+    return index
+
+
+def _contact_location(
+    contact: dict,
+    location_index: dict[str, tuple[float, float, str]],
+) -> tuple[float, float, str | None] | None:
+    """Return coordinates and, when available, the matching HA map entity."""
+
+    def _pair(attrs: dict) -> tuple[float, float] | None:
+        lat_raw = attrs.get("adv_lat", attrs.get("latitude"))
+        lon_raw = attrs.get("adv_lon", attrs.get("longitude"))
+        try:
+            lat = float(lat_raw)
+            lon = float(lon_raw)
+        except (TypeError, ValueError):
+            return None
+        if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+            return None
+        if lat == 0 and lon == 0:
+            return None
+        return lat, lon
+
+    public_key = str(contact.get("public_key") or "").strip().lower()
+    prefix = str(contact.get("pubkey_prefix") or public_key[:12]).strip().lower()
+
+    matched: tuple[float, float, str] | None = None
+    for key in (public_key, public_key[:12], prefix):
+        if key and key in location_index:
+            matched = location_index[key]
+            break
+
+    direct = _pair(contact)
+    if direct is not None:
+        return direct[0], direct[1], matched[2] if matched else None
+
+    if matched is not None:
+        return matched
+
+    return None
+
+
+def _enrich_contact_locations_from_ha(
+    hass: HomeAssistant, contacts: list
+) -> list:
+    """Backfill adv_lat/adv_lon from HA contact/GPS entities when available."""
+    location_index = _build_ha_contact_location_index(hass)
+    enriched: list = []
+
+    for raw in contacts:
+        if not isinstance(raw, dict):
+            enriched.append(raw)
+            continue
+
+        contact = dict(raw)
+        pair = _contact_location(contact, location_index)
+        if pair is not None:
+            lat, lon, map_entity_id = pair
+            contact["adv_lat"] = lat
+            contact["adv_lon"] = lon
+            contact["latitude"] = lat
+            contact["longitude"] = lon
+            if map_entity_id:
+                contact["map_entity_id"] = map_entity_id
+
+        enriched.append(contact)
+
+    return enriched
+
+
+async def _get_contacts_via_service(
+    hass: HomeAssistant, entry_id: str | None = None
+) -> list | None:
+    """Fetch contacts via the documented meshcore.get_contacts service.
+
+    Returns the contacts list on success, an empty list when the service
+    reports an error envelope (no_coordinator / coordinator_error), or
+    None when there is no MeshCore coordinator at all (caller maps to
+    "not_found"). Callers that need to distinguish "no coordinator" from
+    "service-side error" should inspect the legacy direct-coordinator
+    path instead — but in practice the chat panel just shows a generic
+    "no coordinator" toast in either case.
+
+    Falls back to ``coordinator.get_all_contacts()`` on installs running
+    meshcore<2.6.0 (no service registered), so existing users don't lose
+    contact-list functionality during the version-floor announcement
+    window. The fallback warning is logged at most once per process.
+    """
+    if not hass.services.has_service(MESHCORE_DOMAIN, "get_contacts"):
+        global _LEGACY_CONTACTS_FALLBACK_LOGGED
+        if not _LEGACY_CONTACTS_FALLBACK_LOGGED:
+            _LOGGER.warning(
+                "HiveFW get_contacts service not registered — falling back "
+                "to coordinator.get_all_contacts(). Upgrade to meshcore>=2.6.0 "
+                "for the documented public surface."
+            )
+            _LEGACY_CONTACTS_FALLBACK_LOGGED = True
+        coordinator = _get_coordinator(hass, entry_id)
+        if not coordinator:
+            return None
+        return _enrich_contact_locations_from_ha(
+            hass, list(coordinator.get_all_contacts() or [])
+        )
+
+    service_data: dict = {}
+    if entry_id:
+        service_data["entry_id"] = entry_id
+
+    try:
+        result = await hass.services.async_call(
+            MESHCORE_DOMAIN,
+            "get_contacts",
+            service_data,
+            blocking=True,
+            return_response=True,
+        )
+    except Exception as ex:
+        _LOGGER.error("HiveFW get_contacts service call failed: %s", ex)
+        return None
+
+    if not result:
+        return None
+    # Service returns {"contacts": [...]} on success and
+    # {"contacts": [], "error": "..."} on error envelopes. Treat either
+    # as "no usable data" by checking for a non-empty list before the
+    # presence-of-error flag — the chat doesn't surface the embedded engine
+    # error string today, so collapse to the existing "not_found" UX.
+    if "error" in result and not result.get("contacts"):
+        return None
+    return _enrich_contact_locations_from_ha(
+        hass, list(result.get("contacts") or [])
+    )
+
+
+def _get_store(
+    hass: HomeAssistant, entry_id: str | None = None
+) -> MessageStore | None:
+    """Return the companion's per-entry MessageStore.
+
+    Per-entry state lives on ``entry.runtime_data`` (Bronze convention,
+    post-2024.6). ``entry_id`` here is the *companion's* config-entry id
+    (typically a singleton per HA instance because the panel is installed
+    once). When omitted, falls back to the first companion config entry
+    that has a runtime_data store.
+
+    Defensive ``getattr`` shields the isinstance check from entries
+    belonging to other integrations: HA's ``ConfigEntry`` only
+    materialises ``runtime_data`` on the entry whose setup populated it,
+    so a direct attribute read on a non-companion entry raises
+    AttributeError. Frontend call sites occasionally pass the parent
+    HiveFW integration entry_id (rather than a UI-only entry
+    companion's) — bringing that down the same code path was the source
+    of a runtime crash; ``getattr`` collapses the miss to a clean None.
+
+    Behavior:
+      - ``entry_id`` supplied and resolves to a chat-companion entry
+        → return its store.
+      - ``entry_id`` supplied but does NOT resolve to a chat-companion
+        entry → log WARNING and return None. Mirrors the
+        ``_resolve_coordinator`` hardening for the parallel chat-
+        companion lookup path. This branch previously returned None
+        silently, masking wrong-shape entry_ids.
+      - ``entry_id`` omitted (``None``) → fall back to first companion
+        entry with a store. This is the legitimate path used by
+        ``ws_mark_read`` / ``ws_get_messages_around`` and the three
+        handlers (``ws_get_stored_messages``,
+        ``ws_get_stored_message_count``, ``ws_search_stored_messages``)
+        whose documented-ignore conversion forces the
+        ``None``-fallback explicitly.
+    """
+    if entry_id is not None:
+        entry = hass.config_entries.async_get_entry(entry_id)
+        if entry is None or not isinstance(
+            getattr(entry, "runtime_data", None), HiveFWRuntimeData
+        ):
+            _LOGGER.warning(
+                "ws_api _get_store received entry_id %r that is not a chat companion entry",
+                entry_id,
+            )
+            return None
+        return entry.runtime_data.store
+
+    # Fallback: first companion entry with a store.
+    for entry in hass.config_entries.async_entries(DOMAIN):
+        if isinstance(
+            getattr(entry, "runtime_data", None), HiveFWRuntimeData
+        ):
+            return entry.runtime_data.store
+    return None
+
+
+def _get_runtime_data(
+    hass: HomeAssistant, entry_id: str | None = None
+) -> HiveFWRuntimeData | None:
+    """Return HiveFW per-entry runtime data."""
+    if entry_id:
+        entry = hass.config_entries.async_get_entry(entry_id)
+        runtime = getattr(entry, "runtime_data", None) if entry else None
+        return runtime if isinstance(runtime, HiveFWRuntimeData) else None
+
+    for entry in hass.config_entries.async_entries(DOMAIN):
+        runtime = getattr(entry, "runtime_data", None)
+        if isinstance(runtime, HiveFWRuntimeData):
+            return runtime
+    return None
+
+
+async def _save_runtime_aux(runtime: HiveFWRuntimeData) -> None:
+    """Persist node metadata and trace history in one auxiliary store."""
+    if runtime.node_meta_store is None:
+        return
+    await runtime.node_meta_store.async_save(
+        {
+            "nodes": runtime.node_meta,
+            "traces": runtime.trace_history[-100:],
+            "observability": runtime.observability_settings,
+            "health_state": runtime.health_state,
+        }
+    )
+
+
+async def _record_trace_history(
+    hass: HomeAssistant,
+    entry_id: str | None,
+    target_prefix: str,
+    trace_result: dict,
+    *,
+    source: str = "manual",
+) -> None:
+    """Append one successful trace result to the per-entry history."""
+    runtime = _get_runtime_data(hass, entry_id)
+    if runtime is None:
+        return
+
+    record = {
+        "timestamp": datetime.now().astimezone().isoformat(),
+        "target_prefix": str(target_prefix or ""),
+        "source": source,
+        "round_trip_ms": int(trace_result.get("round_trip_ms") or 0),
+        "hops": int(trace_result.get("hops") or 0),
+        "final_snr": trace_result.get("final_snr"),
+        "path": trace_result.get("path") or [],
+    }
+    runtime.trace_history.append(record)
+    if len(runtime.trace_history) > 100:
+        runtime.trace_history[:] = runtime.trace_history[-100:]
+    await _save_runtime_aux(runtime)
+
+
+def _contact_meta_key(contact: dict) -> str:
+    """Return stable lower-case public-key identity for local node metadata."""
+    raw = contact.get("public_key") or ""
+    if isinstance(raw, dict):
+        raw = raw.get("hex") or ""
+    key = str(raw).strip().lower()
+    if key:
+        return key
+    return str(contact.get("pubkey_prefix") or "").strip().lower()
+
+
+def _node_age(contact: dict, now: float | None = None) -> tuple[str, int | None]:
+    """Return (bucket, age_seconds) from the freshest known contact timestamp."""
+    stamps: list[float] = []
+    for field in ("lastmod", "last_advert", "last_modified"):
+        try:
+            value = float(contact.get(field) or 0)
+        except (TypeError, ValueError):
+            value = 0
+        if value > 0:
+            stamps.append(value)
+
+    if not stamps:
+        return "stale", None
+
+    current = now if now is not None else time.time()
+    age = max(0, int(current - max(stamps)))
+    if age < 3600:
+        return "lt1h", age
+    if age < 6 * 3600:
+        return "lt6h", age
+    if age < 24 * 3600:
+        return "lt24h", age
+    if age < 7 * 24 * 3600:
+        return "lt7d", age
+    return "stale", age
+
+
+def _enrich_contact_meta(contact: dict, runtime: HiveFWRuntimeData | None) -> dict:
+    """Attach Home Assistant-owned metadata used by the Nodes UI."""
+    result = dict(contact)
+    key = _contact_meta_key(contact)
+    raw_meta = runtime.node_meta.get(key, {}) if runtime and key else {}
+    tags = raw_meta.get("tags", []) if isinstance(raw_meta, dict) else []
+    bucket, age_seconds = _node_age(contact)
+    result["favorite"] = bool(raw_meta.get("favorite")) if isinstance(raw_meta, dict) else False
+    result["tags"] = [str(tag) for tag in tags if str(tag).strip()][:8]
+    result["age_bucket"] = bucket
+    result["age_seconds"] = age_seconds
+    return result
+
+
+def _get_channel_scopes(hass: HomeAssistant):
+    """Return the process-wide ChannelScopeStore (None before setup).
+
+    The store is created and hydrated by ``async_setup_entry``; handlers
+    tolerate ``None`` so a WS call racing entry setup degrades to
+    "no scopes" instead of raising.
+    """
+    return hass.data.get(DOMAIN, {}).get("channel_scopes")
+
+
+def async_register_ws_commands(hass: HomeAssistant) -> None:
+    """Register all HiveFW WebSocket commands."""
+    # Device / contact / channel read commands
+    websocket_api.async_register_command(hass, ws_get_devices)
+    websocket_api.async_register_command(hass, ws_get_contacts)
+    websocket_api.async_register_command(hass, ws_get_channels)
+    websocket_api.async_register_command(hass, ws_get_flood_scopes)
+    websocket_api.async_register_command(hass, ws_set_flood_scopes)
+    websocket_api.async_register_command(hass, ws_get_remote_regions)
+
+    # Device config and command-execution commands
+    websocket_api.async_register_command(hass, ws_get_managed_devices)
+    websocket_api.async_register_command(hass, ws_get_device_config)
+    websocket_api.async_register_command(hass, ws_get_local_repeater_status)
+    websocket_api.async_register_command(hass, ws_get_duty_cycle)
+    websocket_api.async_register_command(hass, ws_set_duty_cycle)
+    websocket_api.async_register_command(hass, ws_get_firmware_ota_status)
+    websocket_api.async_register_command(hass, ws_get_firmware_ota_progress)
+    websocket_api.async_register_command(hass, ws_create_manual_ota_session)
+    websocket_api.async_register_command(hass, ws_install_latest_firmware)
+    websocket_api.async_register_command(hass, ws_set_device_config)
+    websocket_api.async_register_command(hass, ws_execute_local)
+    websocket_api.async_register_command(hass, ws_execute_remote)
+    websocket_api.async_register_command(hass, ws_console_get)
+    websocket_api.async_register_command(hass, ws_console_execute)
+    websocket_api.async_register_command(hass, ws_console_clear)
+    websocket_api.async_register_command(hass, ws_set_channel)
+    websocket_api.async_register_command(hass, ws_remove_channel)
+    websocket_api.async_register_command(hass, ws_export_backup)
+    websocket_api.async_register_command(hass, ws_restore_backup)
+
+    # Neighbor management commands
+    websocket_api.async_register_command(hass, ws_get_hive_neighbors)
+    websocket_api.async_register_command(hass, ws_start_hive_neighbor_discovery)
+    websocket_api.async_register_command(hass, ws_get_hive_neighbor_discovery)
+    websocket_api.async_register_command(hass, ws_get_neighbors)
+    websocket_api.async_register_command(hass, ws_remove_neighbor)
+    websocket_api.async_register_command(hass, ws_cleanup_stale_neighbors)
+
+    # Unread, identity, location, and contact commands
+    websocket_api.async_register_command(hass, ws_get_unread_counts)
+    websocket_api.async_register_command(hass, ws_mark_read)
+    websocket_api.async_register_command(hass, ws_regenerate_identity)
+    websocket_api.async_register_command(hass, ws_import_identity)
+    websocket_api.async_register_command(hass, ws_set_location_source)
+    websocket_api.async_register_command(hass, ws_add_contact)
+    websocket_api.async_register_command(hass, ws_remove_contact)
+    websocket_api.async_register_command(hass, ws_trace)
+    websocket_api.async_register_command(hass, ws_get_blocked_contacts)
+    websocket_api.async_register_command(hass, ws_set_contact_blocked)
+    websocket_api.async_register_command(hass, ws_set_node_meta)
+    websocket_api.async_register_command(hass, ws_bulk_set_node_meta)
+    websocket_api.async_register_command(hass, ws_bulk_cleanup_contacts)
+    websocket_api.async_register_command(hass, ws_get_trace_history)
+    websocket_api.async_register_command(hass, ws_clear_trace_history)
+    websocket_api.async_register_command(hass, ws_get_peer_activity)
+    websocket_api.async_register_command(hass, ws_get_observability_settings)
+    websocket_api.async_register_command(hass, ws_set_observability_settings)
+    websocket_api.async_register_command(hass, ws_get_los_profile)
+
+    # Paginated contacts & counts
+    websocket_api.async_register_command(hass, ws_get_contacts_paginated)
+    websocket_api.async_register_command(hass, ws_get_node_counts)
+    websocket_api.async_register_command(hass, ws_clear_discovered_contacts)
+    websocket_api.async_register_command(hass, ws_import_contacts)
+
+    # Message store commands
+    websocket_api.async_register_command(hass, ws_get_rx_log)
+    websocket_api.async_register_command(hass, ws_get_stored_messages)
+    websocket_api.async_register_command(hass, ws_get_stored_message_count)
+    websocket_api.async_register_command(hass, ws_search_stored_messages)
+    websocket_api.async_register_command(hass, ws_get_messages_around)
+
+    _LOGGER.debug("Registered HiveFW WebSocket API commands")
+
+
+# ─── meshcore/get_devices ────────────────────────────────────────────
+# Returns list of configured MeshCore companion devices (config entries)
+# so the panel can populate the device switcher dropdown.
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hivefw_integration/get_devices",
+    }
+)
+@callback
+def ws_get_devices(hass, connection, msg):
+    """Return all configured MeshCore companion devices."""
+    devices = []
+    for entry_id, coordinator in _get_all_coordinators(hass):
+        self_info = getattr(coordinator.api, "self_info", {}) or {}
+        if not isinstance(self_info, dict):
+            self_info = {}
+        devices.append(
+            {
+                "entry_id": entry_id,
+                "name": coordinator.name or "Unknown",
+                "pubkey": coordinator.pubkey or "",
+                "pubkey_prefix": (coordinator.pubkey or "")[:12],
+                "firmware": coordinator.device_info.get("sw_version", ""),
+                "connected": coordinator.api.connected,
+                "path_hash_mode": self_info.get("path_hash_mode"),
+            }
+        )
+    connection.send_result(msg["id"], {"devices": devices})
+
+
+# ─── meshcore/get_contacts ───────────────────────────────────────────
+# Returns all contacts (saved + discovered) with full attributes.
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hivefw_integration/get_contacts",
+        vol.Optional("entry_id"): str,
+    }
+)
+@websocket_api.async_response
+async def ws_get_contacts(hass, connection, msg):
+    """Return all contacts for the specified (or first) config entry.
+
+    Delegates to the embedded engine meshcore.get_contacts service (PR #216,
+    meshcore>=2.6.0), with a legacy fallback to
+    coordinator.get_all_contacts() for users on older meshcore — see
+    _get_contacts_via_service.
+    """
+    entry_id = msg.get("entry_id")
+    contacts = await _get_contacts_via_service(hass, entry_id)
+    if contacts is None:
+        connection.send_error(msg["id"], "not_found", "No HiveFW coordinator found")
+        return
+    runtime = _get_runtime_data(hass, entry_id)
+    connection.send_result(
+        msg["id"],
+        {"contacts": [_enrich_contact_meta(contact, runtime) for contact in contacts]},
+    )
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hivefw_integration/set_node_meta",
+        vol.Optional("entry_id"): str,
+        vol.Required("public_key"): str,
+        vol.Optional("favorite"): bool,
+        vol.Optional("tags"): [str],
+    }
+)
+@websocket_api.async_response
+async def ws_set_node_meta(hass, connection, msg):
+    """Persist local Favorite/Tags metadata for one mesh node."""
+    runtime = _get_runtime_data(hass, msg.get("entry_id"))
+    if runtime is None:
+        connection.send_error(msg["id"], "not_found", "No HiveFW runtime found")
+        return
+
+    key = str(msg["public_key"]).strip().lower()
+    if not (6 <= len(key) <= 64) or any(ch not in "0123456789abcdef" for ch in key):
+        connection.send_error(msg["id"], "invalid", "Invalid node public key")
+        return
+
+    previous = runtime.node_meta.get(key, {})
+    if not isinstance(previous, dict):
+        previous = {}
+
+    favorite = (
+        bool(msg["favorite"])
+        if "favorite" in msg
+        else bool(previous.get("favorite"))
+    )
+    tags_raw = msg.get("tags", previous.get("tags", []))
+    tags: list[str] = []
+    for raw_tag in tags_raw if isinstance(tags_raw, list) else []:
+        tag = str(raw_tag).strip().lstrip("#")[:24]
+        if tag and tag not in tags:
+            tags.append(tag)
+        if len(tags) >= 8:
+            break
+
+    if favorite or tags:
+        runtime.node_meta[key] = {"favorite": favorite, "tags": tags}
+    else:
+        runtime.node_meta.pop(key, None)
+
+    await _save_runtime_aux(runtime)
+    connection.send_result(
+        msg["id"],
+        {"favorite": favorite, "tags": tags},
+    )
+
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hivefw_integration/bulk_set_node_meta",
+        vol.Optional("entry_id"): str,
+        vol.Required("public_keys"): [str],
+        vol.Optional("favorite"): bool,
+        vol.Optional("add_tags", default=[]): [str],
+        vol.Optional("remove_tags", default=[]): [str],
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_bulk_set_node_meta(hass, connection, msg):
+    """Apply Favorite/Tag metadata to multiple nodes in one persisted write."""
+    runtime = _get_runtime_data(hass, msg.get("entry_id"))
+    if runtime is None:
+        connection.send_error(msg["id"], "not_found", "HiveFW runtime not found")
+        return
+
+    requested = {
+        str(value or "").strip().lower()
+        for value in msg.get("public_keys", [])
+        if str(value or "").strip()
+    }
+    add_tags = {
+        str(value or "").strip()[:32]
+        for value in msg.get("add_tags", [])
+        if str(value or "").strip()
+    }
+    remove_tags = {
+        str(value or "").strip()
+        for value in msg.get("remove_tags", [])
+        if str(value or "").strip()
+    }
+    favorite_value = msg.get("favorite")
+    changed = 0
+
+    for key in requested:
+        previous = runtime.node_meta.get(key, {})
+        if not isinstance(previous, dict):
+            previous = {}
+        favorite = bool(previous.get("favorite", False))
+        if favorite_value is not None:
+            favorite = bool(favorite_value)
+        tags = {
+            str(tag).strip()
+            for tag in previous.get("tags", [])
+            if str(tag).strip()
+        }
+        tags.update(add_tags)
+        tags.difference_update(remove_tags)
+        next_value = {
+            "favorite": favorite,
+            "tags": sorted(tags)[:8],
+        }
+        if next_value != {
+            "favorite": bool(previous.get("favorite", False)),
+            "tags": sorted(
+                str(tag).strip()
+                for tag in previous.get("tags", [])
+                if str(tag).strip()
+            )[:8],
+        }:
+            changed += 1
+        if next_value["favorite"] or next_value["tags"]:
+            runtime.node_meta[key] = next_value
+        else:
+            runtime.node_meta.pop(key, None)
+
+    await _save_runtime_aux(runtime)
+    connection.send_result(msg["id"], {"changed": changed, "requested": len(requested)})
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hivefw_integration/bulk_cleanup_contacts",
+        vol.Optional("entry_id"): str,
+        vol.Optional("days_threshold"): vol.All(int, vol.Range(min=1, max=3650)),
+        vol.Optional("public_keys", default=[]): [str],
+        vol.Optional("dry_run", default=True): bool,
+        vol.Optional("protect_favorites", default=True): bool,
+        vol.Optional("protect_added", default=True): bool,
+        vol.Optional("protect_repeaters", default=True): bool,
+        vol.Optional("protected_tags", default=["keep", "protected"]): [str],
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_bulk_cleanup_contacts(hass, connection, msg):
+    """Preview or remove discovered contacts with explicit safety protections."""
+    coordinator = _get_coordinator(hass, msg.get("entry_id"))
+    runtime = _get_runtime_data(hass, msg.get("entry_id"))
+    if not coordinator or runtime is None:
+        connection.send_error(msg["id"], "not_found", "HiveFW runtime not found")
+        return
+
+    selected = {
+        str(value or "").strip().lower()
+        for value in msg.get("public_keys", [])
+        if str(value or "").strip()
+    }
+    days_threshold = msg.get("days_threshold")
+    dry_run = bool(msg.get("dry_run", True))
+    protected_tags = {
+        str(value or "").strip().lower()
+        for value in msg.get("protected_tags", [])
+        if str(value or "").strip()
+    }
+    repeater_prefixes = {
+        str(item.get("pubkey_prefix") or "").strip().lower()
+        for item in getattr(coordinator, "_tracked_repeaters", [])
+        if str(item.get("pubkey_prefix") or "").strip()
+    }
+    sdk_contacts = getattr(getattr(coordinator.api, "mesh_core", None), "contacts", {}) or {}
+    added_pubkeys = {
+        str(item.get("public_key") or "").strip().lower()
+        for item in list(getattr(coordinator, "_contacts", {}).values())
+        + list(sdk_contacts.values())
+        if str(item.get("public_key") or "").strip()
+    }
+    now = time.time()
+    threshold_seconds = (
+        int(days_threshold) * 86400 if days_threshold is not None else None
+    )
+
+    candidates: list[str] = []
+    skipped = {
+        "favorite": 0,
+        "added": 0,
+        "repeater": 0,
+        "protected_tag": 0,
+        "age": 0,
+        "not_selected": 0,
+    }
+
+    for public_key, contact in coordinator._discovered_contacts.items():
+        key = str(public_key or "").strip().lower()
+        if selected and key not in selected:
+            skipped["not_selected"] += 1
+            continue
+
+        if msg.get("protect_added", True) and (
+            key in added_pubkeys or contact.get("added_to_node", False)
+        ):
+            skipped["added"] += 1
+            continue
+
+        prefix = key[:12]
+        if msg.get("protect_repeaters", True) and any(
+            prefix.startswith(rep) or rep.startswith(prefix)
+            for rep in repeater_prefixes
+        ):
+            skipped["repeater"] += 1
+            continue
+
+        meta = runtime.node_meta.get(key, {})
+        if not isinstance(meta, dict):
+            meta = {}
+        if msg.get("protect_favorites", True) and bool(meta.get("favorite", False)):
+            skipped["favorite"] += 1
+            continue
+        tags = {
+            str(tag or "").strip().lower()
+            for tag in meta.get("tags", [])
+            if str(tag or "").strip()
+        }
+        if protected_tags.intersection(tags):
+            skipped["protected_tag"] += 1
+            continue
+
+        if threshold_seconds is not None:
+            lastmod = float(contact.get("lastmod") or contact.get("last_advert") or 0)
+            if lastmod and (now - lastmod) <= threshold_seconds:
+                skipped["age"] += 1
+                continue
+
+        candidates.append(key)
+
+    if dry_run:
+        connection.send_result(
+            msg["id"],
+            {
+                "dry_run": True,
+                "candidates": candidates,
+                "candidate_count": len(candidates),
+                "skipped": skipped,
+            },
+        )
+        return
+
+    removed: list[str] = []
+    for public_key in candidates:
+        contact = coordinator._discovered_contacts.pop(public_key, None)
+        if contact is None:
+            continue
+        coordinator._remove_discovered_contact_entities(public_key)
+        runtime.node_meta.pop(public_key, None)
+        removed.append(public_key)
+        if len(removed) % 20 == 0:
+            await asyncio.sleep(0)
+
+    if removed:
+        try:
+            await coordinator._store.async_save(coordinator._discovered_contacts)
+        except Exception as ex:
+            _LOGGER.error("Error saving discovered contacts after bulk cleanup: %s", ex)
+        await _save_runtime_aux(runtime)
+        updated_data = dict(coordinator.data) if coordinator.data else {}
+        updated_data["contacts"] = coordinator.get_all_contacts()
+        coordinator.async_set_updated_data(updated_data)
+
+    connection.send_result(
+        msg["id"],
+        {
+            "dry_run": False,
+            "removed": removed,
+            "removed_count": len(removed),
+            "skipped": skipped,
+        },
+    )
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hivefw_integration/get_trace_history",
+        vol.Optional("entry_id"): str,
+        vol.Optional("limit", default=50): vol.All(int, vol.Range(min=1, max=100)),
+    }
+)
+@callback
+def ws_get_trace_history(hass, connection, msg):
+    """Return persisted successful Trace results, newest first."""
+    runtime = _get_runtime_data(hass, msg.get("entry_id"))
+    if runtime is None:
+        connection.send_result(msg["id"], {"traces": []})
+        return
+    limit = msg["limit"]
+    connection.send_result(
+        msg["id"],
+        {"traces": list(reversed(runtime.trace_history[-limit:]))},
+    )
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hivefw_integration/clear_trace_history",
+        vol.Optional("entry_id"): str,
+    }
+)
+@websocket_api.async_response
+async def ws_clear_trace_history(hass, connection, msg):
+    """Clear persisted Trace history for one HiveFW entry."""
+    runtime = _get_runtime_data(hass, msg.get("entry_id"))
+    if runtime is None:
+        connection.send_result(msg["id"], {"cleared": 0})
+        return
+    cleared = len(runtime.trace_history)
+    runtime.trace_history.clear()
+    await _save_runtime_aux(runtime)
+    connection.send_result(msg["id"], {"cleared": cleared})
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hivefw_integration/get_peer_activity",
+        vol.Optional("entry_id"): str,
+    }
+)
+@websocket_api.async_response
+async def ws_get_peer_activity(hass, connection, msg):
+    """Return peer RX/TX and path-link volume derived from stored messages."""
+    runtime = _get_runtime_data(hass, msg.get("entry_id"))
+    if runtime is None:
+        connection.send_result(msg["id"], {"peers": {}, "links": {}, "edges": {}})
+        return
+    result = await runtime.store.get_peer_activity()
+    connection.send_result(msg["id"], result)
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hivefw_integration/get_observability_settings",
+        vol.Optional("entry_id"): str,
+    }
+)
+@callback
+def ws_get_observability_settings(hass, connection, msg):
+    """Return persisted health thresholds and current alert state."""
+    runtime = _get_runtime_data(hass, msg.get("entry_id"))
+    if runtime is None:
+        connection.send_error(msg["id"], "not_found", "HiveFW runtime not found")
+        return
+    connection.send_result(
+        msg["id"],
+        {
+            "settings": _observability_settings(runtime),
+            "health_state": runtime.health_state,
+            "defaults": DEFAULT_OBSERVABILITY_SETTINGS,
+        },
+    )
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hivefw_integration/set_observability_settings",
+        vol.Optional("entry_id"): str,
+        vol.Required("settings"): dict,
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_set_observability_settings(hass, connection, msg):
+    """Persist bounded health thresholds without reloading the integration."""
+    runtime = _get_runtime_data(hass, msg.get("entry_id"))
+    if runtime is None:
+        connection.send_error(msg["id"], "not_found", "HiveFW runtime not found")
+        return
+
+    raw = msg.get("settings") or {}
+    next_settings = {
+        "noise_floor_warn": max(-140.0, min(-40.0, float(
+            raw.get("noise_floor_warn", DEFAULT_OBSERVABILITY_SETTINGS["noise_floor_warn"])
+        ))),
+        "tx_queue_warn": max(0.0, min(1000.0, float(
+            raw.get("tx_queue_warn", DEFAULT_OBSERVABILITY_SETTINGS["tx_queue_warn"])
+        ))),
+        "recv_errors_rate_warn": max(0.0, min(1000.0, float(
+            raw.get("recv_errors_rate_warn", DEFAULT_OBSERVABILITY_SETTINGS["recv_errors_rate_warn"])
+        ))),
+        "reliability_warn": max(0.0, min(100.0, float(
+            raw.get("reliability_warn", DEFAULT_OBSERVABILITY_SETTINGS["reliability_warn"])
+        ))),
+        "reliability_min_requests": max(1, min(100000, int(
+            raw.get("reliability_min_requests", DEFAULT_OBSERVABILITY_SETTINGS["reliability_min_requests"])
+        ))),
+        "persistent_notifications": bool(
+            raw.get("persistent_notifications", DEFAULT_OBSERVABILITY_SETTINGS["persistent_notifications"])
+        ),
+    }
+    runtime.observability_settings = next_settings
+    await _save_runtime_aux(runtime)
+    connection.send_result(
+        msg["id"],
+        {"settings": _observability_settings(runtime), "saved": True},
+    )
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hivefw_integration/get_los_profile",
+        vol.Required("start_lat"): vol.All(float, vol.Range(min=-90, max=90)),
+        vol.Required("start_lon"): vol.All(float, vol.Range(min=-180, max=180)),
+        vol.Required("end_lat"): vol.All(float, vol.Range(min=-90, max=90)),
+        vol.Required("end_lon"): vol.All(float, vol.Range(min=-180, max=180)),
+        vol.Required("frequency_mhz"): vol.All(float, vol.Range(min=100, max=1000)),
+        vol.Optional("start_height_m", default=2.0): vol.All(float, vol.Range(min=0, max=500)),
+        vol.Optional("end_height_m", default=2.0): vol.All(float, vol.Range(min=0, max=500)),
+        vol.Optional("samples", default=60): vol.All(int, vol.Range(min=10, max=100)),
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_get_los_profile(hass, connection, msg):
+    """Calculate terrain LOS and first-Fresnel clearance on demand."""
+    lat1 = float(msg["start_lat"])
+    lon1 = float(msg["start_lon"])
+    lat2 = float(msg["end_lat"])
+    lon2 = float(msg["end_lon"])
+    samples = int(msg.get("samples", 60))
+    frequency_mhz = float(msg["frequency_mhz"])
+    h1 = float(msg.get("start_height_m", 2.0))
+    h2 = float(msg.get("end_height_m", 2.0))
+
+    def _haversine(a_lat, a_lon, b_lat, b_lon):
+        radius = 6371008.8
+        p1 = math.radians(a_lat)
+        p2 = math.radians(b_lat)
+        dp = math.radians(b_lat - a_lat)
+        dl = math.radians(b_lon - a_lon)
+        value = (
+            math.sin(dp / 2) ** 2
+            + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+        )
+        return 2 * radius * math.asin(min(1.0, math.sqrt(value)))
+
+    total_m = _haversine(lat1, lon1, lat2, lon2)
+    if total_m < 1:
+        connection.send_error(msg["id"], "invalid_distance", "Points are too close")
+        return
+
+    # Linear WGS84 interpolation is accurate enough at the sub-regional
+    # distances where LoRa links are useful, while the distance axis itself
+    # is geodesic (haversine).
+    fractions = [index / (samples - 1) for index in range(samples)]
+    lats = [lat1 + (lat2 - lat1) * fraction for fraction in fractions]
+    lons = [lon1 + (lon2 - lon1) * fraction for fraction in fractions]
+
+    session = async_get_clientsession(hass)
+    try:
+        async with session.get(
+            "https://api.open-meteo.com/v1/elevation",
+            params={
+                "latitude": ",".join(f"{value:.6f}" for value in lats),
+                "longitude": ",".join(f"{value:.6f}" for value in lons),
+            },
+            timeout=20,
+        ) as response:
+            response.raise_for_status()
+            payload = await response.json()
+    except Exception as ex:
+        _LOGGER.warning("LOS elevation request failed: %s", ex)
+        connection.send_error(
+            msg["id"], "elevation_unavailable", "Elevation source unavailable"
+        )
+        return
+
+    elevations = payload.get("elevation") if isinstance(payload, dict) else None
+    if not isinstance(elevations, list) or len(elevations) != samples:
+        connection.send_error(
+            msg["id"], "elevation_invalid", "Elevation source returned invalid data"
+        )
+        return
+
+    try:
+        elevations = [float(value) for value in elevations]
+    except (TypeError, ValueError):
+        connection.send_error(
+            msg["id"], "elevation_invalid", "Elevation source returned non-numeric data"
+        )
+        return
+
+    start_radio_alt = elevations[0] + h1
+    end_radio_alt = elevations[-1] + h2
+    wavelength = 299_792_458.0 / (frequency_mhz * 1_000_000.0)
+    effective_radius = (4.0 / 3.0) * 6_371_008.8
+
+    profile = []
+    min_clearance = float("inf")
+    min_fresnel_clearance = float("inf")
+    min_index = 0
+
+    for index, (fraction, elevation) in enumerate(zip(fractions, elevations)):
+        d1 = total_m * fraction
+        d2 = total_m - d1
+        line_alt = start_radio_alt + (end_radio_alt - start_radio_alt) * fraction
+        curvature = (d1 * d2) / (2.0 * effective_radius)
+        terrain_effective = elevation + curvature
+        fresnel = (
+            math.sqrt(wavelength * d1 * d2 / total_m)
+            if d1 > 0 and d2 > 0
+            else 0.0
+        )
+        clearance = line_alt - terrain_effective
+        fresnel_clearance = clearance - (0.6 * fresnel)
+        if fresnel_clearance < min_fresnel_clearance:
+            min_fresnel_clearance = fresnel_clearance
+            min_clearance = clearance
+            min_index = index
+        profile.append(
+            {
+                "distance_km": round(d1 / 1000.0, 3),
+                "elevation_m": round(elevation, 1),
+                "line_m": round(line_alt, 1),
+                "curvature_m": round(curvature, 2),
+                "fresnel_m": round(fresnel, 2),
+                "clearance_m": round(clearance, 2),
+                "fresnel_clearance_m": round(fresnel_clearance, 2),
+            }
+        )
+
+    connection.send_result(
+        msg["id"],
+        {
+            "distance_km": round(total_m / 1000.0, 3),
+            "frequency_mhz": frequency_mhz,
+            "profile": profile,
+            "minimum": {
+                "index": min_index,
+                "distance_km": profile[min_index]["distance_km"],
+                "clearance_m": round(min_clearance, 2),
+                "fresnel_clearance_m": round(min_fresnel_clearance, 2),
+            },
+            "line_of_sight_clear": min_clearance > 0,
+            "fresnel_60_clear": min_fresnel_clearance > 0,
+            "source": {
+                "name": "Open-Meteo Elevation API / Copernicus DEM GLO-90",
+                "resolution_m": 90,
+                "model": "Copernicus DEM 2021 GLO-90",
+            },
+        },
+    )
+
+
+# ─── meshcore/get_contacts_paginated ─────────────────────────────────
+# Returns paginated, filtered contacts with type counts.
+
+
+def _compute_type_counts(contacts: list) -> dict:
+    """Compute per-type counts for a list of contacts.
+
+    Inlined from the HiveFW embedded coordinator
+    (`_compute_type_counts` static method). The HiveFW coordinator this
+    companion consumes deliberately omits `get_contacts_paginated` /
+    `get_node_counts`, so the companion duplicates the small amount of
+    logic that operates on the public `get_all_contacts()` payload.
+    TODO: refactor into a single `coordinator_facade` module.
+    """
+    counts = {"clients": 0, "repeaters": 0, "room_servers": 0, "sensors": 0}
+    for c in contacts:
+        t = c.get("type", 0)
+        if t in (0, 1):
+            counts["clients"] += 1
+        elif t == 2:
+            counts["repeaters"] += 1
+        elif t == 3:
+            counts["room_servers"] += 1
+        elif t == 4:
+            counts["sensors"] += 1
+    return counts
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hivefw_integration/get_contacts_paginated",
+        vol.Optional("entry_id"): str,
+        vol.Optional("category", default="all"): vol.In(
+            ["all", "added", "discovered"]
+        ),
+        vol.Optional("node_type"): int,
+        vol.Optional("search"): str,
+        vol.Optional("activity", default="all"): vol.In(
+            ["all", "active24h", "favorites", "gps", "stale"]
+        ),
+        vol.Optional("limit", default=50): int,
+        vol.Optional("offset", default=0): int,
+        vol.Optional("sort_by", default="last_heard"): vol.In(
+            ["last_heard", "name", "prefix"]
+        ),
+    }
+)
+@websocket_api.async_response
+async def ws_get_contacts_paginated(hass, connection, msg):
+    """Return paginated contacts with filtering and type counts.
+
+    Filters/sorts/paginates the contact list returned by engine's
+    meshcore.get_contacts service (PR #216, meshcore>=2.6.0). The
+    upstream service deliberately doesn't ship a paginated/filtered
+    variant — companions own this layer.
+    """
+    all_contacts = await _get_contacts_via_service(hass, msg.get("entry_id"))
+    if all_contacts is None:
+        connection.send_error(msg["id"], "not_found", "No MeshCore coordinator found")
+        return
+
+    runtime = _get_runtime_data(hass, msg.get("entry_id"))
+    all_contacts = [_enrich_contact_meta(contact, runtime) for contact in all_contacts]
+
+    category = msg["category"]
+    node_type = msg.get("node_type")
+    search = msg.get("search")
+    activity = msg.get("activity", "all")
+    limit = msg["limit"]
+    offset = msg["offset"]
+    sort_by = msg["sort_by"]
+
+    # Category filter (added vs discovered)
+    if category == "added":
+        filtered = [c for c in all_contacts if c.get("added_to_node")]
+    elif category == "discovered":
+        filtered = [c for c in all_contacts if not c.get("added_to_node")]
+    else:
+        filtered = list(all_contacts)
+
+    # Type counts BEFORE search filter (but after category filter), so the
+    # category badges remain stable as the user types in the search box.
+    type_counts = _compute_type_counts(filtered)
+
+    # Search filter: node name, public key/prefix and Home Assistant tags.
+    if search:
+        search_lower = search.lower()
+        filtered = [
+            c for c in filtered
+            if search_lower in (c.get("adv_name") or "").lower()
+            or search_lower in (c.get("pubkey_prefix") or "").lower()
+            or search_lower in str(c.get("public_key") or "").lower()
+            or any(search_lower in str(tag).lower() for tag in c.get("tags", []))
+        ]
+
+    # Activity/GPS/favorite filters operate on the complete contact set before
+    # pagination, so results are correct even with thousands of discovered nodes.
+    if activity == "active24h":
+        filtered = [
+            c for c in filtered
+            if c.get("age_seconds") is not None and int(c["age_seconds"]) < 86400
+        ]
+    elif activity == "favorites":
+        filtered = [c for c in filtered if c.get("favorite")]
+    elif activity == "gps":
+        filtered = [
+            c for c in filtered
+            if abs(float(c.get("adv_lat") or 0)) > 0.000001
+            and abs(float(c.get("adv_lon") or 0)) > 0.000001
+        ]
+    elif activity == "stale":
+        filtered = [c for c in filtered if c.get("age_bucket") == "stale"]
+
+    # Type filter — clients are 0 OR 1 (firmware-emitted ambiguity).
+    if node_type is not None:
+        if node_type <= 1:
+            filtered = [c for c in filtered if c.get("type", 0) in (0, 1)]
+        else:
+            filtered = [c for c in filtered if c.get("type") == node_type]
+
+    # Sort BEFORE pagination so the visible page reflects the true top-N.
+    if sort_by == "name":
+        # Strip leading whitespace before lowering — some firmware emits
+        # adv_name with a leading space which would otherwise sort below all
+        # printable chars.
+        filtered.sort(key=lambda c: (c.get("adv_name") or "").strip().lower())
+    elif sort_by == "prefix":
+        filtered.sort(key=lambda c: c.get("pubkey_prefix") or "")
+    else:
+        # "last_heard" default — keyed on `lastmod` (not `last_advert`) so
+        # firmware-emitted bogus year-2081+ values can't pin nodes to top.
+        filtered.sort(key=lambda c: c.get("lastmod") or 0, reverse=True)
+
+    total = len(filtered)
+    page = filtered[offset : offset + limit]
+
+    connection.send_result(
+        msg["id"],
+        {"contacts": page, "total": total, "counts": type_counts},
+    )
+
+
+# ─── meshcore/get_node_counts ────────────────────────────────────────
+# Returns counts for each primary category (Level 1 filters).
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hivefw_integration/get_node_counts",
+        vol.Optional("entry_id"): str,
+    }
+)
+@websocket_api.async_response
+async def ws_get_node_counts(hass, connection, msg):
+    """Return node counts for each primary filter category.
+
+    Counts are derived from the contact list returned by engine's
+    meshcore.get_contacts service (PR #216, meshcore>=2.6.0). Like
+    paginated, this filtering layer is owned by the companion.
+    """
+    all_contacts = await _get_contacts_via_service(hass, msg.get("entry_id"))
+    if all_contacts is None:
+        connection.send_error(msg["id"], "not_found", "No MeshCore coordinator found")
+        return
+
+    added = sum(1 for c in all_contacts if c.get("added_to_node"))
+    discovered = sum(1 for c in all_contacts if not c.get("added_to_node"))
+    connection.send_result(
+        msg["id"],
+        {
+            "all": added + discovered,
+            "added": added,
+            "discovered": discovered,
+        },
+    )
+
+
+# ─── meshcore/clear_discovered_contacts ─────────────────────────────
+# Clears discovered contacts. If days_threshold is provided, only
+# contacts whose lastmod exceeds that age are removed; otherwise all
+# discovered contacts are removed.
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hivefw_integration/clear_discovered_contacts",
+        vol.Optional("days_threshold"): vol.All(int, vol.Range(min=1, max=365)),
+        vol.Optional("entry_id"): str,
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_clear_discovered_contacts(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict,
+) -> None:
+    """Clear discovered contacts, optionally only those older than N days."""
+    coordinator = _get_coordinator(hass, msg.get("entry_id"))
+    if not coordinator:
+        connection.send_error(msg["id"], "not_found", "No active HiveFW radio coordinator")
+        return
+
+    days_threshold = msg.get("days_threshold")
+    if days_threshold is not None:
+        removed = await coordinator._cleanup_stale_discovered_contacts(days_threshold)
+    else:
+        # Clear all discovered contacts
+        from homeassistant.helpers import entity_registry as er
+        entity_registry = er.async_get(hass)
+        removed = len(coordinator._discovered_contacts)
+        entry_id = coordinator.config_entry.entry_id
+
+        for public_key in list(coordinator._discovered_contacts.keys()):
+            pubkey_prefix = public_key[:12]
+            # The tracked set holds the FULL public key, and the integration
+            # registers each contact binary_sensor with unique_id
+            # f"{entry_id}_contact_{pubkey[:12]}" (meshcore binary_sensor.py).
+            coordinator.tracked_diagnostic_binary_contacts.discard(public_key)
+            entity_id = entity_registry.async_get_entity_id(
+                "binary_sensor",
+                MESHCORE_DOMAIN,
+                f"{entry_id}_contact_{pubkey_prefix}",
+            )
+            if entity_id:
+                entity_registry.async_remove(entity_id)
+
+        coordinator._discovered_contacts.clear()
+
+        try:
+            await coordinator._store.async_save(coordinator._discovered_contacts)
+        except Exception as ex:
+            _LOGGER.error("Error saving discovered contacts: %s", ex)
+
+        updated_data = dict(coordinator.data) if coordinator.data else {}
+        updated_data["contacts"] = coordinator.get_all_contacts()
+        coordinator.async_set_updated_data(updated_data)
+
+    connection.send_result(msg["id"], {"removed": removed})
+
+
+# ─── hivefw/import_contacts ─────────────────────────────────────────
+# Additive import of MeshCore app discovered_contacts exports.
+# Existing public keys are NEVER modified; only previously unseen keys
+# are inserted into the HiveFW embedded coordinator's discovered store.
+
+
+def _meshcore_import_contact(raw: dict) -> dict | None:
+    """Convert one MeshCore app export record to meshcore-ha contact shape."""
+    if not isinstance(raw, dict):
+        return None
+
+    public_key = str(raw.get("public_key") or "").strip().lower()
+    if len(public_key) != 64 or any(ch not in "0123456789abcdef" for ch in public_key):
+        return None
+
+    try:
+        node_type = int(raw.get("type", 0))
+        flags = int(raw.get("flags", 0))
+        last_advert = int(raw.get("last_advert", 0) or 0)
+        last_modified = int(raw.get("last_modified", 0) or 0)
+        latitude = float(raw.get("latitude", 0) or 0)
+        longitude = float(raw.get("longitude", 0) or 0)
+    except (TypeError, ValueError):
+        return None
+
+    if not (0 <= node_type <= 255 and 0 <= flags <= 255):
+        return None
+    if not (-90 <= latitude <= 90 and -180 <= longitude <= 180):
+        return None
+    if last_advert < 0 or last_modified < 0:
+        return None
+
+    advert_path = str(raw.get("advert_path_list") or "").strip().lower()
+    out_path = ""
+    out_path_len = -1
+    out_path_hash_mode = -1
+
+    if advert_path:
+        hops = [hop.strip().removeprefix("0x") for hop in advert_path.split(",")]
+        if (
+            not hops
+            or any(not hop for hop in hops)
+            or any(len(hop) not in (2, 4, 6) for hop in hops)
+            or len({len(hop) for hop in hops}) != 1
+            or any(any(ch not in "0123456789abcdef" for ch in hop) for hop in hops)
+        ):
+            return None
+
+        hop_chars = len(hops[0])
+        out_path_hash_mode = hop_chars // 2 - 1
+        out_path_len = len(hops)
+        out_path = "".join(hops)
+
+    return {
+        "public_key": public_key,
+        "type": node_type,
+        "flags": flags,
+        "out_path_hash_mode": out_path_hash_mode,
+        "out_path_len": out_path_len,
+        "out_path": out_path,
+        "adv_name": str(raw.get("name") or ""),
+        "last_advert": last_advert,
+        "adv_lat": latitude,
+        "adv_lon": longitude,
+        "lastmod": last_modified,
+    }
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hivefw_integration/import_contacts",
+        vol.Required("contacts"): [dict],
+        vol.Optional("entry_id"): str,
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_import_contacts(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict,
+) -> None:
+    """Import only contacts whose public_key is not already known.
+
+    Existing added OR discovered contacts are intentionally immutable in this
+    operation. The import is additive-only: duplicate keys in the file or in
+    the coordinator are counted as skipped and never overwrite any field.
+    """
+    coordinator = _get_coordinator(hass, msg.get("entry_id"))
+    if not coordinator:
+        connection.send_error(msg["id"], "not_found", "No active HiveFW radio coordinator")
+        return
+
+    try:
+        existing_keys = {
+            str(contact.get("public_key") or "").strip().lower()
+            for contact in (coordinator.get_all_contacts() or [])
+            if isinstance(contact, dict) and contact.get("public_key")
+        }
+
+        imported = 0
+        skipped_existing = 0
+        invalid = 0
+        seen_in_file: set[str] = set()
+
+        for raw in msg.get("contacts", []):
+            contact = _meshcore_import_contact(raw)
+            if contact is None:
+                invalid += 1
+                continue
+
+            public_key = contact["public_key"]
+            if public_key in existing_keys or public_key in seen_in_file:
+                skipped_existing += 1
+                continue
+
+            seen_in_file.add(public_key)
+            coordinator._discovered_contacts[public_key] = contact
+            coordinator.mark_contact_dirty(public_key)
+            imported += 1
+
+        if imported:
+            await coordinator._store.async_save(coordinator._discovered_contacts)
+            updated_data = dict(coordinator.data) if coordinator.data else {}
+            updated_data["contacts"] = coordinator.get_all_contacts()
+            coordinator.async_set_updated_data(updated_data)
+
+        connection.send_result(
+            msg["id"],
+            {
+                "success": True,
+                "imported": imported,
+                "skipped_existing": skipped_existing,
+                "invalid": invalid,
+                "total_received": len(msg.get("contacts", [])),
+            },
+        )
+    except Exception as ex:
+        _ws_send_error_safe(
+            connection, msg["id"], ex, handler="ws_import_contacts"
+        )
+
+
+# ─── meshcore/get_channels ──────────────────────────────────────────
+# Returns channel list with names and settings.
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hivefw_integration/get_channels",
+        vol.Optional("entry_id"): str,
+    }
+)
+@callback
+def ws_get_channels(hass, connection, msg):
+    """Return channel information for the specified (or first) config entry."""
+    coordinator = _get_coordinator(hass, msg.get("entry_id"))
+    if not coordinator:
+        connection.send_error(msg["id"], "not_found", "No MeshCore coordinator found")
+        return
+
+    scope_store = _get_channel_scopes(hass)
+    upstream_entry_id = coordinator.config_entry.entry_id
+
+    channels = []
+    for idx in range(coordinator.max_channels):
+        info = coordinator._channel_info.get(idx, {})
+        channel_name = info.get("channel_name", "")
+        # Skip unused/unconfigured channel slots
+        if not channel_name or channel_name == "(unused)":
+            continue
+        # Sanitize settings: convert bytes to hex strings for JSON serialization
+        sanitized = {}
+        for k, v in info.items():
+            if isinstance(v, bytes):
+                sanitized[k] = v.hex()
+            elif isinstance(v, dict):
+                sanitized[k] = {
+                    sk: sv.hex() if isinstance(sv, bytes) else sv
+                    for sk, sv in v.items()
+                }
+            else:
+                sanitized[k] = v
+        channel_entry = {
+            "channel_idx": idx,
+            "name": channel_name,
+            "settings": sanitized,
+        }
+        # Merge the persisted per-channel region scope. The device-side
+        # channel slot carries no scope field — the chat owns this record
+        # (see channel_scopes.py) and the frontend threads it into
+        # meshcore.send_channel_message's scope argument on each send.
+        scope = scope_store.get(upstream_entry_id, idx) if scope_store else None
+        if scope:
+            channel_entry["scope"] = scope
+        channels.append(channel_entry)
+    connection.send_result(msg["id"], {"channels": channels})
+
+
+# ─── meshcore/get_flood_scopes ──────────────────────────────────────────
+# Region-scope allowlist from the embedded HiveFW radio engine's Global Settings
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hivefw_integration/get_flood_scopes",
+        vol.Optional("entry_id"): str,
+    }
+)
+@callback
+def ws_get_flood_scopes(hass, connection, msg):
+    """Return the embedded HiveFW radio engine's configured region-scope names.
+
+    Reads the comma-separated allowlist the user maintains in the
+    HiveFW Global Settings (config-entry data key
+    ``flood_scopes``, added by meshcore-dev/meshcore-ha#250). Returns
+    ``{"scopes": [...named regions...], "global": <bool>}``. The
+    ``global`` flag is true when the allowlist contains the ``*``
+    wildcard, which the firmware treats as "all regions / global flood";
+    the dialog renders it as one explicit "All regions" choice rather
+    than mixing the sentinel into the named-region list. ``scopes`` is
+    empty (and ``global`` false) when the allowlist is unconfigured or
+    when the installed meshcore predates the feature — the channel dialog
+    renders its setup guidance in that case, which also prevents
+    configuring scoped sends against an integration whose
+    send_channel_message would reject the scope argument.
+    """
+    coordinator = _get_coordinator(hass, msg.get("entry_id"))
+    if not coordinator:
+        connection.send_error(msg["id"], "not_found", "No MeshCore coordinator found")
+        return
+
+    # Shared parser (utils.parse_flood_scope_allowlist) so this picker and
+    # the inbound-label self-derive can't drift on '*'/'#' handling: '#'
+    # and blanks are dropped, '*' becomes the distinct "all regions /
+    # global flood" flag (kept out of the named-region list) so the dialog
+    # renders one canonical global option.
+    scopes, has_global = parse_flood_scope_allowlist(
+        coordinator.config_entry.data.get(CONF_FLOOD_SCOPES_UPSTREAM, "")
+    )
+    connection.send_result(msg["id"], {"scopes": scopes, "global": has_global})
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hivefw_integration/set_flood_scopes",
+        vol.Optional("entry_id"): str,
+        vol.Required("scopes"): [str],
+        vol.Optional("global", default=False): bool,
+    }
+)
+@websocket_api.require_admin
+@callback
+def ws_set_flood_scopes(hass, connection, msg):
+    """Update meshcore-ha's flood-scope allowlist.
+
+    The embedded HiveFW radio engine reads this config-entry field dynamically for
+    inbound scope matching. Scoped sends use the selected channel scope and
+    temporarily call set_flood_scope() around the send.
+    """
+    coordinator = _get_coordinator(hass, msg.get("entry_id"))
+    if not coordinator:
+        connection.send_error(msg["id"], "not_found", "No MeshCore coordinator found")
+        return
+
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for raw in msg.get("scopes", []):
+        name = str(raw).strip()
+        if name.startswith("#"):
+            name = name[1:]
+        if not name or name in {"*", "0", "None", "#"}:
+            continue
+        if name not in seen:
+            cleaned.append(name)
+            seen.add(name)
+
+    tokens = (["*"] if msg.get("global") else []) + cleaned
+    new_data = dict(coordinator.config_entry.data)
+    new_data[CONF_FLOOD_SCOPES_UPSTREAM] = ", ".join(tokens)
+    hass.config_entries.async_update_entry(coordinator.config_entry, data=new_data)
+    connection.send_result(
+        msg["id"],
+        {"success": True, "scopes": cleaned, "global": bool(msg.get("global"))},
+    )
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hivefw_integration/get_remote_regions",
+        vol.Optional("entry_id"): str,
+        vol.Required("target_prefix"): str,
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_get_remote_regions(hass, connection, msg):
+    """Read a remote Repeater's Region tree on demand.
+
+    This is an RF request. It is deliberately never polled automatically.
+    """
+    coordinator = _get_coordinator(hass, msg.get("entry_id"))
+    if not coordinator:
+        connection.send_error(msg["id"], "not_found", "No MeshCore coordinator found")
+        return
+
+    prefix = msg["target_prefix"]
+    contact = coordinator.api.mesh_core.get_contact_by_key_prefix(prefix)
+    if not contact:
+        connection.send_error(msg["id"], "not_found", f"Contact not found: {prefix}")
+        return
+
+    try:
+        result = await coordinator.api.mesh_core.commands.req_regions_sync(contact)
+        if result is None:
+            connection.send_error(msg["id"], "timeout", "Region request timed out")
+            return
+        connection.send_result(msg["id"], {"regions": str(result)})
+    except Exception as ex:
+        _ws_send_error_safe(
+            connection, msg["id"], ex, handler="ws_get_remote_regions"
+        )
+
+
+# ─── meshcore/get_managed_devices ───────────────────────────────────────
+# Returns tracked repeaters and clients with entity IDs
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hivefw_integration/get_managed_devices",
+        vol.Optional("entry_id"): str,
+    }
+)
+@callback
+def ws_get_managed_devices(hass, connection, msg):
+    """Return managed repeaters and clients."""
+    coordinator = _get_coordinator(hass, msg.get("entry_id"))
+    if not coordinator:
+        connection.send_error(msg["id"], "not_found", "No MeshCore coordinator found")
+        return
+
+    repeaters = []
+    clients = []
+    dev_reg = dr.async_get(hass)
+    entry_id = coordinator.config_entry.entry_id
+    now = time.time()
+
+    def _device_status(pubkey_prefix: str, update_interval: int) -> str:
+        """Derive per-device online status from poll history.
+
+        Returns 'online' if the last successful request was within
+        2.5x the update interval, 'offline' if it was longer ago,
+        or 'unknown' if no request has been made yet.  Also requires
+        the companion BLE/serial link to be up.
+        """
+        if not coordinator.api.connected:
+            return "offline"
+        last_success = coordinator._last_successful_request.get(pubkey_prefix)
+        if last_success is None:
+            return "unknown"
+        staleness_window = max(update_interval, 300) * 2.5
+        return "online" if (now - last_success) < staleness_window else "offline"
+
+    # Process tracked repeaters
+    for repeater_config in coordinator._tracked_repeaters:
+        pubkey_prefix = repeater_config.get("pubkey_prefix", "")
+        repeater_name = repeater_config.get("name", "")
+        stats = coordinator._repeater_stats.get(pubkey_prefix, {})
+        update_interval = repeater_config.get("update_interval", 0)
+
+        # Look up firmware version from HA device registry
+        fw_version = stats.get("firmware_version")
+        if not fw_version:
+            device = dev_reg.async_get_device(
+                identifiers={(MESHCORE_DOMAIN, f"{entry_id}_repeater_{pubkey_prefix}")}
+            )
+            if device:
+                fw_version = device.sw_version
+
+        repeaters.append(
+            {
+                "type": "repeater",
+                "name": repeater_name,
+                "pubkey_prefix": pubkey_prefix,
+                "password": "***" if repeater_config.get("password") else "",
+                "update_interval": update_interval,
+                "telemetry_enabled": repeater_config.get("telemetry_enabled", False),
+                "neighbors_enabled": repeater_config.get("neighbors_enabled", False),
+                "disable_path_reset": repeater_config.get("disable_path_reset", False),
+                "connected": coordinator.api.connected,
+                "status": _device_status(pubkey_prefix, update_interval),
+                "status_entity_id": format_entity_id(
+                    ENTITY_DOMAIN_BINARY_SENSOR,
+                    pubkey_prefix[:10],
+                    "online",
+                    sanitize_name(repeater_name),
+                ),
+                "firmware_version": fw_version,
+                "stats": stats,
+            }
+        )
+
+    # Process tracked clients
+    for client_config in coordinator._tracked_clients:
+        pubkey_prefix = client_config.get("pubkey_prefix", "")
+        client_name = client_config.get("name", "")
+        update_interval = client_config.get("update_interval", 0)
+
+        clients.append(
+            {
+                "type": "client",
+                "name": client_name,
+                "pubkey_prefix": pubkey_prefix,
+                "update_interval": update_interval,
+                "disable_path_reset": client_config.get("disable_path_reset", False),
+                "connected": coordinator.api.connected,
+                "status": _device_status(pubkey_prefix, update_interval),
+                "status_entity_id": format_entity_id(
+                    ENTITY_DOMAIN_BINARY_SENSOR,
+                    pubkey_prefix[:10],
+                    "online",
+                    sanitize_name(client_name),
+                ),
+            }
+        )
+
+    connection.send_result(
+        msg["id"], {"repeaters": repeaters, "clients": clients}
+    )
+
+
+# ─── meshcore/get_device_config ─────────────────────────────────────────
+# Read companion device settings
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hivefw_integration/get_device_config",
+        vol.Optional("entry_id"): str,
+    }
+)
+@websocket_api.async_response
+async def ws_get_device_config(hass, connection, msg):
+    """Return companion device config.
+
+    SELF_INFO intentionally does not contain path_hash_mode. Refresh
+    DEVICE_INFO here and use its protocol-v10 value as the source of truth.
+    """
+    coordinator = _get_coordinator(hass, msg.get("entry_id"))
+    if not coordinator:
+        connection.send_error(msg["id"], "not_found", "No MeshCore coordinator found")
+        return
+
+    # Gather device config from coordinator
+    config = {
+        "name": coordinator.name or "",
+        "pubkey": coordinator.pubkey or "",
+        "firmware_version": coordinator.device_info.get("sw_version", ""),
+        "hardware_model": coordinator.device_info.get("model", ""),
+        "max_channels": coordinator.max_channels,
+    }
+
+    # Radio settings from SELF_INFO plus capabilities/settings that only
+    # exist in DEVICE_INFO (notably path_hash_mode and repeat).
+    self_info = getattr(coordinator.api, 'self_info', {}) or {}
+    device_info = {}
+    try:
+        device_query = await coordinator.api.mesh_core.commands.send_device_query()
+        payload = getattr(device_query, "payload", None)
+        if isinstance(payload, dict):
+            device_info = payload
+    except Exception as ex:
+        _LOGGER.debug("Unable to refresh DEVICE_INFO for settings: %s", ex)
+
+    config["frequency"] = self_info.get("radio_freq")
+    config["bandwidth"] = self_info.get("radio_bw")
+    config["spreading_factor"] = self_info.get("radio_sf")
+    config["coding_rate"] = self_info.get("radio_cr")
+    config["tx_power"] = self_info.get("tx_power")
+
+    # Location from self_info
+    config["latitude"] = self_info.get("adv_lat")
+    config["longitude"] = self_info.get("adv_lon")
+    config["altitude"] = None  # Not available in SDK - set_coords() hardcodes altitude to 0
+
+    # Repeater / advanced settings already exposed by the standard Companion
+    # protocol. adv_type 2 is Repeater; HiveFW changes SELF_INFO accordingly
+    # whenever its integrated Repeater mode is enabled.
+    config["repeat"] = bool(
+        device_info.get("repeat", self_info.get("adv_type") == 2)
+    )
+    config["multi_acks"] = self_info.get("multi_acks")
+    config["advert_loc_policy"] = self_info.get("adv_loc_policy")
+    config["telemetry_mode_base"] = self_info.get("telemetry_mode_base")
+    config["telemetry_mode_loc"] = self_info.get("telemetry_mode_loc")
+    config["telemetry_mode_env"] = self_info.get("telemetry_mode_env")
+    config["manual_add_contacts"] = self_info.get("manual_add_contacts")
+    config["path_hash_mode"] = device_info.get("path_hash_mode")
+
+    # Location source
+    config["location_source"] = getattr(coordinator, "location_source", "manual")
+
+    # Connection info
+    entry_data = coordinator.config_entry.data if coordinator.config_entry else {}
+    config["connection_type"] = entry_data.get("connection_type", "unknown")
+    conn_type = config["connection_type"]
+    if conn_type == "usb":
+        config["connection_address"] = entry_data.get("usb_path", "")
+    elif conn_type == "ble":
+        config["connection_address"] = entry_data.get("ble_address", "")
+    elif conn_type == "tcp":
+        host = entry_data.get("tcp_host", "")
+        port = entry_data.get("tcp_port", "")
+        config["connection_address"] = f"{host}:{port}" if host else ""
+    else:
+        config["connection_address"] = ""
+
+    connection.send_result(msg["id"], config)
+
+
+# ─── meshcore/get_local_repeater_status ─────────────────────────────────
+# Local Companion/HiveFW repeater dashboard. Every command below stays on the
+# HA <-> Companion transport (BLE/TCP/USB); it does not generate LoRa traffic.
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hivefw_integration/get_local_repeater_status",
+        vol.Optional("entry_id"): str,
+    }
+)
+@websocket_api.async_response
+async def ws_get_local_repeater_status(hass, connection, msg):
+    """Return local repeater capability, RF health and packet statistics."""
+    from meshcore.events import EventType
+
+    coordinator = _get_coordinator(hass, msg.get("entry_id"))
+    if not coordinator or not coordinator.api.mesh_core:
+        connection.send_error(msg["id"], "not_found", "No MeshCore coordinator found")
+        return
+
+    commands = coordinator.api.mesh_core.commands
+
+    async def _payload(call, *args, **kwargs):
+        try:
+            result = await call(*args, **kwargs)
+        except Exception as ex:
+            _LOGGER.debug("Local repeater status query failed: %s", ex)
+            return None
+        if (
+            result is None
+            or getattr(result, "type", None) == EventType.ERROR
+            or not isinstance(getattr(result, "payload", None), dict)
+        ):
+            return None
+        return result.payload
+
+    try:
+        # Refresh SELF_INFO so radio/name/repeater state shown here matches the
+        # radio rather than a potentially stale coordinator cache.
+        self_event = await commands.send_appstart()
+        if (
+            self_event is not None
+            and getattr(self_event, "type", None) != EventType.ERROR
+            and isinstance(getattr(self_event, "payload", None), dict)
+        ):
+            self_info = self_event.payload
+            try:
+                coordinator.api._cache_self_info_event(self_event)
+            except Exception:
+                pass
+        else:
+            self_info = getattr(coordinator.api, "self_info", {}) or {}
+
+        device = await _payload(commands.send_device_query) or {}
+        battery = await _payload(commands.get_bat) or {}
+        tuning = await _payload(commands.get_tuning) or {}
+        device_clock = await _payload(commands.get_time) or {}
+        telemetry = await _payload(commands.get_self_telemetry) or {}
+        repeat_freqs = await _payload(commands.get_allowed_repeat_freq) or {}
+        custom_vars = await _payload(commands.get_custom_vars) or {}
+        core = await _payload(commands.get_stats_core) or {}
+        radio = await _payload(commands.get_stats_radio) or {}
+        packets = await _payload(commands.get_stats_packets) or {}
+
+        repeater_capable = "repeat" in device or self_info.get("adv_type") == 2
+        repeat_enabled = bool(
+            device.get("repeat", self_info.get("adv_type") == 2)
+        )
+        auto_advert_supported = "auto_advert" in custom_vars
+        auto_advert = str(custom_vars.get("auto_advert", "0")).strip().lower() in {
+            "1",
+            "true",
+            "on",
+            "yes",
+        }
+        duty_cycle_supported = "duty_cycle" in custom_vars
+        duty_cycle = None
+        if duty_cycle_supported:
+            try:
+                parsed_duty = int(str(custom_vars.get("duty_cycle", "")).strip())
+                if 10 <= parsed_duty <= 50:
+                    duty_cycle = parsed_duty
+            except (TypeError, ValueError):
+                duty_cycle = None
+
+        cad_diag = {}
+        raw_cad_diag = str(custom_vars.get("cad_diag", "")).strip()
+        if raw_cad_diag:
+            try:
+                cad_parts = [int(part) for part in raw_cad_diag.split("/")]
+                if len(cad_parts) == 6:
+                    cad_diag = {
+                        "timeouts": cad_parts[0],
+                        "recoveries": cad_parts[1],
+                        "forced_tx": cad_parts[2],
+                        "last_busy_ms": cad_parts[3],
+                        "max_busy_ms": cad_parts[4],
+                        "last_timeout_age_secs": cad_parts[5],
+                    }
+            except (TypeError, ValueError):
+                pass
+
+        # Tuning values are thousandths on the wire.
+        tuning_view = {}
+        if "rx_delay" in tuning:
+            tuning_view["rx_delay"] = tuning["rx_delay"] / 1000.0
+        if "airtime_factor" in tuning:
+            tuning_view["airtime_factor"] = tuning["airtime_factor"] / 1000.0
+
+        # Backward-compatible display value for older firmware. New HiveFW
+        # builds expose duty_cycle directly and are authoritative.
+        if duty_cycle is None and "airtime_factor" in tuning_view:
+            af = max(1.0, min(9.0, float(tuning_view["airtime_factor"])))
+            duty_cycle = max(10, min(50, round(100.0 / (1.0 + af))))
+
+        connection.send_result(
+            msg["id"],
+            {
+                "supported": repeater_capable,
+                "repeat": repeat_enabled,
+                "auto_advert_supported": auto_advert_supported,
+                "auto_advert": auto_advert,
+                "duty_cycle_supported": duty_cycle_supported,
+                "duty_cycle": duty_cycle,
+                "name": coordinator.name or self_info.get("name") or "",
+                "firmware": device.get("ver") or coordinator.device_info.get("sw_version", ""),
+                "model": device.get("model") or coordinator.device_info.get("model", ""),
+                # BLE PIN is intentionally not exposed. This integration is
+                # used over Wi-Fi and the PIN adds no operational value.
+                "device_info": {
+                    "protocol_version": device.get("fw ver"),
+                    "firmware_build": device.get("fw_build"),
+                    "model": device.get("model"),
+                    "version": device.get("ver"),
+                    "max_contacts": device.get("max_contacts"),
+                    "max_channels": device.get("max_channels"),
+                    "repeat": device.get("repeat"),
+                    "path_hash_mode": device.get("path_hash_mode"),
+                },
+                "telemetry": telemetry.get("lpp", []),
+                "allowed_repeat_frequencies": repeat_freqs.get("freqs", []),
+                "radio": {
+                    "frequency": self_info.get("radio_freq"),
+                    "bandwidth": self_info.get("radio_bw"),
+                    "spreading_factor": self_info.get("radio_sf"),
+                    "coding_rate": self_info.get("radio_cr"),
+                    "tx_power": self_info.get("tx_power"),
+                    "max_tx_power": self_info.get("max_tx_power"),
+                    "path_hash_mode": device.get(
+                        "path_hash_mode",
+                        self_info.get("path_hash_mode"),
+                    ),
+                    "multi_acks": self_info.get("multi_acks"),
+                },
+                "location": {
+                    "latitude": self_info.get("adv_lat"),
+                    "longitude": self_info.get("adv_lon"),
+                },
+                "battery": battery,
+                "tuning": tuning_view,
+                "clock": {
+                    "timestamp": device_clock.get("time"),
+                    "drift_seconds": (
+                        int(device_clock.get("time")) - int(time.time())
+                        if device_clock.get("time") is not None
+                        else None
+                    ),
+                },
+                "stats": {
+                    "core": core,
+                    "radio": radio,
+                    "packets": packets,
+                    "cad": cad_diag,
+                },
+            },
+        )
+    except Exception as ex:
+        _ws_send_error_safe(
+            connection,
+            msg["id"],
+            ex,
+            handler="ws_get_local_repeater_status",
+        )
+
+
+# ─── HiveFW Repeater Duty Cycle ─────────────────────────────────────────
+# Dedicated read/write surface. This intentionally bypasses the generic
+# device-config handler so Duty Cycle can be diagnosed and controlled in
+# isolation from radio/repeater/tuning settings.
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hivefw_integration/get_duty_cycle",
+        vol.Optional("entry_id"): str,
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_get_duty_cycle(hass, connection, msg):
+    """Read HiveFW Repeater Duty Cycle directly from firmware custom vars."""
+    coordinator = _get_coordinator(hass, msg.get("entry_id"))
+    if not coordinator:
+        connection.send_error(msg["id"], "not_found", "No HiveFW coordinator found")
+        return
+
+    try:
+        result = await coordinator.api.mesh_core.commands.get_custom_vars()
+        reason = _device_config_failure_reason(result)
+        if reason is not None:
+            connection.send_error(msg["id"], "duty_cycle_read_failed", reason)
+            return
+
+        payload = getattr(result, "payload", {}) or {}
+        if "duty_cycle" not in payload:
+            connection.send_error(
+                msg["id"],
+                "duty_cycle_unsupported",
+                "Firmware does not expose duty_cycle",
+            )
+            return
+
+        raw = str(payload.get("duty_cycle", "")).strip()
+        try:
+            duty = int(raw)
+        except (TypeError, ValueError):
+            connection.send_error(
+                msg["id"],
+                "duty_cycle_invalid",
+                f"Firmware returned invalid duty_cycle: {raw!r}",
+            )
+            return
+
+        if not 10 <= duty <= 50:
+            connection.send_error(
+                msg["id"],
+                "duty_cycle_invalid",
+                f"Firmware returned out-of-range duty_cycle: {duty}",
+            )
+            return
+
+        connection.send_result(
+            msg["id"],
+            {
+                "success": True,
+                "duty_cycle": duty,
+                "raw": raw,
+            },
+        )
+    except Exception as ex:
+        _ws_send_error_safe(
+            connection,
+            msg["id"],
+            ex,
+            handler="ws_get_duty_cycle",
+        )
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hivefw_integration/set_duty_cycle",
+        vol.Optional("entry_id"): str,
+        vol.Required("duty_cycle"): vol.All(int, vol.Range(min=10, max=50)),
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_set_duty_cycle(hass, connection, msg):
+    """Write HiveFW Repeater Duty Cycle and verify the firmware read-back."""
+    coordinator = _get_coordinator(hass, msg.get("entry_id"))
+    if not coordinator:
+        connection.send_error(msg["id"], "not_found", "No HiveFW coordinator found")
+        return
+
+    duty = int(msg["duty_cycle"])
+
+    try:
+        result = await coordinator.api.mesh_core.commands.set_custom_var(
+            "duty_cycle",
+            str(duty),
+        )
+        reason = _device_config_failure_reason(result)
+        if reason is not None:
+            connection.send_error(msg["id"], "duty_cycle_write_failed", reason)
+            return
+
+        verified = await coordinator.api.mesh_core.commands.get_custom_vars()
+        reason = _device_config_failure_reason(verified)
+        if reason is not None:
+            connection.send_error(
+                msg["id"],
+                "duty_cycle_verify_failed",
+                reason,
+            )
+            return
+
+        payload = getattr(verified, "payload", {}) or {}
+        raw = str(payload.get("duty_cycle", "")).strip()
+        try:
+            actual = int(raw)
+        except (TypeError, ValueError):
+            actual = -1
+
+        if actual != duty:
+            connection.send_error(
+                msg["id"],
+                "duty_cycle_mismatch",
+                f"Duty Cycle verification failed: requested {duty}%, read {actual}%",
+            )
+            return
+
+        connection.send_result(
+            msg["id"],
+            {
+                "success": True,
+                "duty_cycle": actual,
+                "raw": raw,
+            },
+        )
+    except Exception as ex:
+        _ws_send_error_safe(
+            connection,
+            msg["id"],
+            ex,
+            handler="ws_set_duty_cycle",
+        )
+
+
+# ─── HiveFW secure firmware OTA ─────────────────────────────────────────
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hivefw_integration/get_firmware_ota_status",
+        vol.Optional("entry_id"): str,
+        vol.Optional("force", default=False): bool,
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_get_firmware_ota_status(hass, connection, msg):
+    """Return non-secret OTA capability and release metadata."""
+    try:
+        result = await async_get_ota_status(
+            hass,
+            msg.get("entry_id"),
+            force_release=bool(msg.get("force", False)),
+        )
+        connection.send_result(msg["id"], result)
+    except HiveFWOtaError as ex:
+        connection.send_error(msg["id"], "ota_status_failed", str(ex))
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hivefw_integration/get_firmware_ota_progress",
+        vol.Optional("entry_id"): str,
+    }
+)
+@websocket_api.require_admin
+@callback
+def ws_get_firmware_ota_progress(hass, connection, msg):
+    """Return in-memory OTA progress without issuing any radio command."""
+    entry_id = msg.get("entry_id")
+    if not entry_id:
+        coordinator = _get_coordinator(hass, None)
+        if coordinator is not None:
+            entry_id = str(coordinator.config_entry.entry_id)
+    connection.send_result(msg["id"], get_ota_progress(hass, entry_id))
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hivefw_integration/create_manual_ota_session",
+        vol.Optional("entry_id"): str,
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_create_manual_ota_session(hass, connection, msg):
+    """Rotate and reveal one ephemeral Web OTA credential to an HA admin."""
+    coordinator = _get_coordinator(hass, msg.get("entry_id"))
+    if not coordinator:
+        connection.send_error(msg["id"], "not_found", "No HiveFW coordinator found")
+        return
+
+    try:
+        result = await async_create_manual_ota_session(hass, coordinator)
+        connection.send_result(msg["id"], result)
+    except HiveFWOtaError as ex:
+        connection.send_error(msg["id"], "ota_manual_session_failed", str(ex))
+    except Exception as ex:
+        _LOGGER.exception("Unexpected HiveFW manual OTA session failure")
+        message = str(ex).strip() or ex.__class__.__name__
+        connection.send_error(msg["id"], "ota_internal_error", message)
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hivefw_integration/install_latest_firmware",
+        vol.Optional("entry_id"): str,
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_install_latest_firmware(hass, connection, msg):
+    """Download, verify and install the latest public HiveFW V3 release."""
+    coordinator = _get_coordinator(hass, msg.get("entry_id"))
+    if not coordinator:
+        connection.send_error(msg["id"], "not_found", "No HiveFW coordinator found")
+        return
+
+    try:
+        result = await async_install_latest_release(hass, coordinator)
+        connection.send_result(msg["id"], result)
+    except HiveFWOtaError as ex:
+        connection.send_error(msg["id"], "ota_install_failed", str(ex))
+    except Exception as ex:
+        _LOGGER.exception("Unexpected HiveFW OTA install failure")
+        message = str(ex).strip() or ex.__class__.__name__
+        connection.send_error(msg["id"], "ota_internal_error", message)
+
+
+# ─── meshcore/set_device_config ─────────────────────────────────────────
+# Write companion device settings
+
+
+class RenameError(Exception):
+    """Raised when the device firmware rejects a ``set_name`` command.
+
+    Mirrors :class:`IdentityImportError` but for the rename path. Carries
+    the firmware-reported error code (e.g. ``firmware rejected new name:
+    ERR_CODE_ILLEGAL_ARG``). Surfaced via
+    ``connection.send_error(..., "rename_rejected", str(ex))`` so the
+    frontend gets the actual rejection reason instead of a generic
+    "Operation failed" via ``_ws_send_error_safe``'s default mapping.
+
+    The direct-SDK + ``EventType.ERROR``-check pattern used by the
+    identity-change path is mirrored here on the rename path so the same
+    silent-success-on-firmware-error issue cannot recur.
+    """
+
+
+def _migrate_entity_ids_name_suffix(
+    hass: HomeAssistant,
+    meshcore_entry_id: str,
+    old_suffix: str,
+    new_suffix: str,
+) -> list[tuple[str, str]]:
+    """Rewrite entity_ids ending in ``_{old_suffix}`` to end in ``_{new_suffix}``.
+
+    Walks the HA entity registry, filters by the meshcore
+    ``config_entry_id``, and rewrites ``entity_id`` via
+    ``entity_registry.async_update_entity``. Returns a list of
+    ``(old_entity_id, new_entity_id)`` pairs for every successful
+    rewrite — caller uses this to populate the ``entity_list``
+    placeholder of the ``name_changed`` repair issue so the user can
+    see exactly which entity_ids changed.
+
+    Companion to PR #169's ``_migrate_entity_ids`` in ``meshcore-ha`` —
+    same pattern, but operates on the trailing **name suffix** (where
+    ``set_name`` impacts entity_ids per ``utils.py:format_entity_id``)
+    instead of the leading **pubkey prefix** (where
+    ``import_private_key`` impacts entity_ids). The two migrations are
+    independent and never conflict.
+
+    Idempotent on identical or empty suffixes (no mutations, returns
+    empty list). Errors on individual entities are logged and
+    swallowed — one bad entity should not abort the whole migration.
+    """
+    if not old_suffix or not new_suffix or old_suffix == new_suffix:
+        return []
+    registry = er.async_get(hass)
+    old_tail = f"_{old_suffix}"
+    new_tail = f"_{new_suffix}"
+    migrated: list[tuple[str, str]] = []
+    for entity in list(registry.entities.values()):
+        if entity.config_entry_id != meshcore_entry_id:
+            continue
+        if not entity.entity_id.endswith(old_tail):
+            continue
+        old_entity_id = entity.entity_id
+        new_entity_id = old_entity_id[: -len(old_tail)] + new_tail
+        try:
+            registry.async_update_entity(
+                old_entity_id, new_entity_id=new_entity_id
+            )
+            _LOGGER.info(
+                "Migrated entity_id: %s -> %s",
+                old_entity_id, new_entity_id,
+            )
+            migrated.append((old_entity_id, new_entity_id))
+        except Exception as ex:  # pragma: no cover - defensive
+            _LOGGER.error(
+                "Failed to migrate entity %s: %s", old_entity_id, ex
+            )
+    _LOGGER.info(
+        "Migrated %d entity_id(s): _%s -> _%s",
+        len(migrated), old_suffix, new_suffix,
+    )
+    return migrated
+
+
+def _device_config_failure_reason(result):
+    """Return a failure reason for a device-config command, or None if OK.
+
+    The meshcore SDK's ``send()`` never raises on a failed command — it
+    returns ``None`` when nothing responded and ``Event(EventType.ERROR,
+    …)`` on a timeout or NACK — so a setter that "succeeds" at the await
+    must still have its result inspected. ``EventType`` is imported lazily
+    so a test env without the SDK doesn't trip on import when the result
+    is ``None``.
+
+    The reason is read from the SDK-level ERROR payload keys
+    (``reason``/``error``) first — the dominant device-config failure mode
+    is an offline radio, which surfaces as ``{"reason": "timeout"}`` at the
+    ``send()`` level — then the firmware-NACK keys
+    (``code_string``/``error_code``) the rename path uses.
+    """
+    if result is None:
+        return "no response"
+    from meshcore.events import EventType
+    if getattr(result, "type", None) == EventType.ERROR:
+        payload = getattr(result, "payload", None) or {}
+        return (
+            payload.get("reason")
+            or payload.get("error")
+            or payload.get("code_string")
+            or payload.get("error_code")
+            or "unknown"
+        )
+    return None
+
+
+def _send_device_config_failure(connection, msg_id, field, reason, changed):
+    """Report a rejected device-config setting (abort-on-first-failure).
+
+    Names the setting that failed and the firmware/SDK reason, and lists
+    the settings already applied this call so the user knows what stuck.
+    Keeps the existing single-error WS contract — the panel's existing
+    error toast renders the message.
+    """
+    applied = ", ".join(changed) if changed else "none"
+    connection.send_error(
+        msg_id,
+        "command_failed",
+        f"Failed to set {field}: {reason} (already applied: {applied})",
+    )
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hivefw_integration/set_device_config",
+        vol.Optional("entry_id"): str,
+        vol.Required("settings"): dict,
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_set_device_config(hass, connection, msg):
+    """Set companion device config."""
+    coordinator = _get_coordinator(hass, msg.get("entry_id"))
+    if not coordinator:
+        connection.send_error(msg["id"], "not_found", "No MeshCore coordinator found")
+        return
+
+    settings = msg.get("settings", {})
+    changed = []
+
+    try:
+        # Handle name setting (with entity_id migration).
+        if "name" in settings:
+            new_name = settings["name"]
+            old_name = coordinator.name or ""
+            meshcore_entry = hass.config_entries.async_get_entry(
+                coordinator.config_entry.entry_id
+            )
+
+            # Direct SDK call + EventType.ERROR check (mirrors the
+            # identity-change path's `_do_identity_change`). Avoids the
+            # silent-success-on-firmware-error path that would otherwise
+            # let a rejected rename look like a successful one to the user.
+            #
+            # The `EventType` import is lazy so SDK-level failures
+            # (ConnectionError, TimeoutError, etc.) raised by `set_name`
+            # propagate through the outer `except` without first
+            # tripping a missing-meshcore-package import in test envs.
+            result = await coordinator.api.mesh_core.commands.set_name(new_name)
+            # Short-circuit None first so we don't need the meshcore.events
+            # import on the never-responded path (defensive: lets tests
+            # exercise the no-Event case without the patched_event_type
+            # fixture).
+            if result is None:
+                raise RenameError("firmware rejected new name: unknown")
+            from meshcore.events import EventType
+            if getattr(result, "type", None) == EventType.ERROR:
+                payload = getattr(result, "payload", None) or {}
+                code = (
+                    payload.get("code_string")
+                    or payload.get("error_code")
+                    or "unknown"
+                )
+                raise RenameError(f"firmware rejected new name: {code}")
+            changed.append("name")
+
+            # Run the migration only if the name actually changed and we
+            # resolved the embedded engine meshcore config entry. The reload at
+            # the end re-inits the coordinator with the new CONF_NAME —
+            # `coordinator.name` (set-once at construction per
+            # `coordinator.py:104`) ends up correct after the reload.
+            if new_name != old_name and meshcore_entry:
+                # Order: registry rewrite → entry-data update → repair
+                # issue → reload. Reverse order would silently no-op the
+                # migration: HA matches by unique_id during entity
+                # re-registration on reload, finds the OLD entity_id in
+                # the registry, and preserves it.
+                old_suffix = sanitize_name(old_name)
+                new_suffix = sanitize_name(new_name)
+                migrated_pairs = _migrate_entity_ids_name_suffix(
+                    hass,
+                    meshcore_entry.entry_id,
+                    old_suffix,
+                    new_suffix,
+                )
+                hass.config_entries.async_update_entry(
+                    meshcore_entry,
+                    data={**meshcore_entry.data, CONF_NAME_UPSTREAM: new_name},
+                )
+                if migrated_pairs:
+                    # Markdown bullet list of every (old_id → new_id)
+                    # pair so the repair issue surfaces a complete
+                    # search-replace target list to the user.
+                    entity_list = "\n".join(
+                        f"- `{old_id}` → `{new_id}`"
+                        for old_id, new_id in migrated_pairs
+                    )
+                    # Unique issue_id per rename event so each rename
+                    # becomes its own audit-trail entry. An earlier
+                    # design (issue_id keyed only on entry_id) was
+                    # idempotent on
+                    # ``(domain, issue_id)`` — but HA's
+                    # ``async_create_issue`` preserves the
+                    # ``dismissed_version`` flag across overwrites,
+                    # so once the user dismissed any rename's issue
+                    # all subsequent renames silently wrote into a
+                    # dismissed shell. With a timestamped
+                    # issue_id, every rename surfaces a fresh,
+                    # un-dismissed event the user can act on or
+                    # dismiss individually.
+                    rename_ts = int(time.time())
+                    issue_id = (
+                        f"name_changed_{meshcore_entry.entry_id}_{rename_ts}"
+                    )
+                    ir.async_create_issue(
+                        hass,
+                        DOMAIN,
+                        issue_id,
+                        is_fixable=False,
+                        is_persistent=True,
+                        severity=ir.IssueSeverity.WARNING,
+                        translation_key="name_changed",
+                        translation_placeholders={
+                            # Raw human-readable names for the prose.
+                            "old_name": old_name,
+                            "new_name": new_name,
+                            # Sanitized suffixes — what actually
+                            # appears in entity_ids. An earlier bug
+                            # used `_{old_name}` /
+                            # `_{new_name}` which rendered as
+                            # `_MattDub` / `_Test Rename` instead of
+                            # the real `_mattdub` / `_test_rename`.
+                            "old_suffix": old_suffix,
+                            "new_suffix": new_suffix,
+                            "count": str(len(migrated_pairs)),
+                            "entity_list": entity_list,
+                        },
+                    )
+                # Reload triggers meshcore's `async_setup_entry` which
+                # reconstructs `coordinator.name` and `device_info` from
+                # the updated entry data.
+                #
+                # meshcore-ha registers an
+                # `entry.add_update_listener(async_update_options)` at
+                # `__init__.py:473` that also calls `async_reload` on
+                # data changes. HA's per-entry `setup_lock` serializes
+                # the listener-driven reload behind ours; net effect is
+                # one redundant reload per rename (~1s extra latency,
+                # idempotent). Acceptable for an infrequent rename op.
+                await hass.config_entries.async_reload(meshcore_entry.entry_id)
+                # The reload reconstructed the coordinator + entities;
+                # the post-loop self_info refresh below would run
+                # against the soon-to-be-discarded coord. Skip it.
+                #
+                # The `rename` block carries the migration summary back
+                # to the panel so it can render the post-rename
+                # persistent dialog (matches the repair-issue text
+                # minus the bullet list — that's already in
+                # Settings → Repairs and would dwarf the dialog).
+                # Toast alone was too easy to miss for an op that
+                # rewrites 12+ entity_ids and triggers an integration
+                # reload.
+                connection.send_result(
+                    msg["id"],
+                    {
+                        "success": True,
+                        "changed": changed,
+                        "rename": {
+                            "old_name": old_name,
+                            "new_name": new_name,
+                            "old_suffix": old_suffix,
+                            "new_suffix": new_suffix,
+                            "count": len(migrated_pairs),
+                        },
+                    },
+                )
+                return
+
+        # Handle tx_power setting
+        if "tx_power" in settings:
+            result = await coordinator.api.mesh_core.commands.set_tx_power(
+                settings["tx_power"]
+            )
+            reason = _device_config_failure_reason(result)
+            if reason is not None:
+                _send_device_config_failure(
+                    connection, msg["id"], "tx_power", reason, changed
+                )
+                return
+            changed.append("tx_power")
+
+        # Handle coordinates setting
+        if "latitude" in settings and "longitude" in settings:
+            result = await coordinator.api.mesh_core.commands.set_coords(
+                settings["latitude"], settings["longitude"]
+            )
+            reason = _device_config_failure_reason(result)
+            if reason is not None:
+                _send_device_config_failure(
+                    connection, msg["id"], "coords", reason, changed
+                )
+                return
+            changed.append("coords")
+
+        # Handle radio settings and HiveFW's integrated Repeater toggle.
+        # The standard Companion CMD_SET_RADIO_PARAMS optionally carries the
+        # repeat byte, so this does not require a firmware-specific command.
+        radio_keys = {"frequency", "bandwidth", "spreading_factor", "coding_rate"}
+        radio_or_repeat = radio_keys | {"repeat"}
+        if radio_or_repeat & set(settings.keys()):
+            self_info = getattr(coordinator.api, 'self_info', {}) or {}
+            freq = settings.get("frequency", self_info.get("radio_freq"))
+            bw = settings.get("bandwidth", self_info.get("radio_bw"))
+            sf = settings.get("spreading_factor", self_info.get("radio_sf"))
+            cr = settings.get("coding_rate", self_info.get("radio_cr"))
+            repeat = settings.get("repeat")
+
+            if all(v is not None for v in [freq, bw, sf, cr]):
+                result = await coordinator.api.mesh_core.commands.set_radio(
+                    freq, bw, sf, cr, repeat=repeat
+                )
+                reason = _device_config_failure_reason(result)
+                if reason is not None:
+                    _send_device_config_failure(
+                        connection, msg["id"], "radio/repeater", reason, changed
+                    )
+                    return
+                changed.extend(
+                    [k for k in radio_or_repeat if k in settings]
+                )
+            else:
+                _send_device_config_failure(
+                    connection,
+                    msg["id"],
+                    "radio/repeater",
+                    "missing current radio parameters",
+                    changed,
+                )
+                return
+
+        # Handle path_hash_mode
+        if "path_hash_mode" in settings:
+            result = await coordinator.api.mesh_core.commands.set_path_hash_mode(
+                settings["path_hash_mode"]
+            )
+            reason = _device_config_failure_reason(result)
+            if reason is not None:
+                _send_device_config_failure(
+                    connection, msg["id"], "path_hash_mode", reason, changed
+                )
+                return
+            changed.append("path_hash_mode")
+
+        # Multi ACKs is part of the standard Companion "other params" frame.
+        if "multi_acks" in settings:
+            result = await coordinator.api.mesh_core.commands.set_multi_acks(
+                int(settings["multi_acks"])
+            )
+            reason = _device_config_failure_reason(result)
+            if reason is not None:
+                _send_device_config_failure(
+                    connection, msg["id"], "multi_acks", reason, changed
+                )
+                return
+            changed.append("multi_acks")
+
+        # HiveFW Repeater AUTOADVERT is exposed through the official
+        # Companion custom-variable extension point. This deliberately avoids
+        # adding a private command code while still controlling the exact same
+        # persisted preference used by the device UI.
+        if "auto_advert" in settings:
+            result = await coordinator.api.mesh_core.commands.set_custom_var(
+                "auto_advert",
+                "1" if bool(settings["auto_advert"]) else "0",
+            )
+            reason = _device_config_failure_reason(result)
+            if reason is not None:
+                _send_device_config_failure(
+                    connection, msg["id"], "auto_advert", reason, changed
+                )
+                return
+            changed.append("auto_advert")
+
+        # New HiveFW builds expose Duty Cycle as a first-class Companion
+        # custom variable. Send the percentage directly so the firmware owns
+        # the Duty Cycle <-> Airtime Factor conversion, exactly like its OLED
+        # menu, then verify the persisted value by reading it back.
+        if "duty_cycle" in settings:
+            duty_cycle = max(10, min(50, int(settings["duty_cycle"])))
+            result = await coordinator.api.mesh_core.commands.set_custom_var(
+                "duty_cycle",
+                str(duty_cycle),
+            )
+            reason = _device_config_failure_reason(result)
+            if reason is not None:
+                _send_device_config_failure(
+                    connection, msg["id"], "duty_cycle", reason, changed
+                )
+                return
+
+            verified = await coordinator.api.mesh_core.commands.get_custom_vars()
+            reason = _device_config_failure_reason(verified)
+            if reason is not None:
+                _send_device_config_failure(
+                    connection, msg["id"], "duty_cycle verification", reason, changed
+                )
+                return
+            verified_payload = getattr(verified, "payload", {}) or {}
+            try:
+                actual_duty = int(str(verified_payload.get("duty_cycle", "")).strip())
+            except (TypeError, ValueError):
+                actual_duty = -1
+
+            if actual_duty != duty_cycle:
+                _send_device_config_failure(
+                    connection,
+                    msg["id"],
+                    "duty_cycle verification",
+                    f"read-back mismatch: requested {duty_cycle}%, got {actual_duty}%",
+                    changed,
+                )
+                return
+            changed.append("duty_cycle")
+
+        # Companion tuning values are floats in the UI but thousandths on wire.
+        if "rx_delay" in settings or "airtime_factor" in settings:
+            current = await coordinator.api.mesh_core.commands.get_tuning()
+            reason = _device_config_failure_reason(current)
+            if reason is not None:
+                _send_device_config_failure(
+                    connection, msg["id"], "tuning", reason, changed
+                )
+                return
+            payload = getattr(current, "payload", {}) or {}
+            rx_delay = settings.get(
+                "rx_delay",
+                float(payload.get("rx_delay", 0)) / 1000.0,
+            )
+            airtime_factor = settings.get(
+                "airtime_factor",
+                float(payload.get("airtime_factor", 0)) / 1000.0,
+            )
+            requested_rx = int(round(float(rx_delay) * 1000))
+            requested_af = int(round(float(airtime_factor) * 1000))
+
+            result = await coordinator.api.mesh_core.commands.set_tuning(
+                requested_rx,
+                requested_af,
+            )
+            reason = _device_config_failure_reason(result)
+            if reason is not None:
+                _send_device_config_failure(
+                    connection, msg["id"], "tuning", reason, changed
+                )
+                return
+
+            # Do not treat the command ACK as proof that the preference was
+            # persisted. Read it straight back from the radio and compare the
+            # exact wire values (thousandths) before telling the panel it
+            # succeeded. This makes Duty Cycle failures visible instead of
+            # silently snapping back to the previous value.
+            verified = await coordinator.api.mesh_core.commands.get_tuning()
+            reason = _device_config_failure_reason(verified)
+            if reason is not None:
+                _send_device_config_failure(
+                    connection, msg["id"], "tuning verification", reason, changed
+                )
+                return
+            verified_payload = getattr(verified, "payload", {}) or {}
+            actual_rx = int(verified_payload.get("rx_delay", -1))
+            actual_af = int(verified_payload.get("airtime_factor", -1))
+
+            if abs(actual_rx - requested_rx) > 1 or abs(actual_af - requested_af) > 1:
+                _send_device_config_failure(
+                    connection,
+                    msg["id"],
+                    "tuning verification",
+                    (
+                        f"read-back mismatch: requested rx_delay={requested_rx}, "
+                        f"airtime_factor={requested_af}; got "
+                        f"rx_delay={actual_rx}, airtime_factor={actual_af}"
+                    ),
+                    changed,
+                )
+                return
+
+            if "rx_delay" in settings:
+                changed.append("rx_delay")
+            if "airtime_factor" in settings:
+                changed.append("airtime_factor")
+
+        # Refresh self_info cache so subsequent reads return updated values
+        if changed:
+            try:
+                appstart_result = await coordinator.api.mesh_core.commands.send_appstart()
+                coordinator.api._cache_self_info_event(appstart_result)
+            except Exception:
+                _LOGGER.warning("Failed to refresh self_info after set_device_config")
+
+        connection.send_result(msg["id"], {"success": True, "changed": changed})
+    except RenameError as ex:
+        # Surface the firmware-reported rejection text directly so the
+        # user sees the actual reason (mirrors the `import_rejected`
+        # surface for `IdentityImportError`).
+        connection.send_error(msg["id"], "rename_rejected", str(ex))
+    except Exception as ex:
+        _ws_send_error_safe(
+            connection, msg["id"], ex, handler="ws_set_device_config"
+        )
+
+
+def _json_safe(obj):
+    """json.dumps ``default=`` hook: render bytes as hex (mirroring the
+    integration's execute_command service) and fall back to str() for any other
+    non-JSON-serializable value, so one odd field can't fail the whole response.
+    Without this, a CHANNEL_INFO payload (whose channel_secret is raw 16-byte
+    bytes) raises TypeError and the command surfaces as an opaque error."""
+    if isinstance(obj, (bytes, bytearray)):
+        return obj.hex()
+    return str(obj)
+
+
+def _format_event_response(result) -> str:
+    """Extract a user-friendly response string from an Event or raw value."""
+    if result is None:
+        return "OK"
+
+    if not hasattr(result, 'payload'):
+        return str(result) if result else "OK"
+
+    payload = result.payload
+    if not payload:
+        return "OK"
+
+    # Detect MSG_SENT ack payloads (have 'type' + 'expected_ack' keys)
+    # These are just send confirmations, not actual device responses
+    if isinstance(payload, dict) and 'expected_ack' in payload:
+        return "Command sent"
+
+    if isinstance(payload, dict):
+        return json.dumps(payload, default=_json_safe)
+    return str(payload)
+
+
+# ─── HiveFW Console ─────────────────────────────────────────────────────
+# Persistent in-memory CLI transcript backed by the coordinator. The console
+# remains useful even when the optional CLI Console sensor entity is disabled.
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hivefw_integration/console_get",
+        vol.Optional("entry_id"): str,
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_console_get(hass, connection, msg):
+    """Return the current HiveFW CLI transcript."""
+    coordinator = _get_coordinator(hass, msg.get("entry_id"))
+    if not coordinator:
+        connection.send_error(msg["id"], "not_found", "No HiveFW coordinator found")
+        return
+
+    history = list(getattr(coordinator, "cli_console_history", []) or [])
+    safe_history = json.loads(json.dumps(history, default=_json_safe))
+    connection.send_result(msg["id"], {"history": safe_history})
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hivefw_integration/console_execute",
+        vol.Optional("entry_id"): str,
+        vol.Required("command"): str,
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_console_execute(hass, connection, msg):
+    """Execute one free-form HiveFW command and append it to the transcript."""
+    command = (msg.get("command") or "").strip()
+    if not command:
+        connection.send_error(msg["id"], "invalid", "Command cannot be empty")
+        return
+    if command.startswith("_"):
+        connection.send_error(msg["id"], "invalid", "Private command names are not allowed")
+        return
+
+    service_data = {
+        "command": command,
+        "record_to_console": True,
+    }
+    entry_id = msg.get("entry_id")
+    if entry_id:
+        service_data["entry_id"] = entry_id
+
+    try:
+        response = await hass.services.async_call(
+            DOMAIN,
+            "execute_command",
+            service_data,
+            blocking=True,
+            return_response=True,
+        )
+        safe_response = json.loads(json.dumps(response, default=_json_safe))
+        success = not (
+            safe_response is None
+            or (isinstance(safe_response, dict) and "error" in safe_response)
+        )
+        connection.send_result(
+            msg["id"],
+            {
+                "success": success,
+                "response": safe_response,
+                "timestamp": datetime.now().isoformat(),
+            },
+        )
+    except Exception as ex:
+        _ws_send_error_safe(
+            connection,
+            msg["id"],
+            ex,
+            handler=f"ws_console_execute({command!r})",
+        )
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hivefw_integration/console_clear",
+        vol.Optional("entry_id"): str,
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_console_clear(hass, connection, msg):
+    """Clear the HiveFW CLI transcript for one coordinator."""
+    coordinator = _get_coordinator(hass, msg.get("entry_id"))
+    if not coordinator:
+        connection.send_error(msg["id"], "not_found", "No HiveFW coordinator found")
+        return
+
+    try:
+        coordinator.clear_cli_console()
+        connection.send_result(msg["id"], {"success": True})
+    except Exception as ex:
+        _ws_send_error_safe(
+            connection,
+            msg["id"],
+            ex,
+            handler="ws_console_clear",
+        )
+
+
+# ─── meshcore/execute_local ─────────────────────────────────────────────
+# Execute a Python library command on the companion
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hivefw_integration/execute_local",
+        vol.Optional("entry_id"): str,
+        vol.Required("command"): str,
+        vol.Optional("args"): dict,
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_execute_local(hass, connection, msg):
+    """Execute a local mesh_core command."""
+    coordinator = _get_coordinator(hass, msg.get("entry_id"))
+    if not coordinator:
+        connection.send_error(msg["id"], "not_found", "No MeshCore coordinator found")
+        return
+
+    command = msg.get("command")
+    args = msg.get("args", {})
+
+    # Defense-in-depth against dunder-method invocation via getattr. The
+    # frontend's commands/local-commands.ts catalogue is an *implicit*
+    # allowlist; the WS surface itself accepts any method name. Without
+    # this guard, an admin (or a future non-admin if require_admin is
+    # ever loosened) could invoke methods like __init__ or any future
+    # _internal_* SDK helper that becomes reachable through getattr.
+    if not command or command.startswith("_"):
+        connection.send_error(
+            msg["id"], "invalid", f"Invalid command name: {command!r}"
+        )
+        return
+
+    try:
+        # Get the command method from mesh_core.commands
+        command_method = getattr(coordinator.api.mesh_core.commands, command, None)
+        if not command_method:
+            connection.send_error(
+                msg["id"], "not_found", f"Command not found: {command}"
+            )
+            return
+
+        # Execute the command with provided args
+        response = await command_method(**args)
+        timestamp = datetime.now().isoformat()
+
+        # Extract meaningful text from Event objects
+        resp_text = _format_event_response(response)
+
+        connection.send_result(
+            msg["id"],
+            {"response": resp_text, "success": True, "timestamp": timestamp},
+        )
+    except Exception as ex:
+        _ws_send_error_safe(
+            connection, msg["id"], ex, handler=f"ws_execute_local({command!r})"
+        )
+
+
+# ─── meshcore/execute_remote ────────────────────────────────────────────
+# Execute a CLI command on a managed device with auto-login
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hivefw_integration/execute_remote",
+        vol.Optional("entry_id"): str,
+        vol.Required("target_prefix"): str,
+        vol.Required("command"): str,
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_execute_remote(hass, connection, msg):
+    """Execute a remote command on a managed device."""
+    coordinator = _get_coordinator(hass, msg.get("entry_id"))
+    if not coordinator:
+        connection.send_error(msg["id"], "not_found", "No MeshCore coordinator found")
+        return
+
+    target_prefix = msg.get("target_prefix")
+    command = msg.get("command")
+
+    try:
+        # Find the device by pubkey_prefix in tracked repeaters and clients
+        device = None
+        password = None
+
+        for repeater in coordinator._tracked_repeaters:
+            if repeater.get("pubkey_prefix") == target_prefix:
+                device = repeater
+                password = repeater.get("password")
+                break
+
+        if not device:
+            for client in coordinator._tracked_clients:
+                if client.get("pubkey_prefix") == target_prefix:
+                    device = client
+                    break
+
+        if not device:
+            connection.send_error(
+                msg["id"],
+                "not_found",
+                f"Device not found: {target_prefix}",
+            )
+            return
+
+        # Get the contact for this device
+        contact = coordinator.api.mesh_core.get_contact_by_key_prefix(target_prefix)
+        if not contact:
+            connection.send_error(
+                msg["id"],
+                "not_found",
+                f"Contact not found for device: {target_prefix}",
+            )
+            return
+
+        # Send login if password is available. send_login_sync blocks
+        # until the node confirms login (LOGIN_SUCCESS) or the request
+        # times out. A None return means login was not confirmed —
+        # on the simple_repeater firmware a wrong password and a
+        # transient timeout are indistinguishable on the wire (the
+        # node silently ignores a bad login rather than emitting
+        # LOGIN_FAILED), so we proceed with the command and annotate
+        # the response so the user knows the login wasn't confirmed.
+        login_unconfirmed = False
+        if password:
+            login_result = await coordinator.api.mesh_core.commands.send_login_sync(
+                contact, password
+            )
+            login_unconfirmed = login_result is None
+
+        # Send the command
+        cmd_result = await coordinator.api.mesh_core.commands.send_cmd(
+            contact, command
+        )
+
+        timestamp = datetime.now().isoformat()
+
+        # Extract meaningful text from Event objects
+        resp_text = _format_event_response(cmd_result)
+        if login_unconfirmed:
+            resp_text = f"Login not confirmed — {resp_text}"
+
+        connection.send_result(
+            msg["id"],
+            {"response": resp_text, "success": True, "timestamp": timestamp},
+        )
+    except Exception as ex:
+        _ws_send_error_safe(
+            connection,
+            msg["id"],
+            ex,
+            handler=f"ws_execute_remote({target_prefix!r})",
+        )
+
+
+# ─── meshcore/set_channel ───────────────────────────────────────────────
+# Add or update a channel
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hivefw_integration/set_channel",
+        vol.Optional("entry_id"): str,
+        vol.Required("channel_idx"): int,
+        vol.Required("name"): str,
+        vol.Optional("key"): str,
+        vol.Optional("scope"): str,
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_set_channel(hass, connection, msg):
+    """Set or update a channel."""
+    coordinator = _get_coordinator(hass, msg.get("entry_id"))
+    if not coordinator:
+        connection.send_error(msg["id"], "not_found", "No MeshCore coordinator found")
+        return
+
+    channel_idx = msg.get("channel_idx")
+    name = msg.get("name")
+    key = msg.get("key")
+
+    try:
+        # The SDK's set_channel expects channel_secret as None (to auto-derive
+        # from the channel name) or exactly 16 raw bytes.  Passing a hex string
+        # causes a ValueError because len(hex_str) != 16.
+        if key:
+            # Custom key from UI is a 32-char hex string (16 bytes, AES-128).
+            # No truncation: if the user supplies the wrong length, let the SDK
+            # raise ValueError so the error surfaces instead of being masked.
+            channel_secret = bytes.fromhex(key)
+        else:
+            # Let the SDK auto-derive the key from the channel name
+            channel_secret = None
+
+        # Call set_channel command
+        result = await coordinator.api.mesh_core.commands.set_channel(
+            channel_idx, name, channel_secret
+        )
+
+        # Persist the per-channel region scope alongside the device-side
+        # save. The radio's channel slot has no scope field — scope is a
+        # per-send argument on meshcore.send_channel_message (upstream
+        # meshcore-ha#250) — so the chat keeps the user's choice in its
+        # own store (channel_scopes.py) and threads it into each send.
+        # Present-but-empty clears the record; an absent key leaves any
+        # existing scope untouched (callers that predate the field).
+        if "scope" in msg:
+            scope_store = _get_channel_scopes(hass)
+            if scope_store:
+                await scope_store.async_set(
+                    coordinator.config_entry.entry_id, channel_idx, msg["scope"]
+                )
+
+        # Re-fetch channel info so coordinator state matches the device
+        await coordinator.fetch_all_channel_info()
+        coordinator.async_set_updated_data(coordinator.data)
+
+        # Notify listeners (frontend subscribes to refresh its channel list).
+        # Without this, a panel on another tab/client stays stale until its
+        # next manual reload.
+        hass.bus.async_fire(
+            "hivefw_channels_updated",
+            {"entry_id": coordinator.config_entry.entry_id, "channel_idx": channel_idx},
+        )
+
+        connection.send_result(msg["id"], {"success": True})
+    except Exception as ex:
+        _ws_send_error_safe(
+            connection,
+            msg["id"],
+            ex,
+            handler=f"ws_set_channel(idx={channel_idx})",
+        )
+
+
+# ─── meshcore/remove_channel ────────────────────────────────────────────
+# Clear a channel slot
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hivefw_integration/remove_channel",
+        vol.Optional("entry_id"): str,
+        vol.Required("channel_idx"): int,
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_remove_channel(hass, connection, msg):
+    """Remove a channel."""
+    coordinator = _get_coordinator(hass, msg.get("entry_id"))
+    if not coordinator:
+        connection.send_error(msg["id"], "not_found", "No MeshCore coordinator found")
+        return
+
+    channel_idx = msg.get("channel_idx")
+
+    try:
+        # Clear the channel by setting empty name; pass None for key so the
+        # SDK auto-derives it (passing "" causes ValueError — SDK expects
+        # None or 16 raw bytes, not an empty string).
+        result = await coordinator.api.mesh_core.commands.set_channel(
+            channel_idx, "", None
+        )
+
+        # Drop the persisted region scope with the channel — a future
+        # channel created in this slot starts unscoped.
+        scope_store = _get_channel_scopes(hass)
+        if scope_store:
+            await scope_store.async_set(
+                coordinator.config_entry.entry_id, channel_idx, None
+            )
+
+        # Re-fetch channel info so coordinator state matches the device
+        await coordinator.fetch_all_channel_info()
+        coordinator.async_set_updated_data(coordinator.data)
+
+        # Notify listeners (frontend subscribes to refresh its channel list).
+        hass.bus.async_fire(
+            "hivefw_channel_removed",
+            {"entry_id": coordinator.config_entry.entry_id, "channel_idx": channel_idx},
+        )
+
+        connection.send_result(msg["id"], {"success": True})
+    except Exception as ex:
+        _ws_send_error_safe(
+            connection,
+            msg["id"],
+            ex,
+            handler=f"ws_remove_channel(idx={channel_idx})",
+        )
+
+
+
+# ─── HiveFW full MeshCore-compatible backup / restore ───────────────────
+#
+# The JSON shape intentionally mirrors the MeshCore companion-app backup
+# format. Do not add HiveFW-only top-level keys here: files produced by this
+# endpoint are intended to remain portable back to the original app.
+
+
+def _meshcore_backup_coord(value) -> str:
+    """Format coordinates like the official companion backup JSON."""
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        number = 0.0
+    rendered = f"{number:.6f}".rstrip("0").rstrip(".")
+    if "." not in rendered:
+        rendered += ".0"
+    return rendered
+
+
+def _backup_event_failed(event, event_type) -> bool:
+    """Return True for a missing/error SDK event."""
+    if event is None:
+        return True
+    return getattr(event, "type", None) == event_type.ERROR or bool(
+        getattr(event, "is_error", lambda: False)()
+    )
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hivefw_integration/export_backup",
+        vol.Optional("entry_id"): str,
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_export_backup(hass, connection, msg):
+    """Export the connected radio in the original MeshCore backup shape."""
+    from meshcore.events import EventType
+
+    coordinator = _get_coordinator(hass, msg.get("entry_id"))
+    if not coordinator or not coordinator.api.mesh_core:
+        connection.send_error(msg["id"], "not_found", "No active HiveFW radio coordinator")
+        return
+
+    commands = coordinator.api.mesh_core.commands
+
+    try:
+        self_event = await commands.send_appstart()
+        if _backup_event_failed(self_event, EventType):
+            connection.send_error(msg["id"], "read_failed", "Unable to read device settings")
+            return
+        self_info = dict(getattr(self_event, "payload", None) or {})
+
+        key_event = await commands.export_private_key()
+        if key_event is None or getattr(key_event, "type", None) == EventType.DISABLED:
+            connection.send_error(
+                msg["id"],
+                "private_key_export_disabled",
+                "Private-key export is disabled by the firmware",
+            )
+            return
+        if _backup_event_failed(key_event, EventType):
+            connection.send_error(msg["id"], "read_failed", "Unable to export the device identity")
+            return
+
+        private_raw = (getattr(key_event, "payload", None) or {}).get("private_key", b"")
+        if not isinstance(private_raw, (bytes, bytearray)) or len(private_raw) not in (32, 64):
+            connection.send_error(msg["id"], "read_failed", "Firmware returned an invalid private key")
+            return
+        private_key = bytes(private_raw).hex()
+
+        auto_event = await commands.get_autoadd_config()
+        if _backup_event_failed(auto_event, EventType):
+            auto_payload = {}
+        else:
+            auto_payload = dict(getattr(auto_event, "payload", None) or {})
+        auto_mask = int(auto_payload.get("config", 0) or 0)
+        auto_hops = auto_payload.get("max_hops", 0)
+        try:
+            auto_hops = int(auto_hops or 0)
+        except (TypeError, ValueError):
+            auto_hops = 0
+
+        # Refresh the device-side channel slots before serialising them so the
+        # backup contains the actual 16-byte secrets, not display-only state.
+        await coordinator.fetch_all_channel_info()
+        scope_store = _get_channel_scopes(hass)
+        entry_id = coordinator.config_entry.entry_id
+
+        channels = []
+        for idx in range(int(getattr(coordinator, "max_channels", 0) or 0)):
+            info = dict(getattr(coordinator, "_channel_info", {}).get(idx, {}) or {})
+            name = str(info.get("channel_name") or "")
+            if not name or name == "(unused)":
+                continue
+
+            secret = info.get("channel_secret", b"")
+            if isinstance(secret, (bytes, bytearray)):
+                secret_hex = bytes(secret).hex()
+            else:
+                secret_hex = str(secret or "").strip().lower()
+            if len(secret_hex) != 32:
+                continue
+
+            scope_name = scope_store.get(entry_id, idx) if scope_store else None
+            channels.append(
+                {
+                    "name": name,
+                    "secret": secret_hex,
+                    "region_scope_name": scope_name or None,
+                    # The Companion protocol stores a scope name per send; it
+                    # does not expose the app's cached scope key separately.
+                    "region_scope_key": None,
+                }
+            )
+
+        contacts_event = await commands.get_contacts(timeout=30)
+        if _backup_event_failed(contacts_event, EventType):
+            connection.send_error(msg["id"], "read_failed", "Unable to read device contacts")
+            return
+
+        raw_contacts = getattr(contacts_event, "payload", None) or {}
+        if isinstance(raw_contacts, dict):
+            contact_rows = list(raw_contacts.values())
+        elif isinstance(raw_contacts, list):
+            contact_rows = raw_contacts
+        else:
+            contact_rows = []
+
+        contacts = []
+        for raw in contact_rows:
+            if not isinstance(raw, dict):
+                continue
+            public_key = str(raw.get("public_key") or "").strip().lower()
+            if len(public_key) != 64:
+                continue
+            contacts.append(
+                {
+                    "type": int(raw.get("type", 0) or 0),
+                    "name": str(raw.get("adv_name") or raw.get("name") or ""),
+                    "custom_name": None,
+                    "public_key": public_key,
+                    "flags": int(raw.get("flags", 0) or 0),
+                    "latitude": _meshcore_backup_coord(raw.get("adv_lat", 0)),
+                    "longitude": _meshcore_backup_coord(raw.get("adv_lon", 0)),
+                    "last_advert": int(raw.get("last_advert", 0) or 0),
+                    "last_modified": int(raw.get("lastmod", 0) or 0),
+                    # This field is part of the official file shape. The
+                    # Companion backup treats cached paths as non-essential.
+                    "out_path_list": None,
+                }
+            )
+
+        backup = {
+            "name": str(self_info.get("name") or coordinator.name or ""),
+            "public_key": str(self_info.get("public_key") or coordinator.pubkey or "").lower(),
+            "private_key": private_key,
+            "radio_settings": {
+                "frequency": int(round(float(self_info.get("radio_freq", 0) or 0) * 1000)),
+                "bandwidth": int(round(float(self_info.get("radio_bw", 0) or 0) * 1000)),
+                "spreading_factor": int(self_info.get("radio_sf", 0) or 0),
+                "coding_rate": int(self_info.get("radio_cr", 0) or 0),
+                "tx_power": int(self_info.get("tx_power", 0) or 0),
+            },
+            "position_settings": {
+                "latitude": _meshcore_backup_coord(self_info.get("adv_lat", 0)),
+                "longitude": _meshcore_backup_coord(self_info.get("adv_lon", 0)),
+            },
+            "other_settings": {
+                "manual_add_contacts": 1 if bool(self_info.get("manual_add_contacts")) else 0,
+                "advert_location_policy": int(self_info.get("adv_loc_policy", 0) or 0),
+            },
+            "auto_add_settings": {
+                "auto_add_chat": bool(auto_mask & 0x02),
+                "auto_add_repeater": bool(auto_mask & 0x04),
+                "auto_add_room_server": bool(auto_mask & 0x08),
+                "auto_add_sensor": bool(auto_mask & 0x10),
+                "overwrite_oldest": bool(auto_mask & 0x01),
+                "auto_add_max_hops": auto_hops,
+            },
+            "channels": channels,
+            "contacts": contacts,
+        }
+
+        connection.send_result(
+            msg["id"],
+            {
+                "success": True,
+                "backup": backup,
+                "channel_count": len(channels),
+                "contact_count": len(contacts),
+            },
+        )
+    except Exception as ex:
+        _ws_send_error_safe(connection, msg["id"], ex, handler="ws_export_backup")
+
+
+def _restore_contact_from_backup(raw: dict) -> dict | None:
+    """Translate one official-backup contact into the meshcore SDK shape."""
+    if not isinstance(raw, dict):
+        return None
+    public_key = str(raw.get("public_key") or "").strip().lower()
+    if len(public_key) != 64:
+        return None
+    try:
+        bytes.fromhex(public_key)
+        latitude = float(raw.get("latitude", 0) or 0)
+        longitude = float(raw.get("longitude", 0) or 0)
+    except (TypeError, ValueError):
+        return None
+
+    return {
+        "public_key": public_key,
+        "type": int(raw.get("type", 0) or 0),
+        "flags": int(raw.get("flags", 0) or 0),
+        "out_path_hash_mode": -1,
+        "out_path_len": -1,
+        "out_path": "",
+        "adv_name": str(raw.get("name") or raw.get("custom_name") or "")[:32],
+        "last_advert": int(raw.get("last_advert", 0) or 0),
+        "adv_lat": latitude,
+        "adv_lon": longitude,
+        "lastmod": int(raw.get("last_modified", 0) or 0),
+    }
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hivefw_integration/restore_backup",
+        vol.Required("backup"): dict,
+        vol.Optional("entry_id"): str,
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_restore_backup(hass, connection, msg):
+    """Restore a MeshCore companion-app backup onto the connected radio."""
+    from meshcore.events import EventType
+
+    coordinator = _get_coordinator(hass, msg.get("entry_id"))
+    if not coordinator or not coordinator.api.mesh_core:
+        connection.send_error(msg["id"], "not_found", "No active HiveFW radio coordinator")
+        return
+
+    backup = msg.get("backup")
+    if not isinstance(backup, dict):
+        connection.send_error(msg["id"], "invalid_backup", "Backup must be a JSON object")
+        return
+
+    required = {
+        "name",
+        "public_key",
+        "private_key",
+        "radio_settings",
+        "position_settings",
+        "other_settings",
+        "auto_add_settings",
+        "channels",
+        "contacts",
+    }
+    missing = sorted(required.difference(backup))
+    if missing:
+        connection.send_error(
+            msg["id"],
+            "invalid_backup",
+            "Missing backup sections: " + ", ".join(missing),
+        )
+        return
+
+    channels_raw = backup.get("channels")
+    contacts_raw = backup.get("contacts")
+    if not isinstance(channels_raw, list) or not isinstance(contacts_raw, list):
+        connection.send_error(
+            msg["id"],
+            "invalid_backup",
+            "channels and contacts must be arrays",
+        )
+        return
+
+    commands = coordinator.api.mesh_core.commands
+    meshcore_entry_id = coordinator.config_entry.entry_id
+
+    try:
+        self_event = await commands.send_appstart()
+        if _backup_event_failed(self_event, EventType):
+            connection.send_error(msg["id"], "read_failed", "Unable to read current device settings")
+            return
+        current_self = dict(getattr(self_event, "payload", None) or {})
+
+        device_event = await commands.send_device_query()
+        device_payload = (
+            dict(getattr(device_event, "payload", None) or {})
+            if not _backup_event_failed(device_event, EventType)
+            else {}
+        )
+        current_repeat = bool(device_payload.get("repeat", False))
+
+        # General identity-independent settings.
+        await commands.set_name(str(backup.get("name") or "")[:31])
+
+        pos = backup.get("position_settings") or {}
+        await commands.set_coords(
+            float(pos.get("latitude", 0) or 0),
+            float(pos.get("longitude", 0) or 0),
+        )
+
+        radio = backup.get("radio_settings") or {}
+        frequency = float(radio.get("frequency", 0) or 0)
+        bandwidth = float(radio.get("bandwidth", 0) or 0)
+        if frequency > 3000:
+            frequency /= 1000.0
+        if bandwidth > 1000:
+            bandwidth /= 1000.0
+        radio_result = await commands.set_radio(
+            frequency,
+            bandwidth,
+            int(radio.get("spreading_factor", 0) or 0),
+            int(radio.get("coding_rate", 0) or 0),
+            repeat=current_repeat,
+        )
+        if _backup_event_failed(radio_result, EventType):
+            raise ValueError("radio settings rejected by firmware")
+
+        tx_result = await commands.set_tx_power(int(radio.get("tx_power", 0) or 0))
+        if _backup_event_failed(tx_result, EventType):
+            raise ValueError("TX power rejected by firmware")
+
+        other = backup.get("other_settings") or {}
+        other_infos = dict(current_self)
+        other_infos["manual_add_contacts"] = bool(
+            int(other.get("manual_add_contacts", 0) or 0)
+        )
+        other_infos["adv_loc_policy"] = int(other.get("advert_location_policy", 0) or 0)
+        other_result = await commands.set_other_params_from_infos(other_infos)
+        if _backup_event_failed(other_result, EventType):
+            raise ValueError("other settings rejected by firmware")
+
+        auto = backup.get("auto_add_settings") or {}
+        auto_mask = 0
+        if bool(auto.get("overwrite_oldest")):
+            auto_mask |= 0x01
+        if bool(auto.get("auto_add_chat")):
+            auto_mask |= 0x02
+        if bool(auto.get("auto_add_repeater")):
+            auto_mask |= 0x04
+        if bool(auto.get("auto_add_room_server")):
+            auto_mask |= 0x08
+        if bool(auto.get("auto_add_sensor")):
+            auto_mask |= 0x10
+        auto_hops = max(0, min(64, int(auto.get("auto_add_max_hops", 0) or 0)))
+        auto_result = await commands.send(
+            bytes((0x3A, auto_mask & 0xFF, auto_hops & 0xFF)),
+            [EventType.OK, EventType.ERROR],
+        )
+        if _backup_event_failed(auto_result, EventType):
+            raise ValueError("auto-add settings rejected by firmware")
+
+        # Restore the channel table exactly in backup order. Official backup
+        # files do not carry an index, so slot 0..N is canonical.
+        scope_store = _get_channel_scopes(hass)
+        max_channels = int(getattr(coordinator, "max_channels", 0) or 0)
+        for idx in range(max_channels):
+            await commands.set_channel(idx, "", None)
+            if scope_store:
+                await scope_store.async_set(meshcore_entry_id, idx, None)
+
+        restored_channels = 0
+        for idx, raw in enumerate(channels_raw[:max_channels]):
+            if not isinstance(raw, dict):
+                continue
+            name = str(raw.get("name") or "")[:32]
+            secret_hex = str(raw.get("secret") or "").strip().lower()
+            if not name or len(secret_hex) != 32:
+                continue
+            try:
+                secret = bytes.fromhex(secret_hex)
+            except ValueError:
+                continue
+
+            result = await commands.set_channel(idx, name, secret)
+            if _backup_event_failed(result, EventType):
+                raise ValueError(f"channel {idx} rejected by firmware")
+            scope_name = raw.get("region_scope_name")
+            if scope_store:
+                await scope_store.async_set(
+                    meshcore_entry_id,
+                    idx,
+                    str(scope_name).strip() if scope_name else None,
+                )
+            restored_channels += 1
+
+        # Exact contact restore: remove the radio's current saved contacts,
+        # then recreate the contacts present in the backup. This intentionally
+        # does not import HA-only discovered contacts.
+        current_contacts_event = await commands.get_contacts(timeout=30)
+        if _backup_event_failed(current_contacts_event, EventType):
+            raise ValueError("unable to enumerate existing contacts")
+        existing_payload = getattr(current_contacts_event, "payload", None) or {}
+        existing_rows = (
+            list(existing_payload.values())
+            if isinstance(existing_payload, dict)
+            else list(existing_payload)
+            if isinstance(existing_payload, list)
+            else []
+        )
+        for contact in existing_rows:
+            if not isinstance(contact, dict):
+                continue
+            public_key = str(contact.get("public_key") or "").strip().lower()
+            if len(public_key) != 64:
+                continue
+            result = await commands.remove_contact(public_key)
+            if _backup_event_failed(result, EventType):
+                _LOGGER.warning("Backup restore could not remove contact %s", public_key[:12])
+
+        restored_contacts = 0
+        invalid_contacts = 0
+        for raw in contacts_raw:
+            contact = _restore_contact_from_backup(raw)
+            if contact is None:
+                invalid_contacts += 1
+                continue
+            result = await commands.add_contact(contact)
+            if _backup_event_failed(result, EventType):
+                raise ValueError(
+                    f"firmware rejected contact {contact['public_key'][:12]}"
+                )
+            restored_contacts += 1
+
+        # Refresh coordinator-side channel/contact caches before any optional
+        # identity reboot.
+        await coordinator.fetch_all_channel_info()
+        try:
+            await commands.get_contacts(timeout=30)
+        except Exception:
+            pass
+
+        # Restore the cryptographic identity last. If it differs, reboot and
+        # reload the same HA config entry so entity identity follows the radio.
+        expected_public = str(backup.get("public_key") or "").strip().lower()
+        private_hex = str(backup.get("private_key") or "").strip().lower()
+        current_public = str(current_self.get("public_key") or coordinator.pubkey or "").lower()
+        identity_changed = False
+
+        if expected_public and expected_public != current_public:
+            if len(expected_public) != 64:
+                raise ValueError("backup public_key has an invalid length")
+            try:
+                bytes.fromhex(expected_public)
+            except ValueError as ex:
+                raise ValueError("backup public_key is not valid hex") from ex
+
+            if len(private_hex) not in (64, 128):
+                raise ValueError("backup private_key has an invalid length")
+            try:
+                private_raw = bytes.fromhex(private_hex)
+            except ValueError as ex:
+                raise ValueError("backup private_key is not valid hex") from ex
+            if len(private_raw) == 32:
+                private_raw = _seed_to_meshcore_priv(private_raw)
+
+            key_result = await commands.import_private_key(private_raw)
+            if _backup_event_failed(key_result, EventType):
+                raise ValueError("firmware rejected the backup private key")
+
+            await commands.reboot()
+            await asyncio.sleep(3.0)
+            await hass.config_entries.async_reload(meshcore_entry_id)
+
+            new_coordinator = _get_coordinator(hass, meshcore_entry_id)
+            new_public = str(new_coordinator.pubkey or "").lower() if new_coordinator else ""
+            if not new_public or new_public != expected_public:
+                raise ValueError(
+                    "identity restore completed but the device public key does not match the backup"
+                )
+            identity_changed = True
+
+        hass.bus.async_fire(
+            "hivefw_backup_restored",
+            {
+                "entry_id": meshcore_entry_id,
+                "channels": restored_channels,
+                "contacts": restored_contacts,
+                "identity_changed": identity_changed,
+            },
+        )
+
+        connection.send_result(
+            msg["id"],
+            {
+                "success": True,
+                "channels": restored_channels,
+                "contacts": restored_contacts,
+                "invalid_contacts": invalid_contacts,
+                "identity_changed": identity_changed,
+            },
+        )
+    except Exception as ex:
+        _ws_send_error_safe(connection, msg["id"], ex, handler="ws_restore_backup")
+
+
+# ─── HiveFW APPS/SOS channel sync ───────────────────────────────────────
+# The Companion stores this selection persistently as apps_channel_hash.
+# HiveFW firmware exposes the currently resolved channel slot through the
+# standard MeshCore custom-variable API as "apps_channel".  Keeping the
+# translation on the radio makes the physical Companion UI and HA Chat share
+# one source of truth.
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hivefw_integration/get_apps_sos_channel",
+        vol.Optional("entry_id"): str,
+    }
+)
+@websocket_api.async_response
+async def ws_get_apps_sos_channel(hass, connection, msg):
+    """Return the APPS/SOS channel selected on the Companion."""
+    from meshcore.events import EventType
+
+    coordinator = _get_coordinator(hass, msg.get("entry_id"))
+    if not coordinator or not coordinator.api.mesh_core:
+        connection.send_error(msg["id"], "not_found", "No MeshCore coordinator found")
+        return
+
+    try:
+        result = await coordinator.api.mesh_core.commands.get_custom_vars()
+        if (
+            result is None
+            or getattr(result, "type", None) == EventType.ERROR
+            or getattr(result, "is_error", lambda: False)()
+        ):
+            connection.send_result(
+                msg["id"],
+                {"supported": False, "channel_idx": None},
+            )
+            return
+
+        payload = getattr(result, "payload", None) or {}
+        raw_value = payload.get("apps_channel")
+        if raw_value is None:
+            connection.send_result(
+                msg["id"],
+                {"supported": False, "channel_idx": None},
+            )
+            return
+
+        try:
+            channel_idx = int(raw_value)
+        except (TypeError, ValueError):
+            channel_idx = -1
+
+        connection.send_result(
+            msg["id"],
+            {
+                "supported": True,
+                "channel_idx": channel_idx if channel_idx >= 0 else None,
+            },
+        )
+    except Exception as ex:
+        _ws_send_error_safe(
+            connection,
+            msg["id"],
+            ex,
+            handler="ws_get_apps_sos_channel",
+        )
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hivefw_integration/set_apps_sos_channel",
+        vol.Optional("channel_idx"): vol.All(int, vol.Range(min=0, max=255)),
+        vol.Optional("entry_id"): str,
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_set_apps_sos_channel(hass, connection, msg):
+    """Set the Companion APPS/SOS channel using the standard custom-var API."""
+    from meshcore.events import EventType
+
+    coordinator = _get_coordinator(hass, msg.get("entry_id"))
+    if not coordinator or not coordinator.api.mesh_core:
+        connection.send_error(msg["id"], "not_found", "No MeshCore coordinator found")
+        return
+
+    channel_idx = msg.get("channel_idx")
+    value = "-1" if channel_idx is None else str(channel_idx)
+
+    try:
+        result = await coordinator.api.mesh_core.commands.set_custom_var(
+            "apps_channel",
+            value,
+        )
+        if (
+            result is None
+            or getattr(result, "type", None) == EventType.ERROR
+            or getattr(result, "is_error", lambda: False)()
+        ):
+            reason = "unsupported"
+            payload = getattr(result, "payload", None) if result is not None else None
+            if isinstance(payload, dict):
+                reason = str(payload.get("reason") or reason)
+            connection.send_error(
+                msg["id"],
+                "set_failed",
+                f"Unable to set Companion APPS/SOS channel: {reason}",
+            )
+            return
+
+        connection.send_result(
+            msg["id"],
+            {
+                "success": True,
+                "channel_idx": channel_idx,
+            },
+        )
+    except Exception as ex:
+        _ws_send_error_safe(
+            connection,
+            msg["id"],
+            ex,
+            handler="ws_set_apps_sos_channel",
+        )
+
+
+# ─── hivefw_integration/get_hive_neighbors ─────────────────────────────
+# HiveFW keeps its own runtime neighbour table using the same rule as the
+# official MeshCore simple_repeater:
+#
+#   Repeater advert + zero path hashes + not a Share Contact packet.
+#
+# The table is cumulative (up to 50 entries) and is queried locally over the
+# Companion link. No LoRa packet is generated by opening/refreshing the page.
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hivefw_integration/get_hive_neighbors",
+        vol.Optional("entry_id"): str,
+    }
+)
+@websocket_api.async_response
+async def ws_get_hive_neighbors(hass, connection, msg):
+    """Return the HiveFW radio-side direct-neighbour table."""
+    from meshcore.events import EventType
+
+    coordinator = _get_coordinator(hass, msg.get("entry_id"))
+    if not coordinator or not coordinator.api.mesh_core:
+        connection.send_error(msg["id"], "not_found", "No MeshCore coordinator found")
+        return
+
+    commands = coordinator.api.mesh_core.commands
+
+    try:
+        contacts = await _get_contacts_via_service(hass, msg.get("entry_id"))
+        if contacts is None:
+            contacts = []
+
+        repeater_enabled = True
+        try:
+            device_info = await commands.send_device_query()
+            if (
+                device_info is not None
+                and getattr(device_info, "type", None) != EventType.ERROR
+                and isinstance(getattr(device_info, "payload", None), dict)
+                and "repeat" in device_info.payload
+            ):
+                repeater_enabled = bool(device_info.payload.get("repeat"))
+        except Exception as ex:
+            _LOGGER.debug("Unable to read local repeat flag: %s", ex)
+
+        # Name/contact lookup is deliberately separate from RF neighbour
+        # detection. The firmware is the source of truth for "direct"; HA only
+        # enriches the six-byte prefixes with a known contact name.
+        contact_by_prefix = {}
+        for contact in contacts:
+            if not isinstance(contact, dict):
+                continue
+            public_key = str(
+                contact.get("public_key")
+                or contact.get("pubkey_prefix")
+                or ""
+            ).lower()
+            if public_key:
+                contact_by_prefix[public_key[:12]] = contact
+
+        neighbors = []
+        offset = 0
+        total = None
+
+        # CMD 44 (0x2c) is HiveFW-local and returns up to four neighbours per
+        # page as CUSTOM_VARS. Loop until the firmware-reported total is read.
+        while total is None or offset < total:
+            result = await commands.send(
+                bytes((0x2C, offset & 0xFF)),
+                [EventType.CUSTOM_VARS, EventType.ERROR],
+            )
+
+            if (
+                result is None
+                or getattr(result, "type", None) == EventType.ERROR
+                or not isinstance(getattr(result, "payload", None), dict)
+            ):
+                # Firmware older than V1.11.12 does not implement the
+                # accumulated neighbour table. Report unsupported rather than
+                # falling back to Advert Path, whose semantics are different.
+                connection.send_result(
+                    msg["id"],
+                    {
+                        "supported": False,
+                        "repeater_enabled": repeater_enabled,
+                        "count": 0,
+                        "neighbors": [],
+                        "requires_firmware": "V1.11.12",
+                    },
+                )
+                return
+
+            payload = result.payload
+
+            try:
+                page_total = int(payload.get("nbr_total", 0))
+                page_count = int(payload.get("nbr_count", 0))
+            except (TypeError, ValueError):
+                page_total = 0
+                page_count = 0
+
+            total = max(0, min(page_total, 50))
+
+            if page_count <= 0:
+                break
+
+            for index in range(page_count):
+                raw = str(payload.get(f"n{index}", "")).strip()
+                parts = raw.split("|")
+                if len(parts) != 3:
+                    continue
+
+                prefix = parts[0].lower()[:12]
+
+                try:
+                    secs_ago = max(0, int(parts[1]))
+                except (TypeError, ValueError):
+                    secs_ago = 0
+
+                try:
+                    snr = int(parts[2]) / 4.0
+                except (TypeError, ValueError):
+                    snr = None
+
+                contact = contact_by_prefix.get(prefix, {})
+                name = str(contact.get("adv_name") or "").strip()
+
+                neighbors.append(
+                    {
+                        "name": name or prefix.upper(),
+                        "pubkey_prefix": prefix,
+                        "secs_ago": secs_ago,
+                        "last_seen": (
+                            datetime.fromtimestamp(
+                                max(0, int(time.time()) - secs_ago)
+                            ).isoformat()
+                            if secs_ago >= 0
+                            else ""
+                        ),
+                        "known_contact": bool(contact.get("added_to_node")),
+                        "path_len": 0,
+                        "snr": snr,
+                        "source": "repeater_neighbor_table",
+                    }
+                )
+
+            offset += page_count
+            if page_count == 0 or offset >= total:
+                break
+
+        # De-duplicate defensively by six-byte pubkey prefix while preserving
+        # the freshest observation.
+        unique = {}
+        for item in neighbors:
+            prefix = item["pubkey_prefix"]
+            previous = unique.get(prefix)
+            if previous is None or item["secs_ago"] < previous["secs_ago"]:
+                unique[prefix] = item
+
+        neighbors = sorted(unique.values(), key=lambda item: item["secs_ago"])
+
+        connection.send_result(
+            msg["id"],
+            {
+                "supported": True,
+                "repeater_enabled": repeater_enabled,
+                "count": len(neighbors),
+                "neighbors": neighbors,
+                "method": "official_repeater_zero_hop_table",
+            },
+        )
+    except Exception as ex:
+        _LOGGER.warning("Local zero-hop neighbour query failed: %s", ex)
+        _ws_send_error_safe(
+            connection,
+            msg["id"],
+            ex,
+            handler="ws_get_hive_neighbors",
+        )
+
+
+# ─── hivefw_integration active zero-hop discovery ───────────────────────
+
+_HIVE_NEIGHBOR_DISCOVERY_SECONDS = 30
+_MESHCORE_ADV_TYPE_REPEATER = 2
+_MESHCORE_REPEATER_FILTER = 1 << _MESHCORE_ADV_TYPE_REPEATER
+
+
+def _stop_hive_neighbor_discovery(coordinator, *, cancel_timer: bool = True) -> None:
+    """Stop the current discovery listener without deleting its results."""
+    subscription = getattr(
+        coordinator, "_hivefw_neighbor_discovery_subscription", None
+    )
+    if subscription is not None:
+        try:
+            subscription.unsubscribe()
+        except Exception:
+            pass
+    coordinator._hivefw_neighbor_discovery_subscription = None
+
+    if cancel_timer:
+        timer = getattr(coordinator, "_hivefw_neighbor_discovery_timer", None)
+        if timer is not None and not timer.done():
+            timer.cancel()
+        coordinator._hivefw_neighbor_discovery_timer = None
+
+    state = getattr(coordinator, "_hivefw_neighbor_discovery", None)
+    if isinstance(state, dict):
+        state["active"] = False
+
+
+def _hive_neighbor_discovery_payload(coordinator) -> dict:
+    """Return the current discovery session in a frontend-safe shape."""
+    state = getattr(coordinator, "_hivefw_neighbor_discovery", None)
+    if not isinstance(state, dict):
+        return {
+            "supported": True,
+            "active": False,
+            "started_at": "",
+            "ends_at": "",
+            "remaining_seconds": 0,
+            "count": 0,
+            "results": [],
+            "error": "",
+        }
+
+    now = time.time()
+    ends_ts = float(state.get("ends_ts") or 0)
+    active = bool(state.get("active")) and ends_ts > now
+    if state.get("active") and not active:
+        _stop_hive_neighbor_discovery(coordinator)
+
+    raw_results = state.get("results", {})
+    results = []
+    if isinstance(raw_results, dict):
+        for item in raw_results.values():
+            if not isinstance(item, dict):
+                continue
+            result = dict(item)
+            seen_ts = float(result.pop("_seen_ts", 0) or 0)
+            result["secs_ago"] = max(0, int(now - seen_ts)) if seen_ts else 0
+            results.append(result)
+
+    results.sort(
+        key=lambda item: (
+            -float(item.get("snr") if item.get("snr") is not None else -999),
+            str(item.get("name") or ""),
+        )
+    )
+
+    return {
+        "supported": True,
+        "active": active,
+        "started_at": state.get("started_at", ""),
+        "ends_at": state.get("ends_at", ""),
+        "remaining_seconds": max(0, int(ends_ts - now)) if active else 0,
+        "count": len(results),
+        "results": results,
+        "error": str(state.get("error") or ""),
+    }
+
+
+def _match_discovered_repeater_contact(
+    contacts: list[dict], pubkey: str
+) -> dict | None:
+    """Resolve a full/prefix discovery key against known HA contact metadata."""
+    candidate = str(pubkey or "").strip().lower()
+    if not candidate:
+        return None
+
+    for contact in contacts:
+        key = str(
+            contact.get("public_key")
+            or contact.get("pubkey_prefix")
+            or ""
+        ).strip().lower()
+        if not key:
+            continue
+        if key.startswith(candidate) or candidate.startswith(key):
+            return contact
+    return None
+
+
+def _valid_contact_location(contact: dict | None) -> tuple[float, float] | None:
+    if not contact:
+        return None
+    lat_raw = contact.get("latitude", contact.get("adv_lat"))
+    lon_raw = contact.get("longitude", contact.get("adv_lon"))
+    try:
+        lat = float(lat_raw)
+        lon = float(lon_raw)
+    except (TypeError, ValueError):
+        return None
+    if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+        return None
+    if lat == 0 and lon == 0:
+        return None
+    return lat, lon
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hivefw_integration/start_hive_neighbor_discovery",
+        vol.Optional("entry_id"): str,
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_start_hive_neighbor_discovery(hass, connection, msg):
+    """Transmit one standard MeshCore zero-hop Repeater discovery request."""
+    from meshcore.events import EventType
+
+    coordinator = _get_coordinator(hass, msg.get("entry_id"))
+    if not coordinator or not coordinator.api.mesh_core:
+        connection.send_error(msg["id"], "not_found", "No MeshCore coordinator found")
+        return
+    if not getattr(coordinator.api, "connected", False):
+        connection.send_error(msg["id"], "not_connected", "HiveFW radio is offline")
+        return
+
+    mesh_core = coordinator.api.mesh_core
+    commands = mesh_core.commands
+    if not hasattr(commands, "send_node_discover_req"):
+        connection.send_error(
+            msg["id"],
+            "unsupported",
+            "The installed meshcore Python library does not support node discovery",
+        )
+        return
+
+    _stop_hive_neighbor_discovery(coordinator)
+
+    contacts = await _get_contacts_via_service(hass, msg.get("entry_id"))
+    contacts = [
+        contact for contact in (contacts or [])
+        if isinstance(contact, dict) and int(contact.get("type") or 0) == 2
+    ]
+
+    now = time.time()
+    tag = int.from_bytes(os.urandom(4), "little") or 1
+    tag_hex = tag.to_bytes(4, "little").hex()
+
+    state = {
+        "active": True,
+        "started_at": datetime.now().astimezone().isoformat(),
+        "ends_at": datetime.fromtimestamp(
+            now + _HIVE_NEIGHBOR_DISCOVERY_SECONDS
+        ).astimezone().isoformat(),
+        "ends_ts": now + _HIVE_NEIGHBOR_DISCOVERY_SECONDS,
+        "tag": tag_hex,
+        "results": {},
+        "error": "",
+    }
+    coordinator._hivefw_neighbor_discovery = state
+
+    def _on_discover_response(event) -> None:
+        current = getattr(coordinator, "_hivefw_neighbor_discovery", None)
+        if current is not state or not state.get("active"):
+            return
+        payload = getattr(event, "payload", None)
+        if not isinstance(payload, dict):
+            return
+        if str(payload.get("tag") or "").lower() != tag_hex:
+            return
+        if int(payload.get("node_type") or 0) != _MESHCORE_ADV_TYPE_REPEATER:
+            return
+
+        try:
+            path_len = int(payload.get("path_len") or 0)
+        except (TypeError, ValueError):
+            path_len = 0
+        if path_len != 0:
+            return
+
+        pubkey = str(payload.get("pubkey") or "").strip().lower()
+        if len(pubkey) < 12:
+            return
+
+        prefix = pubkey[:12]
+        contact = _match_discovered_repeater_contact(contacts, pubkey)
+        name = ""
+        if contact:
+            name = str(
+                contact.get("adv_name")
+                or contact.get("name")
+                or ""
+            ).strip()
+        location = _valid_contact_location(contact)
+
+        item = {
+            "name": name or prefix.upper(),
+            "pubkey": pubkey,
+            "pubkey_prefix": prefix,
+            "known_contact": bool(contact),
+            "snr": payload.get("SNR"),
+            "request_snr": payload.get("SNR_in"),
+            "rssi": payload.get("RSSI"),
+            "path_len": 0,
+            "discovered_at": datetime.now().astimezone().isoformat(),
+            "_seen_ts": time.time(),
+        }
+        if location:
+            item["latitude"], item["longitude"] = location
+        if contact and contact.get("map_entity_id"):
+            item["map_entity_id"] = contact.get("map_entity_id")
+
+        state["results"][pubkey] = item
+
+    subscription = mesh_core.dispatcher.subscribe(
+        EventType.DISCOVER_RESPONSE,
+        _on_discover_response,
+    )
+    coordinator._hivefw_neighbor_discovery_subscription = subscription
+
+    async def _finish_discovery() -> None:
+        try:
+            await asyncio.sleep(_HIVE_NEIGHBOR_DISCOVERY_SECONDS)
+        except asyncio.CancelledError:
+            return
+        state["active"] = False
+        _stop_hive_neighbor_discovery(coordinator, cancel_timer=False)
+        coordinator._hivefw_neighbor_discovery_timer = None
+
+    timer = hass.async_create_task(_finish_discovery())
+    coordinator._hivefw_neighbor_discovery_timer = timer
+
+    try:
+        result = await commands.send_node_discover_req(
+            filter=_MESHCORE_REPEATER_FILTER,
+            prefix_only=False,
+            tag=tag,
+            since=0,
+        )
+        # A missing command ACK is not the same as an RF rejection. On some
+        # Companion/transport combinations the control packet can already be
+        # on-air while the local command acknowledgement is lost or times out.
+        # Keep the discovery window alive in that case so valid DISCOVER_RESP
+        # packets are still collected. Only an explicit ERROR aborts the scan.
+        explicit_error = (
+            result is not None
+            and (
+                getattr(result, "type", None) == EventType.ERROR
+                or (hasattr(result, "is_error") and result.is_error())
+            )
+        )
+        if explicit_error:
+            reason = ""
+            payload = getattr(result, "payload", None)
+            if isinstance(payload, dict):
+                reason = str(payload.get("reason") or payload.get("error") or "")
+            state["error"] = reason or "Discovery request was rejected"
+            _stop_hive_neighbor_discovery(coordinator)
+            connection.send_error(
+                msg["id"],
+                "discovery_failed",
+                state["error"],
+            )
+            return
+
+        connection.send_result(
+            msg["id"],
+            _hive_neighbor_discovery_payload(coordinator),
+        )
+    except Exception as ex:
+        state["error"] = str(ex)
+        _stop_hive_neighbor_discovery(coordinator)
+        _ws_send_error_safe(
+            connection,
+            msg["id"],
+            ex,
+            handler="ws_start_hive_neighbor_discovery",
+        )
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hivefw_integration/get_hive_neighbor_discovery",
+        vol.Optional("entry_id"): str,
+    }
+)
+@callback
+def ws_get_hive_neighbor_discovery(hass, connection, msg):
+    """Return the live/current active-discovery result set."""
+    coordinator = _get_coordinator(hass, msg.get("entry_id"))
+    if not coordinator or not coordinator.api.mesh_core:
+        connection.send_error(msg["id"], "not_found", "No MeshCore coordinator found")
+        return
+    connection.send_result(
+        msg["id"],
+        _hive_neighbor_discovery_payload(coordinator),
+    )
+
+
+# ─── meshcore/get_neighbors ─────────────────────────────────────────────
+# Get neighbor data for a repeater
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hivefw_integration/get_neighbors",
+        vol.Optional("entry_id"): str,
+        vol.Required("target_prefix"): str,
+    }
+)
+@callback
+def ws_get_neighbors(hass, connection, msg):
+    """Get neighbor data for a repeater."""
+    coordinator = _get_coordinator(hass, msg.get("entry_id"))
+    if not coordinator:
+        connection.send_error(msg["id"], "not_found", "No MeshCore coordinator found")
+        return
+
+    target_prefix = msg.get("target_prefix")
+
+    neighbors = []
+    neighbor_data = getattr(coordinator, '_repeater_neighbors', {}).get(target_prefix, {})
+    now = time.time()
+    cutoff_48h = now - 48 * 3600
+
+    for key, data in neighbor_data.items():
+        if data is None:
+            continue
+        # Always re-resolve live — stored resolved_name may be stale hex prefix
+        # from before the contact was discovered
+        resolved_name = coordinator.resolve_neighbor_name(key)
+        # Compute actual last-heard time: last_updated is when HA polled,
+        # secs_ago is how long before that the repeater heard the neighbor
+        last_updated = data.get("last_updated", 0)
+        secs_ago = data.get("secs_ago", 0)
+        last_heard = last_updated - secs_ago if last_updated > 0 else 0
+        if isinstance(last_heard, (int, float)) and last_heard > 0:
+            last_seen_iso = datetime.fromtimestamp(last_heard).isoformat()
+        else:
+            last_seen_iso = ""
+        # Prune seen_timestamps at read time — the write-time pruning only
+        # runs during active polling, so stale entries can persist
+        seen_timestamps = data.get("seen_timestamps", [])
+        seen_48h = len([t for t in seen_timestamps if t > cutoff_48h])
+        neighbors.append({
+            "name": resolved_name,
+            "pubkey_prefix": key,
+            "snr": data.get("snr"),
+            "last_seen": last_seen_iso,
+            "secs_ago": data.get("secs_ago"),
+            "seen_48h": seen_48h,
+        })
+
+    # Sort by SNR descending (strongest signal first)
+    neighbors.sort(key=lambda n: n.get("snr") or -999, reverse=True)
+
+    connection.send_result(msg["id"], {"neighbors": neighbors})
+
+
+# ─── meshcore/remove_neighbor ────────────────────────────────────────────
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hivefw_integration/remove_neighbor",
+        vol.Optional("entry_id"): str,
+        vol.Required("target_prefix"): str,
+        vol.Required("neighbor_pubkey"): str,
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_remove_neighbor(hass, connection, msg):
+    """Remove a neighbor from a repeater and clean up HA entities."""
+    coordinator = _get_coordinator(hass, msg.get("entry_id"))
+    if not coordinator:
+        connection.send_error(msg["id"], "not_found", "No MeshCore coordinator found")
+        return
+
+    target_prefix = msg.get("target_prefix")
+    neighbor_pubkey = msg.get("neighbor_pubkey")
+
+    try:
+        # Find the repeater and its password
+        device = None
+        password = None
+
+        for repeater in coordinator._tracked_repeaters:
+            if repeater.get("pubkey_prefix") == target_prefix:
+                device = repeater
+                password = repeater.get("password")
+                break
+
+        if not device:
+            connection.send_error(
+                msg["id"],
+                "not_found",
+                f"Repeater not found: {target_prefix}",
+            )
+            return
+
+        # Get the contact for this repeater
+        contact = coordinator.api.mesh_core.get_contact_by_key_prefix(target_prefix)
+        if not contact:
+            connection.send_error(
+                msg["id"],
+                "not_found",
+                f"Contact not found for repeater: {target_prefix}",
+            )
+            return
+
+        # Send login if password is available. send_login_sync blocks
+        # until the node confirms login (LOGIN_SUCCESS) or the request
+        # times out. A None return means login was not confirmed —
+        # on the simple_repeater firmware a wrong password and a
+        # transient timeout are indistinguishable on the wire (the
+        # node silently ignores a bad login rather than emitting
+        # LOGIN_FAILED), so we proceed with the command and annotate
+        # the response so the user knows the login wasn't confirmed.
+        login_unconfirmed = False
+        if password:
+            login_result = await coordinator.api.mesh_core.commands.send_login_sync(
+                contact, password
+            )
+            login_unconfirmed = login_result is None
+
+        # Send neighbor.remove command to the repeater
+        cmd_result = await coordinator.api.mesh_core.commands.send_cmd(
+            contact, f"neighbor.remove {neighbor_pubkey}"
+        )
+
+        resp_text = _format_event_response(cmd_result)
+        if login_unconfirmed:
+            resp_text = f"Login not confirmed — {resp_text}"
+
+        # Remove neighbor entities and tracking from HA.
+        #
+        # Inlined from the embedded HiveFW radio engine's
+        # `coordinator.remove_single_neighbor` — that method was deliberately
+        # removed from upstream main in an earlier change and is therefore
+        # absent from the HiveFW coordinator this companion consumes. The
+        # companion still exposes a remove-neighbor flow via
+        # hivefw_integration/remove_neighbor, so we duplicate the small
+        # entity-cleanup + persistence sequence here.
+        # TODO: hoist into `coordinator_facade`.
+        removed = 0
+        try:
+            from homeassistant.helpers import entity_registry as er
+            entity_registry = er.async_get(hass)
+            unique_id_prefix = (
+                f"{coordinator.config_entry.entry_id}_repeater_{target_prefix}"
+                f"_neighbor_{neighbor_pubkey[:12]}"
+            )
+            for entity in list(entity_registry.entities.values()):
+                if entity.platform == MESHCORE_DOMAIN and (
+                    entity.unique_id or ""
+                ).startswith(unique_id_prefix):
+                    _LOGGER.info(
+                        "Removing neighbor entity: %s", entity.entity_id
+                    )
+                    entity_registry.async_remove(entity.entity_id)
+                    removed += 1
+
+            # In-memory bookkeeping mirroring the embedded engine method.
+            repeater_neighbors = coordinator._repeater_neighbors.get(
+                target_prefix, {}
+            )
+            if neighbor_pubkey in repeater_neighbors:
+                del repeater_neighbors[neighbor_pubkey]
+
+            sensor_key = f"{target_prefix}:{neighbor_pubkey}"
+            coordinator._created_neighbor_sensors.discard(sensor_key)
+
+            # Persist updated data — await so that a failure surfaces in
+            # the WS response rather than being silently logged via the
+            # background-task harness.
+            await coordinator._save_neighbor_data()
+        except Exception as cleanup_ex:
+            _LOGGER.warning(
+                "Inlined remove_single_neighbor cleanup failed for %s/%s: %s",
+                target_prefix[:6], neighbor_pubkey[:6], cleanup_ex,
+            )
+
+        connection.send_result(
+            msg["id"],
+            {
+                "response": resp_text,
+                "success": True,
+                "entities_removed": removed,
+            },
+        )
+    except Exception as ex:
+        _ws_send_error_safe(
+            connection,
+            msg["id"],
+            ex,
+            handler=(
+                f"ws_remove_neighbor(neighbor={neighbor_pubkey[:6]}, "
+                f"repeater={target_prefix[:6]})"
+            ),
+        )
+
+
+# ─── meshcore/cleanup_stale_neighbors ────────────────────────────────────
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hivefw_integration/cleanup_stale_neighbors",
+        vol.Optional("entry_id"): str,
+        vol.Optional("days_threshold"): vol.All(
+            vol.Coerce(int), vol.Range(min=1, max=90)
+        ),
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_cleanup_stale_neighbors(hass, connection, msg):
+    """Manually trigger cleanup of stale neighbor entries."""
+    coordinator = _get_coordinator(hass, msg.get("entry_id"))
+    if not coordinator:
+        connection.send_error(msg["id"], "not_found", "No MeshCore coordinator found")
+        return
+
+    from .const import DEFAULT_STALE_NEIGHBOR_DAYS
+
+    days = msg.get("days_threshold", coordinator._stale_neighbor_days or DEFAULT_STALE_NEIGHBOR_DAYS)
+
+    try:
+        removed = await coordinator._cleanup_stale_neighbors(days)
+        connection.send_result(
+            msg["id"],
+            {
+                "removed": removed,
+                "days_threshold": days,
+                "success": True,
+            },
+        )
+    except Exception as ex:
+        _ws_send_error_safe(
+            connection,
+            msg["id"],
+            ex,
+            handler="ws_cleanup_stale_neighbors",
+        )
+
+
+# ─── Unread Tracking ─────────────────────────────────────────────────────
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hivefw_integration/get_unread_counts",
+        vol.Optional("entry_id"): str,
+    }
+)
+@websocket_api.async_response
+async def ws_get_unread_counts(hass, connection, msg):
+    """Return unread counts and last-read cursors, optionally scoped to one entry.
+
+    The payload includes a ``last_read`` map alongside ``unread`` so the
+    panel can populate both badge counts and per-conversation anchors in
+    a single round-trip on connect. Older clients that only read
+    ``unread`` continue to work — the field is additive.
+
+    When ``entry_id`` is supplied and resolves to a known upstream
+    coordinator (via the tightened ``_resolve_coordinator``), the
+    returned maps are filtered to entity_ids that belong to that
+    coordinator (matched by the ``.meshcore_<pubkey-prefix>_`` segment).
+    Unknown ``entry_id`` triggers the resolver's warning + None and we
+    return empty maps so the panel surfaces a clean empty state instead
+    of cross-contaminated counts from other entries. Omitted ``entry_id``
+    returns the full process-wide map (legacy / cross-entry rollup
+    callers).
+
+    The ``unread`` map is derived from the persistent cursor + the
+    message store rather than read from a
+    separate in-memory counter. The wire shape
+    (``{"unread": ..., "last_read": ...}``) is unchanged — entries
+    with derived count > 0 are emitted, count == 0 is omitted, exactly
+    matching the legacy behavior of ``get_all_unread()`` (which
+    filtered ``v > 0``). Eliminates the desync class where the badge
+    reset on HA restart while the cursor survived.
+    """
+    tracker = hass.data.get(DOMAIN, {}).get("unread_tracker")
+    if not tracker:
+        # Empty maps for both fields keeps the wire shape stable for
+        # frontends written against the new schema, regardless of
+        # whether the tracker is initialised.
+        connection.send_result(msg["id"], {"unread": {}, "last_read": {}})
+        return
+    last_read = tracker.get_all_last_read()
+    store = _get_store(hass, None)
+    unread: dict[str, int] = {}
+    if store is not None:
+        # Walk every conversation the store knows about — the index
+        # surfaces entity_ids without forcing a full conversation load.
+        # ``count_unread_after`` lazy-loads the per-conversation file on
+        # first count, but each conversation is loaded at most once per
+        # round and cached for subsequent calls within this handler.
+        for entity_id in list(store.get_message_index().keys()):
+            cursor = last_read.get(entity_id)
+            count = await store.count_unread_after(entity_id, cursor)
+            if count > 0:
+                unread[entity_id] = count
+    entry_id = msg.get("entry_id")
+    if entry_id is not None:
+        coord = _resolve_coordinator(hass, entry_id)
+        if coord is None:
+            # The resolver already logged the warning; respond with empty.
+            connection.send_result(msg["id"], {"unread": {}, "last_read": {}})
+            return
+        prefix = (getattr(coord, "pubkey", "") or "")[:6]
+        if prefix:
+            # Match the domain-boundary segment ".hivefw_<prefix>_"
+            # against entity_ids of the form
+            # "<domain>.hivefw_<prefix>_..._messages".
+            # NOTE: a "_meshcore_<prefix>_" pattern would never match
+            # because the character preceding "meshcore" in real
+            # entity_ids is the domain separator ".", not "_".
+            needle = f".hivefw_{prefix}_"
+            unread = {k: v for k, v in unread.items() if needle in k}
+            last_read = {k: v for k, v in last_read.items() if needle in k}
+    connection.send_result(msg["id"], {"unread": unread, "last_read": last_read})
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hivefw_integration/mark_conversation_read",
+        vol.Optional("entry_id"): str,
+        vol.Required("entity_id"): str,
+    }
+)
+@websocket_api.async_response
+async def ws_mark_read(hass, connection, msg):
+    """Mark a conversation as read and snapshot the last-read cursor.
+
+    In addition to clearing the in-memory unread count, snapshot the
+    newest stored message id at this moment as the persistent read
+    cursor. The cursor is what the ``get_messages_around`` endpoint
+    anchors on.
+
+    ``get_messages(limit=1)`` returns ``messages[-1:]`` from the
+    chronologically-sorted store (ordering is kept reliable
+    via ``bisect.insort``). If the conversation has no stored messages
+    yet (``recent`` empty), the cursor is left untouched — defensive
+    no-op so the ``ack``-style success response still fires.
+
+    The prior two-call sequence
+    (``tracker.mark_read(entity_id)`` to clear the in-memory counter
+    + ``tracker.set_last_read(entity_id, msg_id)`` to advance the
+    cursor) collapses into a single ``mark_read(entity_id, msg_id)``
+    call. The in-memory counter is gone — counts are derived from the
+    cursor + store on demand. The single call advances the cursor,
+    fires ``EVENT_UNREAD_UPDATED`` with ``unread_count=0``, and
+    schedules the debounced disk save.
+
+    The ``entry_id`` field on the inbound WS message is intentionally
+    NOT forwarded to ``_get_store``: the chat panel's frontend often
+    populates that field with the HiveFW integration's
+    entry id (the panel was originally configured against that), but
+    this handler needs the chat companion's store. The chat companion
+    is single-instance per its config flow, so the ``None``-fallback
+    branch in ``_get_store`` deterministically resolves to the right
+    store. Accepting the field keeps the WS schema backwards-
+    compatible.
+    """
+    tracker = hass.data.get(DOMAIN, {}).get("unread_tracker")
+    # Always use the fallback — see the docstring for the rationale.
+    store = _get_store(hass, None)
+    if tracker:
+        # Resolve the new cursor from the store's chronologically-newest
+        # stored message. ``None`` (no messages yet) leaves the cursor
+        # untouched inside ``mark_read`` — defensive no-op.
+        new_cursor: str | None = None
+        if store is not None:
+            recent = await store.get_messages(msg["entity_id"], limit=1)
+            if recent:
+                new_cursor = recent[0]["id"]
+        await tracker.mark_read(msg["entity_id"], new_cursor)
+    connection.send_result(msg["id"], {"success": True})
+
+
+# ─── Identity Management ─────────────────────────────────────────────────
+#
+# This identity-import flow was redesigned after the original approach
+# delegated to ``meshcore.execute_command`` and used the wrong key format
+# (``seed || verify_key`` instead of the SHA-512-expanded clamped secret
+# the firmware actually accepts), then silently swallowed firmware ERRORs
+# because the service-call path had no surface to detect them. The
+# ``return_response=True`` workaround tripped HA's framework validation
+# on OK-with-empty-payload responses.
+#
+# The redesign abandons the service-delegation path and calls the SDK
+# directly:
+#
+# 1. ``coord.api.mesh_core.commands.import_private_key(seed_bytes)`` —
+#    direct SDK call returning an ``Event``. ``EventType.ERROR`` is
+#    inspected and surfaced as ``IdentityImportError`` so the firmware's
+#    rejection (e.g. ``ERR_CODE_ILLEGAL_ARG``) reaches the user instead
+#    of getting buried as a false success.
+# 2. ``send_appstart`` + ``_cache_self_info_event`` — replicates
+#    services.py's ``_SELF_INFO_COMMANDS`` post-call refresh inline so we
+#    don't depend on the service for the cache update.
+# 3. ``coord.api.mesh_core.commands.reboot()`` — direct SDK call. The
+#    firmware only switches identities on next boot.
+# 4. Brief ``asyncio.sleep`` while transport-layer reconnect completes
+#    (SDK ``connection_manager`` handles the reconnect itself).
+# 5. ``hass.config_entries.async_reload(meshcore_entry_id)`` — fires the
+#    pubkey-detection hook in upstream ``async_setup_entry``
+#    (meshcore-ha PR #169, ``__init__.py:319-348``), which calls
+#    ``_migrate_entity_ids(old_prefix, new_prefix)`` and creates the
+#    ``pubkey_changed_<entry_id>`` repair issue automatically.
+# 6. Verify-after-reload guard: re-resolve the coordinator and confirm
+#    ``coord.pubkey != old_pubkey``. Belt-and-suspenders against any
+#    "OK + reload + same pubkey" edge case where the firmware accepted
+#    the import but failed to persist.
+#
+# Each step emits a streaming progress event so the panel modal can show
+# a step checklist instead of a single toast — terminal state still uses
+# ``send_result`` / ``send_error`` (the standard HA WS pattern;
+# ``subscribeMessage`` on the frontend is the matching call).
+#
+# Key format: ``_seed_to_meshcore_priv(seed)`` expands a 32-byte Ed25519
+# seed into the firmware's 64-byte expanded clamped secret form (RFC
+# 8032 §5.1.5). Firmware-truth-derived; verified by scalar-mult parity
+# against the device's stored pubkey.
+
+
+class IdentityImportError(Exception):
+    """Raised when an identity import does not take effect on the device.
+
+    Carries a human-readable message describing the firmware-reported
+    failure (e.g. ``firmware rejected key: ERR_CODE_ILLEGAL_ARG``) or
+    the verify-after-reload mismatch. The WS handler surfaces this via
+    ``connection.send_error(..., "import_rejected", str(ex))`` so the
+    frontend modal can render the actual error text instead of a
+    generic "failed" toast.
+    """
+
+
+def _seed_to_meshcore_priv(seed: bytes) -> bytes:
+    """Expand a 32-byte Ed25519 seed into MeshCore's 64-byte private-key form.
+
+    MeshCore firmware (``Identity.cpp:51`` ``validatePrivateKey``) calls
+    ``ed25519_derive_pub`` on the 64-byte input — this only succeeds
+    when the bytes are the Ed25519 *expanded clamped secret* form:
+    SHA-512(seed) with byte[0] cleared in the lowest 3 bits, byte[31]
+    cleared in the top bit and set in bit 6 (RFC 8032 §5.1.5).
+
+    Verified live against firmware v1.14.1:
+    scalar-mult of ``expanded[:32]`` by the Ed25519 base point yields
+    the device's stored public key; ``expanded[0] & 7 == 0``;
+    ``expanded[31]`` satisfies the clamping inequality.
+
+    The PyNaCl / libsodium ``crypto_sign_seed_keypair`` "secret key" is
+    ``seed || public_key``, NOT this expanded form — pushing that to
+    ``import_private_key`` is rejected with ``ERR_CODE_ILLEGAL_ARG``.
+    """
+    if len(seed) != 32:
+        raise ValueError(f"Ed25519 seed must be 32 bytes, got {len(seed)}")
+    h = bytearray(hashlib.sha512(seed).digest())
+    h[0] &= 0xF8
+    h[31] &= 0x7F
+    h[31] |= 0x40
+    return bytes(h)
+
+
+async def _do_identity_change(
+    hass,
+    connection,
+    msg_id,
+    coord,
+    meshcore_entry_id,
+    old_pubkey,
+    seed_bytes,
+):
+    """Streaming-progress identity change.
+
+    Emits one ``websocket_api.event_message`` per step; on terminal
+    success calls ``connection.send_result``; on terminal failure
+    raises ``IdentityImportError`` (caller surfaces via
+    ``connection.send_error``). Caller is responsible for the initial
+    ``{"step": "generating"}`` event — the source of seed bytes differs
+    between regenerate (host-generate via ``os.urandom``) and import
+    (user-supplied 64- or 128-char hex).
+
+    ``seed_bytes`` is the firmware-native 64-byte expanded clamped
+    secret. For 32-byte raw seeds use ``_seed_to_meshcore_priv``; for
+    user-supplied 128-hex input pass ``bytes.fromhex(raw)`` directly
+    (already firmware-native, matches ``export_private_key`` output).
+    """
+    from meshcore.events import EventType
+
+    # Step 2 — import. Direct SDK call; inspect Event.type for ERROR
+    # (the service path silently swallowed firmware errors and the
+    # return_response=True workaround tripped HA's framework validation
+    # on empty-payload OK responses).
+    connection.send_message(
+        websocket_api.event_message(msg_id, {"step": "importing"})
+    )
+    result = await coord.api.mesh_core.commands.import_private_key(seed_bytes)
+    if result is None or getattr(result, "type", None) == EventType.ERROR:
+        code = "unknown"
+        if result is not None:
+            payload = getattr(result, "payload", None) or {}
+            code = payload.get("code_string") or payload.get("error_code") or "unknown"
+        raise IdentityImportError(f"firmware rejected key: {code}")
+
+    # Step 2b — refresh self_info (mimics services.py _SELF_INFO_COMMANDS
+    # post-call refresh, services.py:656-664). Wrapped in try/except: pass
+    # because the reload re-fetches anyway and a self_info hiccup
+    # shouldn't abort the chain. The call itself must be present
+    # (covered by a unit assertion).
+    try:
+        appstart = await coord.api.mesh_core.commands.send_appstart()
+        coord.api._cache_self_info_event(appstart)
+    except Exception:  # pragma: no cover - defensive
+        _LOGGER.debug("self_info refresh after import_private_key failed; "
+                      "the upcoming entry reload will re-fetch it")
+
+    # Step 3 — reboot. Firmware only switches identity on next boot.
+    connection.send_message(
+        websocket_api.event_message(msg_id, {"step": "rebooting"})
+    )
+    await coord.api.mesh_core.commands.reboot()
+
+    # Step 4 — wait for the device to come back. The SDK's
+    # connection_manager handles transport-level reconnect; we just need
+    # to not race the reload. 3 seconds is a placeholder.
+    # TODO: replace with EventType.CONNECTED await once the SDK exposes
+    # a clean reconnect-completed signal.
+    connection.send_message(
+        websocket_api.event_message(msg_id, {"step": "reconnecting"})
+    )
+    await asyncio.sleep(3.0)
+
+    # Step 5 — reload the config entry. PR #169's async_setup_entry hook
+    # detects the new pubkey and migrates entity IDs automatically.
+    connection.send_message(
+        websocket_api.event_message(msg_id, {"step": "reloading"})
+    )
+    await hass.config_entries.async_reload(meshcore_entry_id)
+
+    # Step 6 — verify the pubkey actually changed. The
+    # post-reload coordinator should reflect the new identity; if it
+    # doesn't, the import didn't actually persist on the device and the
+    # success path would be a lie.
+    connection.send_message(
+        websocket_api.event_message(msg_id, {"step": "verifying"})
+    )
+    new_coord = _get_coordinator(hass, meshcore_entry_id)
+    new_pubkey = new_coord.pubkey if new_coord else None
+    if not new_pubkey or new_pubkey == old_pubkey:
+        raise IdentityImportError(
+            "device pubkey unchanged after reload — import did not take effect"
+        )
+
+    # Terminal success — the data ride on a final ``done`` event_message
+    # because ``home-assistant-js-websocket``'s ``subscribeMessage``
+    # promise-resolves with the unsubscribe handle only and discards the
+    # ``send_result`` payload (verified against
+    # ``home-assistant-js-websocket/lib/connection.ts`` 2026-05). The
+    # frontend wrapper unpacks the ``done`` event into the typed
+    # ``IdentityFlowResult``.
+    connection.send_message(
+        websocket_api.event_message(
+            msg_id,
+            {
+                "step": "done",
+                "success": True,
+                "old_pubkey": old_pubkey,
+                "new_pubkey": new_pubkey,
+                "warning": (
+                    "Device rebooted with new identity. Entity IDs migrated. "
+                    "All contacts must re-add this device."
+                ),
+            },
+        )
+    )
+    connection.send_result(msg_id, {"success": True})
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hivefw_integration/regenerate_identity",
+        vol.Optional("entry_id"): str,
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_regenerate_identity(hass, connection, msg):
+    """Regenerate identity by host-generating a fresh seed and importing it.
+
+    Streaming handler — emits one ``event_message`` per step
+    (generating → importing → rebooting → reconnecting → reloading →
+    verifying), then terminates with ``send_result`` (success) or
+    ``send_error`` (failure). See ``_do_identity_change`` for the body.
+    """
+    coordinator = _get_coordinator(hass, msg.get("entry_id"))
+    if not coordinator:
+        connection.send_error(msg["id"], "not_found", _t("no_hivefw_coordinator"))
+        return
+
+    meshcore_entry_id = coordinator.config_entry.entry_id
+    old_pubkey = coordinator.pubkey
+
+    try:
+        # Step 1 — generate. Host-side fresh entropy via os.urandom →
+        # /dev/urandom on Linux (PyNaCl no longer used here; the
+        # SHA-512 + clamping happens in _seed_to_meshcore_priv).
+        connection.send_message(
+            websocket_api.event_message(msg["id"], {"step": "generating"})
+        )
+        seed_bytes = _seed_to_meshcore_priv(os.urandom(32))
+
+        await _do_identity_change(
+            hass,
+            connection,
+            msg["id"],
+            coordinator,
+            meshcore_entry_id,
+            old_pubkey,
+            seed_bytes,
+        )
+    except IdentityImportError as ex:
+        connection.send_error(msg["id"], "import_rejected", str(ex))
+    except Exception as ex:
+        _ws_send_error_safe(
+            connection, msg["id"], ex, handler="ws_regenerate_identity"
+        )
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hivefw_integration/import_identity",
+        vol.Optional("entry_id"): str,
+        vol.Required("private_key"): str,
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_import_identity(hass, connection, msg):
+    """Import a hex-encoded private key, reboot device, reload config entry.
+
+    Streaming handler — see ``ws_regenerate_identity`` doc for the
+    event-message contract.
+
+    Accepts both 64-char (raw 32-byte Ed25519 seed; expanded host-side
+    via ``_seed_to_meshcore_priv``) and 128-char (already firmware-
+    native 64-byte expanded form, matches ``export_private_key`` output)
+    inputs.
+    """
+    coordinator = _get_coordinator(hass, msg.get("entry_id"))
+    if not coordinator:
+        connection.send_error(msg["id"], "not_found", _t("no_hivefw_coordinator"))
+        return
+
+    # Strip whitespace anywhere in the input — paste-friendly.
+    raw = msg["private_key"].strip().replace(" ", "").replace("\n", "")
+    if len(raw) not in (64, 128) or len(raw) % 2 != 0:
+        connection.send_error(msg["id"], "invalid", _t("invalid_key_length"))
+        return
+    try:
+        raw_bytes = bytes.fromhex(raw)
+    except ValueError:
+        connection.send_error(msg["id"], "invalid", _t("invalid_key_hex"))
+        return
+
+    meshcore_entry_id = coordinator.config_entry.entry_id
+    old_pubkey = coordinator.pubkey
+
+    try:
+        # Step 1 — generate (or expand). 32-byte input is treated as the
+        # raw Ed25519 seed and expanded into the firmware-native 64-byte
+        # form; 64-byte input is passed through unchanged (already in
+        # the firmware native format that ``export_private_key``
+        # returns).
+        connection.send_message(
+            websocket_api.event_message(msg["id"], {"step": "generating"})
+        )
+        if len(raw_bytes) == 32:
+            seed_bytes = _seed_to_meshcore_priv(raw_bytes)
+        else:
+            seed_bytes = raw_bytes
+
+        await _do_identity_change(
+            hass,
+            connection,
+            msg["id"],
+            coordinator,
+            meshcore_entry_id,
+            old_pubkey,
+            seed_bytes,
+        )
+    except IdentityImportError as ex:
+        connection.send_error(msg["id"], "import_rejected", str(ex))
+    except Exception as ex:
+        _ws_send_error_safe(
+            connection, msg["id"], ex, handler="ws_import_identity"
+        )
+
+
+# ─── Location Source ──────────────────────────────────────────────────────
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hivefw_integration/set_location_source",
+        vol.Optional("entry_id"): str,
+        vol.Required("source"): str,
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_set_location_source(hass, connection, msg):
+    """Set the location source for the device."""
+    coordinator = _get_coordinator(hass, msg.get("entry_id"))
+    if not coordinator:
+        connection.send_error(msg["id"], "not_found", "No MeshCore coordinator found")
+        return
+
+    source = msg["source"]
+    valid_sources = ("none", "manual", "gps", "ha_location")
+    if source not in valid_sources:
+        connection.send_error(msg["id"], "invalid", f"Source must be one of: {valid_sources}")
+        return
+
+    coordinator.location_source = source
+    connection.send_result(msg["id"], {"success": True})
+
+
+# ─── Contact Management ──────────────────────────────────────────────────
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hivefw_integration/add_contact",
+        vol.Required("public_key"): str,
+        vol.Optional("name"): str,
+        vol.Optional("entry_id"): str,
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_add_contact(hass, connection, msg):
+    """Add a discovered contact to the node's contact list."""
+    coordinator = _get_coordinator(hass, msg.get("entry_id"))
+    if not coordinator:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+
+    public_key = msg["public_key"]
+
+    # Look up contact in discovered contacts
+    contact_data = None
+    for full_pk, disc in coordinator._discovered_contacts.items():
+        if full_pk.startswith(public_key) or public_key.startswith(full_pk[:12]):
+            contact_data = dict(disc)
+            contact_data.setdefault("public_key", full_pk)
+            break
+
+    if not contact_data:
+        # Try contacts dict as fallback
+        prefix = public_key[:12]
+        if prefix in coordinator._contacts:
+            connection.send_error(msg["id"], "already_added", "Contact is already added to node")
+            return
+        connection.send_error(msg["id"], "not_found", f"Contact {public_key[:12]} not found in discovered contacts")
+        return
+
+    # Execute the SDK add_contact command
+    try:
+        api = coordinator.api
+        if not api.connected or not api.mesh_core:
+            connection.send_error(msg["id"], "not_connected", "Device not connected")
+            return
+
+        # Route the node mutation + coordinator sync through the meshcore
+        # integration WHEN it owns the routed contact handling; otherwise fall
+        # back to the existing inlined block below. Entity creation for the new
+        # contact lives in the integration's NEW_CONTACT handler on both paths.
+        if _integration_supports_routed_contact_cleanup(hass):
+            prefix = (contact_data.get("public_key") or public_key)[:12]
+            try:
+                response = await hass.services.async_call(
+                    MESHCORE_DOMAIN,
+                    "execute_command",
+                    {
+                        "command": f"add_contact {prefix}",
+                        "entry_id": coordinator.config_entry.entry_id,
+                    },
+                    blocking=True,
+                    return_response=True,
+                )
+            except Exception as ex:
+                # execute_command returns None for a bodyless-OK SDK result (an
+                # Event with empty payload). HA's return_response=True path then
+                # rejects that None with a "service_reponse_invalid" error before
+                # it reaches us. That rejection means the command succeeded with
+                # no payload — the integration's add_contact handler already did
+                # the node + coordinator + entity work — so map it to an empty
+                # response and fall through to the success path. Any other
+                # exception is a real failure. (translation_key is HA-internal;
+                # if HA renames it the worst case is the pre-workaround error
+                # resurfaces, never a hidden real failure.)
+                if getattr(ex, "translation_key", None) in (
+                    "service_reponse_invalid",
+                    "service_response_invalid",
+                ):
+                    response = {}
+                else:
+                    _ws_send_error_safe(
+                        connection, msg["id"], ex, handler="ws_add_contact"
+                    )
+                    return
+            # On the success path execute_command returns the SDK result payload
+            # (or {} for a bodyless OK, normalized in the except above). A radio-
+            # side failure surfaces as a dict carrying a failure marker: "reason"
+            # (timeout / no_event_received), "error_code" (device-reported
+            # error), or "error" (exception string). Map those to the same
+            # command_failed the inlined path returns. A marker-less payload
+            # (including {}) is treated as success.
+            if isinstance(response, dict) and (
+                "reason" in response
+                or "error_code" in response
+                or "error" in response
+            ):
+                connection.send_error(
+                    msg["id"],
+                    "command_failed",
+                    f"add_contact failed: {response}",
+                )
+                return
+            connection.send_result(msg["id"], {"success": True})
+            return
+
+        # Fallback — inlined SDK add + manual coordinator sync. Correct on
+        # integrations without the routed contact handling.
+        result = await api.mesh_core.commands.add_contact(contact_data)
+
+        from meshcore.events import EventType
+        if result.type == EventType.ERROR:
+            connection.send_error(msg["id"], "command_failed", f"add_contact failed: {result.payload}")
+            return
+
+        # Post-command: sync coordinator state (same logic as services.py)
+        api.mesh_core._contacts_dirty = True
+        pubkey = contact_data.get("public_key", "")
+        if pubkey:
+            contact_data["added_to_node"] = True
+            prefix = pubkey[:12]
+            if prefix not in coordinator._contacts:
+                coordinator._contacts[prefix] = contact_data
+
+            coordinator.mark_contact_dirty(prefix)
+
+            # Note: companion does not directly create the binary_sensor
+            # entity for the new contact. The embedded HiveFW radio engine
+            # has a NEW_CONTACT event handler that creates the entity when
+            # the SDK fires NEW_CONTACT after add_contact succeeds.
+
+            # Trigger immediate update
+            updated_data = dict(coordinator.data) if coordinator.data else {}
+            updated_data["contacts"] = coordinator.get_all_contacts()
+            coordinator.async_set_updated_data(updated_data)
+
+        connection.send_result(msg["id"], {"success": True})
+
+    except Exception as ex:
+        _ws_send_error_safe(
+            connection, msg["id"], ex, handler="ws_add_contact"
+        )
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hivefw_integration/remove_contact",
+        vol.Required("public_key"): str,
+        vol.Optional("entry_id"): str,
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_remove_contact(hass, connection, msg):
+    """Remove a contact from the node's contact list."""
+    coordinator = _get_coordinator(hass, msg.get("entry_id"))
+    if not coordinator:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+
+    public_key = msg["public_key"]
+    prefix = public_key[:12]
+
+    # Look up contact in coordinator's contacts
+    contact_data = coordinator._contacts.get(prefix)
+    if not contact_data:
+        # Try matching by longer key
+        for pk, c in coordinator._contacts.items():
+            full_pk = c.get("public_key", "")
+            if full_pk.startswith(public_key) or public_key.startswith(full_pk[:12]):
+                contact_data = c
+                prefix = pk
+                break
+
+    if not contact_data:
+        connection.send_error(msg["id"], "not_found", f"Contact {public_key[:12]} not found in added contacts")
+        return
+
+    # Execute the SDK remove_contact command
+    try:
+        api = coordinator.api
+        if not api.connected or not api.mesh_core:
+            connection.send_error(msg["id"], "not_connected", "Device not connected")
+            return
+
+        # Route the node mutation + coordinator sync + (large-mesh) entity
+        # cleanup through the HiveFW engine WHEN it owns the routed
+        # cleanup; otherwise fall back to the existing inlined block below
+        # (correct for integrations without large-mesh — no entity to orphan).
+        if _integration_supports_routed_contact_cleanup(hass):
+            try:
+                response = await hass.services.async_call(
+                    MESHCORE_DOMAIN,
+                    "execute_command",
+                    {
+                        "command": f"remove_contact {prefix}",
+                        "entry_id": coordinator.config_entry.entry_id,
+                    },
+                    blocking=True,
+                    return_response=True,
+                )
+            except Exception as ex:
+                # execute_command returns None for a bodyless-OK SDK result (an
+                # Event with empty payload). HA's return_response=True path then
+                # rejects that None with a "service_reponse_invalid" error before
+                # it reaches us. That rejection means the command succeeded with
+                # no payload — the integration's remove_contact handler already
+                # did the node + coordinator + entity work — so map it to an
+                # empty response and fall through to the success path. Any other
+                # exception is a real failure. (translation_key is HA-internal;
+                # if HA renames it the worst case is the pre-workaround error
+                # resurfaces, never a hidden real failure.)
+                if getattr(ex, "translation_key", None) in (
+                    "service_reponse_invalid",
+                    "service_response_invalid",
+                ):
+                    response = {}
+                else:
+                    _ws_send_error_safe(
+                        connection, msg["id"], ex, handler="ws_remove_contact"
+                    )
+                    return
+            # On the success path execute_command returns the SDK result payload
+            # (or {} for a bodyless OK, normalized in the except above). A radio-
+            # side failure surfaces as a dict carrying a failure marker: "reason"
+            # (timeout / no_event_received), "error_code" (device-reported
+            # error), or "error" (exception string). Map those to the same
+            # command_failed the inlined path returns. A marker-less payload
+            # (including {}) is treated as success.
+            if isinstance(response, dict) and (
+                "reason" in response
+                or "error_code" in response
+                or "error" in response
+            ):
+                connection.send_error(
+                    msg["id"],
+                    "command_failed",
+                    f"remove_contact failed: {response}",
+                )
+                return
+            connection.send_result(msg["id"], {"success": True})
+            return
+
+        # Fallback — inlined SDK remove + manual coordinator sync. Correct on
+        # integrations without the routed entity cleanup (no per-contact
+        # binary_sensor exists there to orphan).
+        result = await api.mesh_core.commands.remove_contact(contact_data)
+
+        from meshcore.events import EventType
+        if result.type == EventType.ERROR:
+            connection.send_error(msg["id"], "command_failed", f"remove_contact failed: {result.payload}")
+            return
+
+        # Post-command: sync coordinator state (same logic as services.py)
+        api.mesh_core._contacts_dirty = True
+        pubkey = contact_data.get("public_key", "")
+        if pubkey:
+            # Remove from SDK internal dict
+            if pubkey in api.mesh_core._contacts:
+                del api.mesh_core._contacts[pubkey]
+
+            # Remove from coordinator
+            if prefix in coordinator._contacts:
+                del coordinator._contacts[prefix]
+
+            coordinator.mark_contact_dirty(prefix)
+
+            # Trigger immediate update
+            updated_data = dict(coordinator.data) if coordinator.data else {}
+            updated_data["contacts"] = coordinator.get_all_contacts()
+            coordinator.async_set_updated_data(updated_data)
+
+        connection.send_result(msg["id"], {"success": True})
+
+    except Exception as ex:
+        _ws_send_error_safe(
+            connection, msg["id"], ex, handler="ws_remove_contact"
+        )
+
+
+# ─── meshcore/trace ─────────────────────────────────────────────────
+# Discovery-mode traces delegate to the embedded engine meshcore.trace service
+# (PR #216, meshcore>=2.6.0). Explicit-path traces (when 'path' is
+# provided) keep the original inlined SDK plumbing because the embedded engine
+# service does not currently accept an explicit-path argument — see
+# Session 53 / Session 55 Addendum 2 in the meshcore-ha workspace log
+# for the production case the explicit-path branch protects.
+
+
+def _trace_error_for(
+    upstream_code: str, result: dict | None, msg: dict
+) -> tuple[str, str]:
+    """Translate an HiveFW trace error envelope into the
+    pre-migration ``(chat_code, message)`` pair the frontend has always
+    seen.
+
+    Plumbs through the embedded engine service's optional ``reason`` field so
+    failures keep their diagnostic detail.
+    """
+    pubkey = msg.get("pubkey_prefix", "")
+    reason = (result or {}).get("reason")
+
+    if upstream_code == "no_coordinator":
+        return "not_found", "No active HiveFW radio coordinator"
+    if upstream_code == "not_connected":
+        return "not_connected", "Device not connected"
+    if upstream_code == "contact_not_found":
+        return (
+            "not_in_mesh",
+            f"No mesh record for {pubkey} — the device must have seen "
+            "this node's advertisement at least once to trace it.",
+        )
+    if upstream_code == "contact_not_on_device":
+        return (
+            "contact_not_on_device",
+            "This contact isn't on your device yet — the device can only "
+            "trace contacts it's stored. Add the contact to the device "
+            "first, then try trace again.",
+        )
+    if upstream_code == "contact_missing_pubkey":
+        return "error", "Contact has no public key; cannot construct trace target hash."
+    if upstream_code == "path_discovery_failed":
+        # Service may include reason="no_firmware_ack" for the no-ack
+        # case; the malformed-PATH_RESPONSE case uses no reason.
+        if reason == "no_firmware_ack":
+            return (
+                "path_discovery_failed",
+                "Device did not acknowledge the path-discovery request.",
+            )
+        return (
+            "path_discovery_failed",
+            "Path discovery response was malformed (missing out_path_len).",
+        )
+    if upstream_code == "path_discovery_rejected":
+        return (
+            "path_discovery_rejected",
+            f"Node rejected path-discovery request: {reason or 'unknown'}",
+        )
+    if upstream_code == "path_discovery_timeout":
+        # Upstream service does not return the timeout duration used,
+        # so the message drops the "within Xs" suffix the pre-migration
+        # version included.
+        return (
+            "path_discovery_timeout",
+            "No PATH_RESPONSE — the contact did not reply. Try again later.",
+        )
+    if upstream_code == "send_failed":
+        return "send_failed", f"Device rejected trace: {reason or 'unknown'}"
+    if upstream_code == "timeout":
+        return "timeout", "Trace timed out — no response received"
+    if upstream_code in ("await_failed", "internal_error"):
+        return "error", f"Internal error during trace: {upstream_code}"
+    # Unknown upstream code — likely a firmware-supplied passthrough
+    # string (per PR #217 docs). Surface it raw so users can report it.
+    return "error", str(upstream_code)
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hivefw_integration/trace",
+        vol.Required("pubkey_prefix"): str,
+        vol.Optional("entry_id"): str,
+        vol.Optional("source", default="manual"): vol.In(
+            ["manual", "monitor", "explicit"]
+        ),
+        # Optional comma-separated hex hops, e.g. "86,AE".  When provided,
+        # backend skips path discovery and calls send_trace() with this
+        # path directly.  Absent/empty → HiveFW trace service.
+        vol.Optional("path"): str,
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_trace(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict,
+) -> None:
+    """Run a trace against a contact and measure round-trip time.
+
+    Discovery-mode traces (default) delegate to the embedded engine
+    ``meshcore.trace`` service (PR #216, requires meshcore>=2.6.0). The
+    upstream service was lifted from this exact code in PR #216, so
+    behavior is identical: round-trip 1-byte-hash path construction
+    (Mesh.cpp:41-66), pre-registered PATH_RESPONSE listener, 15 s
+    flood-discovery floor, ``added_to_node`` gate, etc.
+
+    Explicit-path traces (``msg["path"]`` supplied) bypass the service
+    and call ``mesh_core.commands.send_trace`` directly, preserving the
+    Session 53 / Session 55 Addendum 2 workaround for production cases
+    where flood path discovery doesn't return a PATH_RESPONSE.
+
+    The frontend's ``TraceResult`` shape (``frontend/src/api.ts:355``)
+    is preserved unchanged across both branches — no frontend changes.
+    """
+    if msg.get("path"):
+        await _ws_trace_explicit(hass, connection, msg)
+        return
+
+    if not hass.services.has_service(MESHCORE_DOMAIN, "trace"):
+        connection.send_error(
+            msg["id"],
+            "service_unavailable",
+            "HiveFW trace service is not registered. Reload or reinstall the HiveFW integration.",
+        )
+        return
+
+    service_data: dict = {"pubkey_prefix": msg["pubkey_prefix"]}
+    if msg.get("entry_id"):
+        service_data["entry_id"] = msg["entry_id"]
+
+    try:
+        result = await hass.services.async_call(
+            MESHCORE_DOMAIN,
+            "trace",
+            service_data,
+            blocking=True,
+            return_response=True,
+        )
+    except Exception as ex:
+        _ws_send_error_safe(
+            connection, msg["id"], ex, handler="ws_trace"
+        )
+        return
+
+    trace = (result or {}).get("trace")
+    if trace is None:
+        # Service returned a structured error. Map back to the chat's
+        # pre-migration error codes + message text so frontend toasts
+        # read identically to today.
+        upstream_code = (result or {}).get("error", "error")
+        chat_code, message = _trace_error_for(upstream_code, result, msg)
+        connection.send_error(msg["id"], chat_code, message)
+        return
+
+    # Reshape into the existing TraceResult shape (TS interface in
+    # frontend/src/api.ts:355). Service returns hops/path/round_trip_ms/
+    # final_snr/tag at trace.* — the WS contract is the same fields at
+    # top level plus a formatted response_time string.
+    rtt = int(trace.get("round_trip_ms", 0))
+    trace_result = {
+        "round_trip_ms": rtt,
+        "response_time": f"{rtt}ms",
+        "hops": trace.get("hops", 0),
+        "final_snr": trace.get("final_snr"),
+        "path": trace.get("path", []),
+    }
+    await _record_trace_history(
+        hass,
+        msg.get("entry_id"),
+        msg.get("pubkey_prefix", ""),
+        trace_result,
+        source=msg.get("source", "manual"),
+    )
+    connection.send_result(msg["id"], trace_result)
+
+
+async def _ws_trace_explicit(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict,
+) -> None:
+    """Inlined explicit-path trace handler.
+
+    When the user supplies an explicit comma-hex hop sequence via the
+    ``path`` parameter, bypass ``meshcore.trace`` and call
+    ``mesh_core.commands.send_trace`` directly. The upstream service
+    (PR #216) does not accept an explicit-path argument; if it gains
+    one, this branch can collapse into the service call and the
+    SDK-level coupling here disappears.
+
+    Why this branch exists: Session 53 (2026-04-20) DEBUG capture
+    showed multi-hop flood path discovery does not reliably return a
+    PATH_RESPONSE for all reachable targets (e.g. Otay RPTR via
+    ca.cv.main-st: firmware accepts + broadcasts the request, but no
+    response ever arrives). The native MeshCoreOne iOS app works
+    around this by letting the user type the hop sequence manually;
+    this branch mirrors that workaround.
+    """
+    import random
+
+    coordinator = _get_coordinator(hass, msg.get("entry_id"))
+    if not coordinator:
+        connection.send_error(msg["id"], "not_found", "No active HiveFW radio coordinator")
+        return
+
+    api = coordinator.api
+    if not api.connected or not api.mesh_core:
+        connection.send_error(msg["id"], "not_connected", "Device not connected")
+        return
+
+    pubkey_prefix = msg["pubkey_prefix"]
+    explicit_path = msg["path"]  # caller (ws_trace) guaranteed non-empty
+
+    contact = coordinator.get_contact_by_prefix(pubkey_prefix)
+    if not contact:
+        connection.send_error(
+            msg["id"],
+            "not_in_mesh",
+            f"No mesh record for {pubkey_prefix} — the device must have seen "
+            "this node's advertisement at least once to trace it.",
+        )
+        return
+    if not contact.get("added_to_node"):
+        connection.send_error(
+            msg["id"],
+            "contact_not_on_device",
+            "This contact isn't on your device yet — the device can only "
+            "trace contacts it's stored. Add the contact to the device "
+            "first, then try trace again.",
+        )
+        return
+
+    try:
+        tag = random.randint(0, 0xFFFFFFFF)
+
+        # Pass the user's comma-hex string through unchanged — send_trace()
+        # parses it internally and its debug log shows the exact input
+        # verbatim, which aids diagnosis if a typo slips through.
+        # Session 55 Addendum 2: pass flags=None so the SDK derives flags
+        # from the user's per-hop hex width
+        # (meshcore_py/messaging.py:249-268).
+        trace_path_arg = explicit_path
+        flags = None
+        out_path_len = len([h for h in explicit_path.split(",") if h.strip()])
+        _LOGGER.debug(
+            "ws_trace: explicit path for %s: %s (%d hops)",
+            pubkey_prefix, explicit_path, out_path_len,
+        )
+
+        start_time = time.monotonic()
+
+        # TRACE_DATA correlation via the catch-all raw-event bus —
+        # forward_all_events() in __init__.py re-fires every SDK event
+        # as meshcore_raw_event with {event_type, payload, timestamp}.
+        response_future: asyncio.Future = hass.loop.create_future()
+
+        def _on_raw_event(event):
+            data = event.data or {}
+            if "TRACE_DATA" not in (data.get("event_type", "") or ""):
+                return
+            payload = data.get("payload") or {}
+            if payload.get("tag") == tag and not response_future.done():
+                response_future.set_result(payload)
+
+        unsub = hass.bus.async_listen("hivefw_raw_event", _on_raw_event)
+
+        try:
+            from meshcore.events import EventType as _EventType
+            send_result = await api.mesh_core.commands.send_trace(
+                0, tag, flags, trace_path_arg
+            )
+            if send_result is None or getattr(send_result, "type", None) == _EventType.ERROR:
+                reason = "no_response"
+                if send_result is not None and isinstance(send_result.payload, dict):
+                    reason = send_result.payload.get("reason", "unknown")
+                _LOGGER.debug("ws_trace: send_trace rejected by SDK/firmware: %s", reason)
+                connection.send_error(
+                    msg["id"],
+                    "send_failed",
+                    f"Device rejected trace: {reason}",
+                )
+                return
+
+            # Bound the TRACE_DATA wait using the device's suggested
+            # timeout * 1.2, with sensible floor/ceiling.
+            timeout_ms = (api.self_info or {}).get("suggested_timeout", 15000)
+            timeout_s = min(max(timeout_ms / 1000.0 * 1.2, 5.0), 60.0)
+
+            try:
+                response_data = await asyncio.wait_for(response_future, timeout=timeout_s)
+                round_trip_ms = int((time.monotonic() - start_time) * 1000)
+
+                # Path is only populated when path_len > 0. The final
+                # entry in path[] is the local device's SNR on receiving
+                # the trace echo; earlier entries carry per-hop SNRs.
+                path = response_data.get("path") or []
+                final_snr = None
+                if path and "snr" in path[-1]:
+                    final_snr = path[-1]["snr"]
+
+                trace_result = {
+                    "round_trip_ms": round_trip_ms,
+                    "response_time": f"{round_trip_ms}ms",
+                    "hops": response_data.get("path_len", 0),
+                    "final_snr": final_snr,
+                    "path": path,
+                }
+                await _record_trace_history(
+                    hass,
+                    msg.get("entry_id"),
+                    pubkey_prefix,
+                    trace_result,
+                    source=msg.get("source", "explicit"),
+                )
+                connection.send_result(msg["id"], trace_result)
+            except asyncio.TimeoutError:
+                connection.send_error(
+                    msg["id"], "timeout",
+                    "Trace timed out — no response received",
+                )
+        finally:
+            unsub()
+
+    except Exception as ex:
+        _ws_send_error_safe(
+            connection, msg["id"], ex, handler="ws_trace_explicit"
+        )
+
+
+# ─── meshcore/get_blocked_contacts ──────────────────────────────────
+# Returns list of locally blocked contacts. Blocking is a client-side
+# UI preference stored in coordinator, not a device-level operation.
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hivefw_integration/get_blocked_contacts",
+        vol.Optional("entry_id"): str,
+    }
+)
+@callback
+def ws_get_blocked_contacts(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict,
+) -> None:
+    """Return list of contacts that have been blocked locally."""
+    coordinator = _get_coordinator(hass, msg.get("entry_id"))
+    if not coordinator:
+        connection.send_error(msg["id"], "not_found", "No active HiveFW radio coordinator")
+        return
+
+    # _blocked_contacts is a set of pubkey prefixes
+    blocked_prefixes = getattr(coordinator, "_blocked_contacts", set())
+    all_contacts = coordinator.get_all_contacts()
+
+    blocked = [
+        c for c in all_contacts
+        if c.get("public_key", "")[:12] in blocked_prefixes
+    ]
+
+    connection.send_result(msg["id"], {"contacts": blocked})
+
+
+# ─── meshcore/set_contact_blocked ───────────────────────────────────
+# Toggles the blocked state of a contact. This is a local UI preference
+# stored on the coordinator — no SDK call is made to the device.
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hivefw_integration/set_contact_blocked",
+        vol.Required("public_key"): str,
+        vol.Required("blocked"): bool,
+        vol.Optional("entry_id"): str,
+    }
+)
+@websocket_api.require_admin
+@callback
+def ws_set_contact_blocked(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict,
+) -> None:
+    """Set or clear the blocked flag on a contact (local UI preference)."""
+    coordinator = _get_coordinator(hass, msg.get("entry_id"))
+    if not coordinator:
+        connection.send_error(msg["id"], "not_found", "No active HiveFW radio coordinator")
+        return
+
+    public_key = msg["public_key"]
+    blocked = msg["blocked"]
+
+    # Initialize blocked set if not present
+    if not hasattr(coordinator, "_blocked_contacts"):
+        coordinator._blocked_contacts = set()
+
+    prefix = public_key[:12]
+
+    if blocked:
+        coordinator._blocked_contacts.add(prefix)
+    else:
+        coordinator._blocked_contacts.discard(prefix)
+
+    connection.send_result(msg["id"], {"success": True})
+
+
+# ================================================================
+# Message Store commands
+# ================================================================
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hivefw_integration/get_rx_log",
+        vol.Optional("limit", default=150): vol.All(int, vol.Range(min=1, max=500)),
+        vol.Optional("incoming_only", default=True): bool,
+        vol.Optional("entry_id"): str,
+    }
+)
+@websocket_api.async_response
+async def ws_get_rx_log(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict,
+) -> None:
+    """Return a bounded RX-observation log derived from stored message metadata.
+
+    This is not a raw-radio packet logger. It exposes rx_log_data already
+    captured by the embedded HiveFW radio engine and persisted by HiveFW,
+    so reading it creates no additional LoRa traffic.
+
+    The inbound ``entry_id`` field is intentionally NOT forwarded to
+    ``_get_store``. As with the other MessageStore handlers, the frontend
+    may supply the radio-engine entry id while the store belongs to the
+    single HiveFW companion entry, so this handler always uses the
+    ``None``-fallback.
+    """
+    store = _get_store(hass, None)
+    if store is None:
+        connection.send_error(
+            msg["id"], "not_found", "No HiveFW message store found"
+        )
+        return
+
+    limit = msg.get("limit", 150)
+    incoming_only = bool(msg.get("incoming_only", True))
+    rows: list[dict] = []
+
+    for entity_id in list(store.get_message_index().keys()):
+        messages = await store._load_for_search(entity_id)
+        state = hass.states.get(entity_id)
+        conversation_name = (
+            state.attributes.get("friendly_name", entity_id)
+            if state
+            else entity_id
+        )
+
+        for message in reversed(messages):
+            outgoing = bool(message.get("outgoing", False))
+            if incoming_only and outgoing:
+                continue
+
+            base = {
+                "message_id": message.get("id", ""),
+                "entity_id": entity_id,
+                "conversation_name": conversation_name,
+                "timestamp": message.get("timestamp", ""),
+                "sender": message.get("sender", ""),
+                "text": (message.get("text", "") or "")[:160],
+                "message_type": message.get("message_type", ""),
+                "outgoing": outgoing,
+                "channel_idx": message.get("channel_idx"),
+                "pubkey_prefix": message.get("pubkey_prefix"),
+            }
+
+            observations = message.get("rx_log_data")
+            if isinstance(observations, list) and observations:
+                for idx, observation in enumerate(observations):
+                    if not isinstance(observation, dict):
+                        continue
+                    row = dict(base)
+                    row.update(observation)
+                    row["observation_index"] = idx
+                    rows.append(row)
+            elif any(
+                message.get(key) is not None
+                for key in ("rssi", "snr", "hop_count")
+            ):
+                row = dict(base)
+                for key in ("rssi", "snr", "hop_count", "path", "path_len"):
+                    if message.get(key) is not None:
+                        row[key] = message.get(key)
+                row["synthesized"] = True
+                row["observation_index"] = 0
+                rows.append(row)
+
+    rows.sort(key=lambda row: str(row.get("timestamp", "")), reverse=True)
+    rows = rows[:limit]
+    connection.send_result(
+        msg["id"],
+        {
+            "rows": rows,
+            "count": len(rows),
+            "incoming_only": incoming_only,
+            "source": "stored_message_rx_log",
+        },
+    )
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hivefw_integration/get_stored_messages",
+        vol.Required("entity_id"): str,
+        vol.Optional("limit", default=50): int,
+        vol.Optional("before"): str,
+        vol.Optional("after"): str,
+        vol.Optional("entry_id"): str,
+    }
+)
+@websocket_api.async_response
+async def ws_get_stored_messages(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict,
+) -> None:
+    """Get stored messages for a conversation with cursor pagination.
+
+    Routes through the *companion's* MessageStore (per-entry; lives on
+    hass.data[DOMAIN]), not the HiveFW coordinator.
+
+    The inbound ``entry_id`` field is intentionally NOT forwarded to
+    ``_get_store`` — it stays on the schema for backwards compatibility
+    but the handler always uses the ``None``-fallback branch. Same
+    reason as ``ws_mark_read`` / ``ws_get_messages_around``: the chat
+    panel's frontend forwards ``this.config?.entry_id`` to every WS
+    handler, and that resolves to the HiveFW integration's
+    entry id rather than the chat companion's. The chat companion is
+    single-instance per its config flow, so the fallback resolves
+    deterministically.
+    """
+    # Always use the fallback — see the docstring for the rationale.
+    store = _get_store(hass, None)
+    if store is None:
+        connection.send_error(
+            msg["id"], "not_found", "No HiveFW message store found"
+        )
+        return
+
+    limit = msg.get("limit", 50)
+    messages = await store.get_messages(
+        msg["entity_id"],
+        limit=limit,
+        before=msg.get("before"),
+        after=msg.get("after"),
+    )
+    connection.send_result(
+        msg["id"],
+        {"messages": messages, "has_more": len(messages) == limit},
+    )
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hivefw_integration/get_stored_message_count",
+        vol.Required("entity_id"): str,
+        vol.Optional("entry_id"): str,
+    }
+)
+@callback
+def ws_get_stored_message_count(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict,
+) -> None:
+    """Get message count for a conversation from the in-memory index.
+
+    Routes through the companion's MessageStore.
+
+    The inbound ``entry_id`` field is intentionally NOT forwarded to
+    ``_get_store`` — it stays on the schema for backwards compatibility
+    but the handler always uses the ``None``-fallback branch. Same
+    reason as ``ws_mark_read`` / ``ws_get_messages_around``: the chat
+    panel's frontend forwards the HiveFW integration's
+    entry id, not the chat companion's. The chat companion is single-
+    instance per its config flow, so the fallback resolves
+    deterministically.
+    """
+    # Always use the fallback — see the docstring for the rationale.
+    store = _get_store(hass, None)
+    if store is None:
+        connection.send_error(
+            msg["id"], "not_found", "No HiveFW message store found"
+        )
+        return
+
+    index_entry = store.get_message_index().get(msg["entity_id"], {})
+    connection.send_result(
+        msg["id"], {"count": index_entry.get("message_count", 0)}
+    )
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hivefw_integration/search_stored_messages",
+        vol.Required("query"): str,
+        vol.Optional("entity_id"): str,
+        vol.Optional("from_date"): str,
+        vol.Optional("to_date"): str,
+        vol.Optional("limit", default=20): int,
+        vol.Optional("entry_id"): str,
+    }
+)
+@websocket_api.async_response
+async def ws_search_stored_messages(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict,
+) -> None:
+    """Search stored messages by text or sender name.
+
+    Uses _load_for_search() for non-caching disk reads — conversations
+    loaded solely for search are not kept in memory after the call returns.
+
+    The inbound ``entry_id`` field is intentionally NOT forwarded to
+    ``_get_store`` — it stays on the schema for backwards compatibility
+    but the handler always uses the ``None``-fallback branch. Same
+    reason as ``ws_mark_read`` / ``ws_get_messages_around``: the chat
+    panel's frontend forwards the HiveFW integration's
+    entry id, not the chat companion's. The chat companion is single-
+    instance per its config flow, so the fallback resolves
+    deterministically.
+    """
+    # Always use the fallback — see the docstring for the rationale.
+    store = _get_store(hass, None)
+    if store is None:
+        connection.send_error(
+            msg["id"], "not_found", "No HiveFW message store found"
+        )
+        return
+
+    query = msg["query"].lower()
+    from_date = msg.get("from_date")
+    to_date = msg.get("to_date")
+    results = []
+    limit = msg.get("limit", 20)
+
+    entities = (
+        [msg["entity_id"]] if msg.get("entity_id")
+        else list(store.get_message_index().keys())
+    )
+    for eid in entities:
+        messages = await store._load_for_search(eid)
+
+        # Resolve conversation name from HA entity state
+        state = hass.states.get(eid)
+        conv_name = state.attributes.get("friendly_name", eid) if state else eid
+
+        for m in reversed(messages):
+            ts = m.get("timestamp", "")
+
+            # Date range filtering
+            if from_date and ts < from_date:
+                continue
+            if to_date and ts > to_date:
+                continue
+
+            if query in (m.get("text", "")).lower() or query in (m.get("sender", "")).lower():
+                results.append({
+                    **m,
+                    "entity_id": eid,
+                    "conversation_name": conv_name,
+                })
+                if len(results) >= limit:
+                    break
+        if len(results) >= limit:
+            break
+
+    connection.send_result(msg["id"], {"results": results})
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hivefw_integration/get_messages_around",
+        vol.Required("entity_id"): str,
+        vol.Required("anchor_id"): str,
+        vol.Optional("before_limit", default=25): int,
+        vol.Optional("after_limit", default=50): int,
+        vol.Optional("entry_id"): str,
+    }
+)
+@websocket_api.async_response
+async def ws_get_messages_around(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict,
+) -> None:
+    """Return a window of messages anchored on a message id.
+
+    The panel calls this once per conversation open with the cursor that
+    ``ws_mark_read`` snapshotted, and gets back ``before_limit`` messages
+    older than the anchor + ``after_limit`` messages newer than the
+    anchor in a single round-trip. The anchor itself is included in the
+    window; ``anchor_index`` tells the frontend where to put the unread
+    divider.
+
+    Wire shape: ``{messages, anchor_index, has_more_before,
+    has_more_after, anchor_found}``. ``anchor_found`` is ``False`` when
+    the anchor id is no longer present in the conversation (pruning,
+    manual storage deletion, or future archive feature could orphan the
+    cursor); the panel falls back to a
+    no-divider view that matches a fresh-install open.
+
+    The inbound ``entry_id`` field is intentionally NOT forwarded to
+    ``_get_store`` — it stays on the schema for backwards compatibility
+    but the handler always uses the ``None``-fallback branch. Same
+    reason as ``ws_mark_read``: the chat panel's frontend forwards
+    ``this.config?.entry_id`` to every WS handler, and that resolves to
+    the HiveFW integration's entry id rather than the chat
+    companion's. The chat companion is single-instance per its config
+    flow, so the fallback resolves deterministically.
+    """
+    # Always use the fallback — see the docstring for the rationale.
+    store = _get_store(hass, None)
+    if store is None:
+        connection.send_error(
+            msg["id"], "not_found", "No HiveFW message store found"
+        )
+        return
+
+    (
+        window,
+        anchor_index,
+        has_more_before,
+        has_more_after,
+        anchor_found,
+    ) = await store.get_messages_around(
+        msg["entity_id"],
+        msg["anchor_id"],
+        before_limit=msg.get("before_limit", 25),
+        after_limit=msg.get("after_limit", 50),
+    )
+    connection.send_result(
+        msg["id"],
+        {
+            "messages": window,
+            "anchor_index": anchor_index,
+            "has_more_before": has_more_before,
+            "has_more_after": has_more_after,
+            "anchor_found": anchor_found,
+        },
+    )

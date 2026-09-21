@@ -1,0 +1,38 @@
+{
+  "name": "hivefw-ha-integration-panel",
+  "version": "1.1.4",
+  "private": true,
+  "description": "Standalone HiveFW Companion-Repeater integration panel for Home Assistant",
+  "scripts": {
+    "build": "rollup -c",
+    "dev": "rollup -c --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "lit": "^3.3.3"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.29.7",
+    "@babel/preset-env": "^7.29.7",
+    "@rollup/plugin-babel": "^7.1.0",
+    "@rollup/plugin-node-resolve": "^16.0.3",
+    "@rollup/plugin-terser": "^1.0.0",
+    "@rollup/plugin-typescript": "^12.3.0",
+    "happy-dom": "^20.10.6",
+    "rollup": "^4.62.2",
+    "tslib": "^2.6.0",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.9"
+  },
+  "browserslist": [
+    "chrome >= 64",
+    "edge >= 79",
+    "firefox >= 67",
+    "safari >= 12",
+    "and_chr >= 64",
+    "ios_saf >= 12",
+    "samsung >= 9"
+  ]
+}

@@ -1,0 +1,1230 @@
+import { LitElement, html, css } from 'lit';
+import { customElement, property, state } from 'lit/decorators.js';
+import type { HomeAssistant, PanelConfig, Contact, Channel, MeshCoreDevice } from './types';
+import type { TraceResult } from './api';
+import { panelStyles } from './styles';
+import { HIVEFW_PRESET, DEFAULT_PANEL_CONFIG } from './constants';
+import { getDevices, getContacts, getChannels, getUnreadAndLastRead, markConversationRead, removeContact, addContact, traceContact, type TracePathMode } from './api';
+import { UnreadController } from './chat/unread-controller';
+import './pages/chat-page';
+import './pages/nodes-page';
+import './pages/neighbors-page';
+import './pages/settings-page';
+import './components/trace-dialog';
+import './components/target-picker';
+
+@customElement('hivefw-integration-panel')
+export class MeshCorePanel extends LitElement {
+  @property({ type: Object }) hass?: HomeAssistant;
+  @property({ type: Boolean, reflect: true }) narrow = false;
+  @property({ type: Object }) panel?: Record<string, unknown>;
+
+  @state() private _config: PanelConfig | null = null;
+  @state() private _activeTab: 'chat' | 'nodes' | 'neighbors' | 'settings' = 'settings';
+  // Managed-device administration is consolidated under Dispositivo.
+  @state() private _devices: MeshCoreDevice[] = [];
+  @state() private _contacts: Contact[] = [];
+  @state() private _channels: Channel[] = [];
+  @state() private _selectedEntryId: string | null = null;
+  @state() private _loading = true;
+  @state() private _loadingStarted = false;
+  @state() private _error: string | null = null;
+  @state() private _unsubscribeList: Array<() => void> = [];
+  /**
+   * The single panel-owned source of truth for frontend "unread"
+   * state. Replaces the former
+   * `@state() _unreadCounts` / `@state() _lastRead` maps. Constructed
+   * once and owned by the panel — the panel is not remounted on tab
+   * switch, so the badge map and the `hivefw_unread_updated`
+   * subscription state persist correctly. `<chat-page>` `subscribe`s
+   * to it (and unsubscribes — but does NOT destroy — on disconnect).
+   *
+   * The controller is NOT `@state()`: its mutations notify
+   * subscribers directly, so the panel does not need to re-render to
+   * propagate an unread change (and the reference passed to
+   * `<chat-page>` is deliberately stable).
+   */
+  private _unread = new UnreadController();
+  @state() private _pendingChatTarget: string | null = null;
+  /** Entity ID of the conversation currently being viewed in chat. */
+  private _activeChatEntityId: string | null = null;
+
+  // Custom dropdown for the multi-entry device switcher.
+  // Replaces the native <select> so each option can render name + pubkey
+  // prefix on two visual lines, and so the collapsed display does not
+  // duplicate the prefix (a native <select>'s collapsed text is
+  // necessarily the selected <option>'s text). Document-level click and
+  // keydown listeners are attached lazily when the menu opens and torn
+  // down when it closes (or in disconnectedCallback).
+  @state() private _deviceDropdownOpen = false;
+  private _onDocClickForDropdown = (e: MouseEvent) => {
+    // If the click landed inside the dropdown (button or menu), the
+    // option click handler already runs; we only close on truly-outside
+    // clicks.
+    const path = (e.composedPath ? e.composedPath() : []) as EventTarget[];
+    const root = this.shadowRoot?.querySelector('.device-info-wrap');
+    if (root && path.includes(root)) return;
+    this._closeDeviceDropdown();
+  };
+  private _onDocKeyForDropdown = (e: KeyboardEvent) => {
+    if (e.key === 'Escape') this._closeDeviceDropdown();
+  };
+
+  // Trace-result dialog state.  Opened from the 'trace' action handler; the
+  // dialog closes itself via a trace-dialog-closed event.
+  @state() private _traceDialogOpen = false;
+  @state() private _traceDialogContactName = '';
+  @state() private _traceDialogResult: TraceResult | null = null;
+  @state() private _traceDialogError = '';
+  // The trace-dialog has an input phase before running.  Store
+  // the target so the `trace-requested` handler can fire traceContact()
+  // after the user picks a path type.
+  @state() private _traceDialogPubkeyPrefix = '';
+  @state() private _traceDialogEntryId: string | undefined = undefined;
+  // Pass the full Contact record through to the dialog so it
+  // can pre-populate forwarding-class targets as the last hop.  Null for
+  // ManagedDevice invocations or when we have no Contact record.
+  @state() private _traceDialogTargetContact: Contact | null = null;
+
+  // The target-picker is a pre-dialog step that only appears for
+  // companion-entry traces (settings-tab Trace button).  Nodes-tab
+  // traces come with a pre-chosen target and bypass the picker entirely,
+  // opening the trace-dialog directly.  _pendingTraceEntryId caches the
+  // entry_id that should be used when the picker resolves.
+  @state() private _targetPickerOpen = false;
+  @state() private _pendingTraceEntryId: string | undefined = undefined;
+
+  static styles = [
+    panelStyles,
+    css`
+      :host {
+        display: block;
+        width: 100%;
+        height: 100vh;
+      }
+
+      .panel {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+        background: var(--primary-background-color, #fafafa);
+      }
+
+      .panel-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 12px 16px;
+        background: var(--card-background-color, #fff);
+        border-bottom: 1px solid var(--divider-color, #e0e0e0);
+        flex-shrink: 0;
+        gap: 12px;
+      }
+
+      .panel-title {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        font-size: 18px;
+        font-weight: 500;
+        color: var(--primary-text-color);
+        min-width: 0;
+      }
+
+      .hivefw-header-brand-white {
+        display: inline-block;
+        width: 152px;
+        height: 38px;
+        flex: 0 0 auto;
+        background: transparent url('/hivefw_integration_panel/hivefw-wordmark.png?v=dark-2') center / contain no-repeat;
+      }
+
+      .hivefw-header-brand-white::before,
+      .hivefw-header-brand-white::after {
+        content: none;
+      }
+
+      :host([narrow]) .hivefw-header-brand-white {
+        width: 132px;
+        height: 33px;
+      }
+
+      .device-info {
+        font-size: 13px;
+        color: var(--secondary-text-color);
+      }
+
+      /* The multi-entry device switcher is a custom dropdown (button +
+         listbox) instead of a native <select>, so each option can
+         render name + pubkey-prefix as separate visual lines and so the
+         collapsed display does not duplicate the prefix. The
+         single-entry case shares the same wrap class and same
+         name+prefix sibling layout. node_name and identity keys are
+         independent fields by firmware design; showing both makes the
+         distinction visible to the user. */
+      .device-info-wrap {
+        position: relative; /* anchor for the absolutely-positioned menu */
+        display: inline-flex;
+        flex-direction: row;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        min-width: 0; /* allow children to shrink in narrow header */
+      }
+
+      .device-switcher {
+        position: relative; /* anchor for absolute caret in column mode */
+        display: inline-flex;
+        flex-direction: row;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        padding: 8px 12px;
+        border: 1px solid var(--divider-color, #e0e0e0);
+        border-radius: 8px;
+        background: var(--card-background-color, #fff);
+        color: var(--primary-text-color);
+        font: inherit;
+        font-size: 13px;
+        text-align: left;
+        box-sizing: border-box;
+        min-height: 39px;
+        line-height: normal;
+        cursor: pointer;
+        max-width: 250px;
+      }
+
+      .device-switcher:hover {
+        background: var(--secondary-background-color, rgba(0, 0, 0, 0.04));
+      }
+
+      .device-switcher-caret {
+        margin-left: 4px;
+        opacity: 0.6;
+        font-size: 11px;
+      }
+
+      .device-prefix {
+        font-size: 0.85em;
+        opacity: 0.75;
+        white-space: nowrap;
+      }
+
+      .device-switcher-menu {
+        position: absolute;
+        top: calc(100% + 4px);
+        right: 0;
+        z-index: 10;
+        margin: 0;
+        padding: 4px 0;
+        list-style: none;
+        width: max-content; /* size to widest item, not parent button */
+        min-width: 140px; /* small floor so the menu never gets skinny */
+        max-width: 280px;
+        background: var(--card-background-color, #fff);
+        border: 1px solid var(--divider-color, #e0e0e0);
+        border-radius: 8px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+      }
+
+      .device-switcher-menu li {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        padding: 8px 12px;
+        cursor: pointer;
+        gap: 0;
+      }
+
+      .device-switcher-menu li:hover {
+        background: var(--secondary-background-color, rgba(0, 0, 0, 0.05));
+      }
+
+      .device-switcher-menu li.active {
+        background: rgba(3, 169, 244, 0.1);
+      }
+
+      .device-switcher-menu li .device-name {
+        font-size: 13px;
+        line-height: 1.2;
+      }
+
+      .device-switcher-menu li .device-prefix {
+        line-height: 1.1;
+      }
+
+      /* Mobile / narrow header: stack name and prefix vertically inside
+         the button (multi-entry) and inside the wrap (single-entry).
+         The caret is pulled out of the flex column flow and pinned to
+         the right edge of the button so it doesn't end up as a third
+         row below the prefix. Extra right-padding leaves room for it.
+         Two gates fire this: the panel's own [narrow] attribute (set by
+         HA's responsive sidebar via the reflected 'narrow' property)
+         and a viewport media query as a fallback for desktop browsers
+         in narrow viewports. The :host([narrow]) and @media blocks are
+         duplicated rather than comma-combined because CSS does not
+         allow mixing a selector with an at-rule in a single rule list. */
+      :host([narrow]) .device-info-wrap,
+      :host([narrow]) .device-switcher {
+        flex-direction: column;
+        align-items: flex-end;
+        justify-content: center;
+        gap: 0;
+      }
+
+      :host([narrow]) .device-switcher {
+        padding-right: 28px; /* room for the absolutely-positioned caret */
+      }
+
+      :host([narrow]) .device-switcher-caret {
+        position: absolute;
+        right: 10px;
+        top: 50%;
+        transform: translateY(-50%);
+        margin-left: 0;
+      }
+
+      :host([narrow]) .device-prefix {
+        line-height: 1.1;
+      }
+
+      @media (max-width: 480px) {
+        .device-info-wrap,
+        .device-switcher {
+          flex-direction: column;
+          align-items: flex-end;
+          justify-content: center;
+          gap: 0;
+        }
+        .device-switcher {
+          padding-right: 28px;
+        }
+        .device-switcher-caret {
+          position: absolute;
+          right: 10px;
+          top: 50%;
+          transform: translateY(-50%);
+          margin-left: 0;
+        }
+        .device-prefix {
+          line-height: 1.1;
+        }
+      }
+
+      .menu-icon {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 36px;
+        height: 36px;
+        border: none;
+        background: none;
+        cursor: pointer;
+        color: var(--primary-text-color);
+        border-radius: 50%;
+        padding: 0;
+        flex-shrink: 0;
+      }
+
+      .menu-icon:hover {
+        background: var(--secondary-background-color, rgba(0, 0, 0, 0.1));
+      }
+
+      .header-left {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex: 1;
+      }
+
+      .header-right {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-shrink: 0;
+      }
+
+      .connection-status {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 4px 10px;
+        border-radius: 12px;
+        font-size: 12px;
+        font-weight: 500;
+        border: 1px solid;
+      }
+
+      .connection-status.online {
+        color: #4caf50;
+        border-color: rgba(76, 175, 80, 0.4);
+        background: rgba(76, 175, 80, 0.08);
+      }
+
+      .connection-status.offline {
+        color: var(--error-color, #db4437);
+        border-color: rgba(219, 68, 55, 0.4);
+        background: rgba(219, 68, 55, 0.08);
+      }
+
+      .status-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        flex-shrink: 0;
+      }
+
+      .status-dot.online {
+        background: #4caf50;
+      }
+
+      .status-dot.offline {
+        background: var(--error-color, #db4437);
+      }
+
+      .battery-indicator {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 12px;
+        font-weight: 500;
+        color: var(--secondary-text-color);
+      }
+
+      .battery-icon {
+        position: relative;
+        width: 18px;
+        height: 10px;
+        border: 1.5px solid var(--secondary-text-color, #888);
+        border-radius: 2px;
+        display: flex;
+        align-items: center;
+        padding: 1px;
+      }
+
+      .battery-icon::after {
+        content: '';
+        position: absolute;
+        right: -4px;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 2px;
+        height: 5px;
+        background: var(--secondary-text-color, #888);
+        border-radius: 0 1px 1px 0;
+      }
+
+      .battery-fill {
+        height: 100%;
+        border-radius: 1px;
+        transition: width 0.3s ease;
+      }
+
+      .battery-fill.high {
+        background: #4caf50;
+      }
+
+      .battery-fill.medium {
+        background: #ff9800;
+      }
+
+      .battery-fill.low {
+        background: var(--error-color, #db4437);
+      }
+
+      .battery-pct {
+        min-width: 28px;
+        text-align: right;
+      }
+
+      /* Mobile: compact header indicators */
+      @media (max-width: 870px) {
+        .connection-status {
+          padding: 0;
+          border: none;
+          background: none !important;
+          gap: 0;
+          font-size: 0;
+        }
+
+        .connection-status .status-dot {
+          width: 8px;
+          height: 8px;
+        }
+
+        .battery-pct {
+          display: none;
+        }
+
+        .battery-indicator {
+          gap: 0;
+        }
+
+        .battery-icon {
+          width: 13.5px;
+          height: 7.5px;
+          border-width: 1.25px;
+        }
+
+        .battery-icon::after {
+          right: -3px;
+          width: 1.5px;
+          height: 4px;
+        }
+      }
+
+      .tab-bar {
+        display: flex;
+        background: var(--card-background-color, #fff);
+        border-bottom: 1px solid var(--divider-color, #e0e0e0);
+        flex-shrink: 0;
+      }
+
+      .tab-bar button {
+        flex: 1;
+        padding: 12px 16px;
+        border: none;
+        background: transparent;
+        color: var(--secondary-text-color, #727272);
+        font-size: 14px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.2s;
+        border-bottom: 3px solid transparent;
+        min-height: 48px;
+      }
+
+      .tab-bar button:hover {
+        color: var(--primary-text-color);
+        background: rgba(0, 0, 0, 0.02);
+      }
+
+      .tab-bar button.active {
+        color: var(--primary-color, #03a9f4);
+        border-bottom-color: var(--primary-color, #03a9f4);
+      }
+
+      .page-container {
+        flex: 1;
+        overflow: hidden;
+        display: flex;
+      }
+
+      .page-container > * {
+        flex: 1;
+        overflow: hidden;
+      }
+
+      .error-banner {
+        padding: 12px 16px;
+        background: rgba(219, 68, 55, 0.08);
+        color: var(--error-color, #db4437);
+        border-bottom: 1px solid var(--divider-color, #e0e0e0);
+        font-size: 13px;
+      }
+
+      .center-message {
+        flex: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        color: var(--secondary-text-color);
+        padding: 24px;
+      }
+
+      .spinner {
+        width: 32px;
+        height: 32px;
+        border: 3px solid var(--divider-color, #e0e0e0);
+        border-top-color: var(--primary-color, #03a9f4);
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+      }
+
+      @keyframes spin {
+        to { transform: rotate(360deg); }
+      }
+    `,
+  ];
+
+  constructor() {
+    super();
+    // Register the panel's mark-read-requested handler. The panel owns
+    // the WS round-trip + unread bookkeeping; the emitter is the
+    // controller's read-progress mutators.
+    this._unread.onMarkReadRequested((entityId) => {
+      this._handleMarkReadRequested(entityId);
+    });
+  }
+
+  connectedCallback() {
+    super.connectedCallback();
+    this._loadData();
+    this._setupSubscriptions();
+  }
+
+  disconnectedCallback() {
+    super.disconnectedCallback();
+    this._teardownSubscriptions();
+    this._closeDeviceDropdown();
+  }
+
+  private _toggleDeviceDropdown() {
+    if (this._deviceDropdownOpen) {
+      this._closeDeviceDropdown();
+    } else {
+      this._openDeviceDropdown();
+    }
+  }
+
+  private _openDeviceDropdown() {
+    if (this._deviceDropdownOpen) return;
+    this._deviceDropdownOpen = true;
+    // Listen on the next tick so the click that opened the menu does
+    // not immediately close it via the document handler.
+    setTimeout(() => {
+      document.addEventListener('click', this._onDocClickForDropdown, true);
+      document.addEventListener('keydown', this._onDocKeyForDropdown, true);
+    }, 0);
+  }
+
+  private _closeDeviceDropdown() {
+    if (!this._deviceDropdownOpen) return;
+    this._deviceDropdownOpen = false;
+    document.removeEventListener('click', this._onDocClickForDropdown, true);
+    document.removeEventListener('keydown', this._onDocKeyForDropdown, true);
+  }
+
+  private _selectDevice(entryId: string) {
+    if (entryId !== this._selectedEntryId) {
+      this._selectedEntryId = entryId;
+      // Clear any pending chat target from the previous
+      // entry (e.g., a "Message" action on a node-page contact that
+      // doesn't exist on the new entry). Combined with the entry-
+      // switch branch in chat-page's `updated()` lifecycle, this
+      // lands the user on the empty-state placeholder for the new
+      // entry until they explicitly pick a conversation — avoiding
+      // the lastRead/unreadCounts race that would otherwise auto-
+      // clear the new entry's badge against a stale anchor.
+      // chat-page's `selectedId` is bound to this property, so
+      // clearing here is the canonical way to reset selection state
+      // (mutating `selectedId` from inside chat-page would be
+      // re-asserted by Lit prop binding on the next render pass).
+      this._pendingChatTarget = null;
+      // The backend filters unread counts by entry_id in
+      // ws_get_unread_counts, so stale counts from the previously-
+      // selected entry remain in the controller's count map until the
+      // next `hivefw_unread_updated` bus event fires — could be
+      // minutes on a quiet mesh. Run the unread refresh in parallel
+      // with the contacts/channels refresh; both are independent
+      // backend round-trips against the new entry.
+      Promise.all([this._loadDeviceData(), this._loadUnreadCounts()]);
+    }
+    this._closeDeviceDropdown();
+  }
+
+  /**
+   * Subscribe to HA WebSocket events for live updates.
+   * Idempotent — tears down existing subscriptions before re-subscribing.
+   */
+  private _setupSubscriptions() {
+    // Clean up any existing subscriptions first
+    this._teardownSubscriptions();
+
+    if (!this.hass?.connection?.subscribeEvents) return;
+
+    this.hass.connection.subscribeEvents(
+      (event: any) => {
+        if (event.data.entry_id === this._selectedEntryId) {
+          this._loadDeviceData();
+        }
+      },
+      'hivefw_channels_updated'
+    ).then(unsubscribe => {
+      this._unsubscribeList.push(unsubscribe);
+    });
+
+    this.hass.connection.subscribeEvents(
+      (event: any) => {
+        if (event.data.entry_id === this._selectedEntryId) {
+          this._loadDeviceData();
+        }
+      },
+      'hivefw_channel_removed'
+    ).then(unsubscribe => {
+      this._unsubscribeList.push(unsubscribe);
+    });
+
+    this.hass.connection.subscribeEvents(
+      (event: { data?: { entity_id?: string } }) => {
+        // Suppress unread updates for the conversation the user is currently viewing
+        if (this._activeChatEntityId && event.data?.entity_id === this._activeChatEntityId) {
+          return;
+        }
+        this._loadUnreadCounts();
+      },
+      'hivefw_unread_updated'
+    ).then(unsubscribe => {
+      this._unsubscribeList.push(unsubscribe);
+    });
+  }
+
+  /**
+   * Tear down all active WebSocket event subscriptions.
+   */
+  private _teardownSubscriptions() {
+    if (this._unsubscribeList.length > 0) {
+      this._unsubscribeList.forEach(unsub => {
+        try { unsub(); } catch (_) { /* connection may already be dead */ }
+      });
+      this._unsubscribeList = [];
+    }
+  }
+
+  updated(changedProperties: Map<string, unknown>) {
+    if (changedProperties.has('hass') && this.hass && !this._config && !this._loadingStarted) {
+      // hass wasn't available in connectedCallback, try loading now
+      this._loadData();
+    }
+  }
+
+  private get _selectedDevice(): MeshCoreDevice | undefined {
+    return this._devices.find((d) => d.entry_id === this._selectedEntryId);
+  }
+
+  render() {
+    if (this._loading) {
+      return html`
+        <div class="panel">
+          <div class="center-message">
+            <div class="spinner"></div>
+          </div>
+        </div>
+      `;
+    }
+
+    if (this._error && !this._config) {
+      // When the error is the "no devices found" empty-state, the
+      // HiveFW radio coordinator is most likely unavailable or
+      // unconfigured — the companion's repair-issue plumbing
+      // (radio_engine_unavailable) carries the proper remediation
+      // copy, so point the user at Settings → System → Repairs.
+      // Other error strings (e.g. "Failed to load: ...") keep the
+      // legacy generic copy.
+      const isNoDevices = this._error === 'No HiveFW devices found';
+      return html`
+        <div class="panel">
+          <div class="center-message">
+            <div>
+              <p>${this._error}</p>
+              <p style="font-size: 12px; margin-top: 8px;">
+                ${isNoDevices
+                  ? html`Open <a href="/config/repairs">Settings &rarr; System &rarr; Repairs</a>
+                         for setup guidance, or reconfigure HiveFW via
+                         <a href="/config/integrations">Settings &rarr; Devices &amp; Services</a>.`
+                  : 'Check that HiveFW is configured and the radio is connected.'}
+              </p>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    const device = this._selectedDevice;
+
+    return html`
+      <div class="panel">
+        <div class="panel-header">
+          <div class="header-left">
+            ${this.narrow || this.hass?.dockedSidebar === 'always_hidden'
+              ? html`<button class="menu-icon" @click=${this._toggleMenu} aria-label="Toggle sidebar">
+                  <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/></svg>
+                </button>`
+              : html``}
+            <div class="panel-title" aria-label=${device?.name || 'HiveFW'}>
+              <span class="panel-product-name">${device?.name || 'HiveFW'}</span>
+              </div>
+          </div>
+          <div class="header-right">
+            ${device && this._getNodeStatus(device) !== null
+              ? html`
+                  <span class="connection-status ${this._getNodeStatus(device) === 'online' ? 'online' : 'offline'}">
+                    <span class="status-dot ${this._getNodeStatus(device) === 'online' ? 'online' : 'offline'}"></span>
+                    ${this._getNodeStatus(device) === 'online' ? 'Ligado' : 'Desligado'}
+                  </span>`
+              : html``}
+            ${device && this._getBatteryLevel(device) !== null
+              ? html`
+                  <span class="battery-indicator">
+                    <span class="battery-icon">
+                      <span class="battery-fill ${this._getBatteryLevel(device)! > 50 ? 'high' : this._getBatteryLevel(device)! > 20 ? 'medium' : 'low'}"
+                            style="width: ${this._getBatteryLevel(device)}%"></span>
+                    </span>
+                    <span class="battery-pct">${this._getBatteryLevel(device)}%</span>
+                  </span>`
+              : html``}
+            <span class="hivefw-header-brand-white" aria-label="HiveFW" title="HiveFW"></span>
+          </div>
+        </div>
+
+        ${this._error
+          ? html`<div class="error-banner">${this._error}</div>`
+          : html``}
+
+        <div class="tab-bar">
+          <button
+            class=${this._activeTab === 'settings' ? 'active' : ''}
+            @click=${() => (this._activeTab = 'settings')}>
+            Dispositivo
+          </button>
+          <button
+            class=${this._activeTab === 'chat' ? 'active' : ''}
+            @click=${() => (this._activeTab = 'chat')}>
+            Chat &amp; Canais
+          </button>
+          <button
+            class=${this._activeTab === 'nodes' ? 'active' : ''}
+            @click=${() => (this._activeTab = 'nodes')}>
+            Nós
+          </button>
+          <button
+            class=${this._activeTab === 'neighbors' ? 'active' : ''}
+            @click=${() => (this._activeTab = 'neighbors')}>
+            Vizinhos
+          </button>
+        </div>
+
+        <div class="page-container">
+          ${this._renderActivePage()}
+        </div>
+
+        <meshcore-trace-dialog
+          ?open=${this._traceDialogOpen}
+          .contactName=${this._traceDialogContactName}
+          .result=${this._traceDialogResult}
+          .error=${this._traceDialogError}
+          .availableRepeaters=${this._contacts.filter(c => c.type === 2 || c.type === 3 || c.type === 4)}
+          .targetContact=${this._traceDialogTargetContact}
+          @trace-requested=${this._onTraceRequested}
+          @trace-dialog-closed=${() => { this._traceDialogOpen = false; }}>
+        </meshcore-trace-dialog>
+
+        <meshcore-target-picker
+          ?open=${this._targetPickerOpen}
+          .contacts=${this._contacts}
+          @target-selected=${this._onTargetPicked}
+          @target-picker-closed=${() => { this._targetPickerOpen = false; }}>
+        </meshcore-target-picker>
+      </div>
+    `;
+  }
+
+  private _renderActivePage() {
+    switch (this._activeTab) {
+      case 'chat':
+        return html`
+          <hivefw-integration-page
+            .hass=${this.hass}
+            .config=${this._config}
+            .conversations=${[...this._channels, ...this._contacts.filter(c => c.added_to_node)]}
+            .unread=${this._unread}
+            .selectedId=${this._pendingChatTarget}
+            .narrow=${this.narrow}
+            @active-entity-changed=${this._onActiveEntityChanged}
+            @contacts-changed=${() => this._loadDeviceData()}
+            @channels-changed=${() => this._loadDeviceData()}></hivefw-integration-page>`;
+      case 'nodes':
+        return html`
+          <meshcore-nodes-page
+            .hass=${this.hass}
+            .config=${this._config}
+            .contacts=${this._contacts}
+            .channels=${this._channels}
+            .narrow=${this.narrow}
+            @node-action=${this._handleNodeAction}
+            @contacts-changed=${() => this._loadDeviceData()}></meshcore-nodes-page>`;
+      case 'neighbors':
+        return html`
+          <meshcore-neighbors-page
+            .hass=${this.hass}
+            .config=${this._config}
+            .narrow=${this.narrow}></meshcore-neighbors-page>`;
+      case 'settings':
+        return html`
+          <meshcore-settings-page
+            .hass=${this.hass}
+            .config=${this._config}
+            .selectedDevice=${this._selectedDevice}
+            .contactCount=${this._contacts.length}
+            .channelCount=${this._channels.length}
+            .narrow=${this.narrow}
+            @companion-trace-requested=${this._onCompanionTraceRequested}
+            @device-renamed=${this._onDeviceRenamed}></meshcore-settings-page>`;
+    }
+  }
+
+  private _toggleMenu() {
+    this.dispatchEvent(new Event('hass-toggle-menu', { bubbles: true, composed: true }));
+  }
+
+  /**
+   * Get the node status for a device by looking up its sensor entity.
+   * Entity ID pattern: sensor.hivefw_{prefix6}_node_status_{slugified_name}
+   */
+  /** Derive the slugified entity suffix for a device (shared by status + battery lookups). */
+  private _deviceEntitySuffix(device: MeshCoreDevice): { prefix: string; name: string } {
+    const prefix = (device.pubkey_prefix || device.pubkey || '').substring(0, 6).toLowerCase();
+    const name = (device.name || '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+    return { prefix, name };
+  }
+
+  /**
+   * Get the node status for a device. Returns null if entity is disabled/missing.
+   */
+  private _getNodeStatus(device: MeshCoreDevice): string | null {
+    if (!this.hass) return null;
+    const { prefix, name } = this._deviceEntitySuffix(device);
+    const entityId = `sensor.hivefw_${prefix}_node_status_${name}`;
+    const state = this.hass.states[entityId];
+    if (!state) return null;
+    return state.state;
+  }
+
+  /**
+   * Get battery percentage for a device.
+   * Returns a number 0-100 or null if unavailable.
+   */
+  private _getBatteryLevel(device: MeshCoreDevice): number | null {
+    if (!this.hass) return null;
+    const { prefix, name } = this._deviceEntitySuffix(device);
+    const entityId = `sensor.hivefw_${prefix}_battery_percentage_${name}`;
+    const state = this.hass.states[entityId];
+    if (!state || state.state === 'unknown' || state.state === 'unavailable') return null;
+    const val = parseFloat(state.state);
+    return isNaN(val) ? null : Math.round(val);
+  }
+
+  private async _loadData() {
+    if (!this.hass || this._loadingStarted) return;
+
+    this._loadingStarted = true;
+    this._loading = true;
+    this._error = null;
+
+    try {
+      const devices = await getDevices(this.hass);
+      this._devices = devices;
+
+      if (devices.length === 0) {
+        this._error = 'No HiveFW devices found';
+        this._loading = false;
+        return;
+      }
+
+      // Auto-select first connected device, or first device
+      const connected = devices.find((d) => d.connected);
+      this._selectedEntryId = (connected || devices[0]).entry_id;
+
+      // Build config from device info + HiveFW preset defaults
+      const device = connected || devices[0];
+      this._config = {
+        node_name: device.name,
+        node_prefix: device.pubkey_prefix?.substring(0, 6) || '',
+        entry_id: device.entry_id,
+        ...HIVEFW_PRESET,
+        ...DEFAULT_PANEL_CONFIG,
+      };
+
+      // Load contacts, channels, and unread counts
+      await this._loadDeviceData();
+      await this._loadUnreadCounts();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this._error = `Failed to load: ${message}`;
+      console.error('HiveFW panel load error:', err);
+    } finally {
+      this._loading = false;
+    }
+  }
+
+  private async _loadDeviceData() {
+    if (!this.hass || !this._selectedEntryId) return;
+
+    try {
+      const [contacts, channels] = await Promise.all([
+        getContacts(this.hass, this._selectedEntryId),
+        getChannels(this.hass, this._selectedEntryId),
+      ]);
+      this._contacts = contacts;
+      this._channels = channels;
+
+      // Update config with selected device info
+      const device = this._selectedDevice;
+      if (device && this._config) {
+        this._config = {
+          ...this._config,
+          node_name: device.name,
+          node_prefix: device.pubkey_prefix?.substring(0, 6) || '',
+          entry_id: device.entry_id,
+        };
+      }
+    } catch (err) {
+      console.error('Failed to load device data:', err);
+    }
+  }
+
+  private _onActiveEntityChanged(e: CustomEvent) {
+    this._activeChatEntityId = e.detail?.entityId || null;
+  }
+
+  /**
+   * Handle the `device-renamed` event from the settings page's
+   * post-rename modal. Re-fetch `getDevices(...)` so
+   * `_devices` (and the computed `_selectedDevice`) reflect the new
+   * companion name immediately, and re-derive `_config.node_name`
+   * (used by the panel header). The settings page itself already
+   * refreshes its own `_deviceConfig` for the form input — this
+   * handler covers the panel-owned surfaces.
+   */
+  private async _onDeviceRenamed() {
+    if (!this.hass) return;
+    try {
+      this._devices = await getDevices(this.hass);
+      const device = this._selectedDevice;
+      if (device && this._config) {
+        this._config = {
+          ...this._config,
+          node_name: device.name,
+          node_prefix: device.pubkey_prefix?.substring(0, 6) || '',
+          entry_id: device.entry_id,
+        };
+      }
+    } catch (err) {
+      console.error('Failed to refresh devices after rename:', err);
+    }
+  }
+
+  private async _loadUnreadCounts() {
+    if (!this.hass) return;
+    try {
+      // Fetch both maps in one round-trip — the backend returns them in
+      // the same payload, and the chat page needs both for anchor-driven
+      // open.
+      const result = await getUnreadAndLastRead(
+        this.hass,
+        this._selectedEntryId || undefined,
+      );
+      // Route the backend payload through the controller.
+      // `ingestBackendData` folds in the actively-viewed-conversation
+      // zeroing that used to be inline here, and notifies the
+      // controller's subscribers (i.e. `<chat-page>`).
+      this._unread.ingestBackendData(result, this._activeChatEntityId);
+    } catch {
+      // Silently fail
+    }
+  }
+
+  /**
+   * The panel's mark-read-requested handler (registered with the
+   * controller in the constructor). Owns the mark-read WS round-trip
+   * plus the unread bookkeeping — optimistic local zero + an
+   * authoritative refresh.
+   *
+   * The controller's read-progress mutators (`onScrollState` /
+   * `onPillJump`, via the deferred post-switch timer) call
+   * `requestMarkRead`, which fires this handler. It is the sole owner
+   * of the mark-read round-trip — there is no longer any direct
+   * `markConversationRead` call from chat-page or an `unread-cleared`
+   * event path.
+   */
+  private _handleMarkReadRequested(entityId: string) {
+    if (!entityId || !this.hass) return;
+    markConversationRead(
+      this.hass,
+      entityId,
+      this._selectedEntryId || undefined,
+    ).catch(() => {
+      // mark_read is idempotent on the backend; the refresh below
+      // reconciles if the round-trip failed.
+    });
+    this._unread.clearEntity(entityId);
+    this._loadUnreadCounts();
+  }
+
+  private async _handleNodeAction(e: CustomEvent) {
+    const { action, node } = e.detail as { action: string; node: Contact };
+    if (!this.hass || !node) return;
+
+    const pubkey = node.public_key || '';
+    const pubkeyPrefix = node.pubkey_prefix || '';
+    const entryId = this._selectedEntryId || undefined;
+
+    switch (action) {
+      case 'message':
+        if (pubkeyPrefix) {
+          this._pendingChatTarget = pubkeyPrefix;
+          this._activeTab = 'chat';
+        }
+        break;
+
+      case 'remove-contact':
+        if (pubkey) {
+          try {
+            await removeContact(this.hass, pubkey, entryId);
+            await this._loadDeviceData();
+            await this._refreshNodesPageAfterMutation(pubkey);
+          } finally {
+            // Always clear pending state, even on API failure, so the
+            // Remove Contact button doesn't stay stuck on "Removing…"
+            this._clearNodesPagePending();
+          }
+        }
+        break;
+
+      case 'add-contact':
+        if (pubkey) {
+          try {
+            await addContact(this.hass, pubkey, node.adv_name || undefined, entryId);
+            await this._loadDeviceData();
+            await this._refreshNodesPageAfterMutation(pubkey);
+          } finally {
+            this._clearNodesPagePending();
+          }
+        }
+        break;
+
+      case 'trace':
+        if (pubkeyPrefix) {
+          // Open dialog in input phase.  User picks path type
+          // (discovery / select repeaters / enter path) and clicks Run
+          // Trace.  The dialog fires `trace-requested`, which is handled
+          // by _onTraceRequested below — that's where the actual WS call
+          // goes out.  Backend timeout is ~5-18 s depending on device's
+          // suggested_timeout, plus path-discovery time for flood contacts.
+          this._traceDialogPubkeyPrefix = pubkeyPrefix;
+          this._traceDialogEntryId = entryId;
+          this._traceDialogContactName = node.adv_name || pubkeyPrefix;
+          // Pass the full Contact record to the dialog so it
+          // can pre-populate forwarding-class targets (type 2/3/4) as the
+          // single last-hop entry.  Mirrors the `'adv_name' in node` check
+          // used in node-detail-dialog.ts:256; ManagedDevice invocations
+          // would hit the else branch (null) and the dialog falls back to
+          // discovery-mode default.
+          this._traceDialogTargetContact =
+            'adv_name' in (node as object) ? (node as Contact) : null;
+          this._traceDialogResult = null;
+          this._traceDialogError = '';
+          this._traceDialogOpen = true;
+        }
+        break;
+
+      case 'delete':
+      case 'remove':
+        if (pubkey) {
+          await removeContact(this.hass, pubkey, entryId);
+          await this._loadDeviceData();
+        }
+        break;
+
+      default:
+        console.warn('Unhandled node action:', action);
+    }
+  }
+
+  // ─── Nodes-page refresh helpers (post-mutation) ─────────────────────
+  //
+  // After an Add/Remove Contact mutation, the nodes-page's own state
+  // (_displayedContacts, _l1Counts, _selectedNode) is stale. The panel-
+  // level _loadDeviceData() only refreshes this._contacts, which the
+  // nodes-page does not consume for rendering. These helpers reach into
+  // the child component to trigger its own refetch + re-resolve.
+
+  private async _refreshNodesPageAfterMutation(pubkey: string) {
+    const nodesPage = this.shadowRoot?.querySelector('meshcore-nodes-page') as
+      | (HTMLElement & { refreshAfterMutation: (pubkey: string) => Promise<void> })
+      | null;
+    if (nodesPage && typeof nodesPage.refreshAfterMutation === 'function') {
+      try {
+        await nodesPage.refreshAfterMutation(pubkey);
+      } catch (err) {
+        console.error('Failed to refresh nodes-page after mutation:', err);
+      }
+    }
+  }
+
+  private _clearNodesPagePending() {
+    const nodesPage = this.shadowRoot?.querySelector('meshcore-nodes-page') as
+      | (HTMLElement & { clearPendingAction: () => void })
+      | null;
+    if (nodesPage && typeof nodesPage.clearPendingAction === 'function') {
+      nodesPage.clearPendingAction();
+    }
+  }
+
+  // ─── trace-dialog input-phase handler ──────────────────────────────
+  //
+  // The trace-dialog now opens in an input phase; when the user clicks
+  // Run Trace, the dialog emits `trace-requested` with { pathMode, path }.
+  // We pick up the stashed pubkeyPrefix / entryId here and fire the
+  // actual WS call.  Dialog transitions to `running` on its own (it sets
+  // an internal _running flag before dispatching), then to `done` when
+  // we set `.result` or `.error`.
+
+  private _onTraceRequested = async (
+    e: CustomEvent<{ pathMode: TracePathMode; path?: string }>,
+  ) => {
+    if (!this.hass) return;
+    const { pathMode, path } = e.detail;
+    try {
+      const result = await traceContact(
+        this.hass,
+        this._traceDialogPubkeyPrefix,
+        this._traceDialogEntryId,
+        pathMode,
+        path,
+      );
+      this._traceDialogResult = result;
+    } catch (err: any) {
+      // hass.callWS rejects with a plain object like { code, message };
+      // prefer the human-readable message, fall back to code, then to
+      // a generic string.  Never call String(err) on the raw object —
+      // it yields "[object Object]".
+      this._traceDialogError = err?.message || err?.code || 'Unknown error';
+    }
+  };
+
+  // ─── companion-trace entry + target-picker handlers ────────────────
+  //
+  // The settings-tab Trace button dispatches `companion-trace-requested`
+  // with the current companion's entry_id.  We cache it and open the
+  // target-picker; when the user selects a contact, we populate the
+  // trace-dialog fields and open it.  Nodes-tab traces bypass this
+  // entirely — they open the trace-dialog directly via _startTrace().
+  private _onCompanionTraceRequested = (
+    e: CustomEvent<{ entryId?: string }>,
+  ) => {
+    this._pendingTraceEntryId =
+      e.detail?.entryId ?? this._selectedEntryId ?? undefined;
+    this._targetPickerOpen = true;
+  };
+
+  private _onTargetPicked = (e: CustomEvent<Contact>) => {
+    const contact = e.detail;
+    this._targetPickerOpen = false;
+    if (!contact) return;
+    this._traceDialogPubkeyPrefix = contact.pubkey_prefix;
+    this._traceDialogEntryId = this._pendingTraceEntryId;
+    this._traceDialogContactName = contact.adv_name || contact.pubkey_prefix;
+    this._traceDialogTargetContact = contact;
+    this._traceDialogResult = null;
+    this._traceDialogError = '';
+    this._traceDialogOpen = true;
+  };
+}
+
+declare global {
+  interface HTMLElementTagNameMap {
+    'hivefw-integration-panel': MeshCorePanel;
+  }
+}
