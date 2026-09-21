@@ -65,6 +65,7 @@ MultiSerialInterface interface_manager;
   #include <ESPAsyncWebServer.h>
   #include <AsyncElegantOTA.h>
   #include <esp_system.h>
+  #include "HiveWifiPortal.h"
 
   AsyncWebServer web_ota_server(80);
 
@@ -343,11 +344,18 @@ void setup() {
 
   loadHiveFwWifiCredentials();
 
-  if (hivefw_wifi_ssid.length() > 0) {
-    WiFi.begin(hivefw_wifi_ssid.c_str(), hivefw_wifi_password.c_str());
+  const bool hivefw_has_wifi_credentials =
+    hivefw_wifi_ssid.length() > 0;
+
+  if (hivefw_has_wifi_credentials) {
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(
+      hivefw_wifi_ssid.c_str(),
+      hivefw_wifi_password.c_str()
+    );
   } else {
     WIFI_DEBUG_PRINTLN(
-      "No runtime WiFi credentials found; Companion TCP/Web OTA will remain offline"
+      "No runtime WiFi credentials found; starting HiveFW setup hotspot"
     );
   }
 
@@ -357,12 +365,28 @@ void setup() {
   #if defined(ESP32) && defined(WEB_OTA_ENABLED)
     web_ota_token = generateWebOtaToken();
 
+    // Register the HiveFW Wi-Fi provisioning portal before starting the
+    // shared HTTP server. With no NVS credentials it starts a setup AP using
+    // the node's original/current name. With credentials already present it
+    // only exposes /wifi on the station IP and never overwrites NVS on boot.
+    hivefwWifiPortalBegin(
+      &web_ota_server,
+      the_mesh.getNodeName(),
+      hivefw_wifi_ssid,
+      hivefw_has_wifi_credentials
+    );
+
     web_ota_server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
-      request->send(
-        200,
-        "text/plain",
-        "HiveFW Companion-Repeater\nWeb OTA is managed securely by HiveFW/Home Assistant.\n"
-      );
+      if (hivefwWifiPortalSetupMode()) {
+        request->redirect("/wifi");
+        return;
+      }
+
+      String body =
+        "HiveFW Companion-Repeater\n"
+        "WiFi configuration: /wifi\n"
+        "Web OTA: /update\n";
+      request->send(200, "text/plain", body);
     });
 
     AsyncElegantOTA.begin(
@@ -372,11 +396,22 @@ void setup() {
     );
     web_ota_server.begin();
 
-    // Never print the OTA token. Only the endpoint/address is diagnostic.
-    WIFI_DEBUG_PRINTLN(
-      "Web OTA ready at http://%s/update",
-      WiFi.localIP().toString().c_str()
-    );
+    // Never print the OTA token. Only public local endpoints are diagnostic.
+    if (hivefwWifiPortalSetupMode()) {
+      WIFI_DEBUG_PRINTLN(
+        "HiveFW setup portal ready at http://%s/wifi",
+        WiFi.softAPIP().toString().c_str()
+      );
+    } else {
+      WIFI_DEBUG_PRINTLN(
+        "HiveFW WiFi portal: http://%s/wifi",
+        WiFi.localIP().toString().c_str()
+      );
+      WIFI_DEBUG_PRINTLN(
+        "Web OTA ready at http://%s/update",
+        WiFi.localIP().toString().c_str()
+      );
+    }
   #endif
 #endif
 
@@ -434,11 +469,16 @@ void loop() {
 
 #if defined(ESP32) && defined(WIFI_SSID) && defined(WEB_OTA_ENABLED)
   AsyncElegantOTA.loop();
+  hivefwWifiPortalLoop();
 #endif
 
 #if defined(ESP32) && defined(WIFI_SSID)
   // Safely attempt to reconnect every 10 seconds if flagged
-  if (wifi_needs_reconnect && (millis() - last_wifi_reconnect_attempt > 10000)) {
+  if (
+    hivefw_wifi_ssid.length() > 0 &&
+    wifi_needs_reconnect &&
+    (millis() - last_wifi_reconnect_attempt > 10000)
+  ) {
     WIFI_DEBUG_PRINTLN("Attempting manual WiFi reconnect...");
     WiFi.disconnect();
     WiFi.reconnect();
