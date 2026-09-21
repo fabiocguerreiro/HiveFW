@@ -4,6 +4,14 @@
       "user": {
         "title": "HiveFW",
         "description": "Configure HiveFW directly with your Companion/Repeater over TCP/Wi-Fi, BLE or USB. HiveFW owns the radio connection, Home Assistant entities, services, chat, channels, nodes, telemetry and diagnostics; no separate MeshCore Home Assistant integration is required."
+      },
+      "wifi_setup": {
+        "title": "Prepare the Heltec V3 Wi-Fi connection",
+        "description": "If this is a clean HiveFW installation on a **Heltec V3**, the radio creates a temporary Wi-Fi network using the device's own name. Connect a phone or computer to that network, then open **http://192.168.4.1/wifi**. Log in with **hivefw / hivefw**, select your normal Wi-Fi network and save it. The V3 restarts and joins that network. Its new IP is shown on the Companion screen; continue here and enter that IP on the next step.\\n\\nIf the V3 is already configured and connected to your router, you can simply continue."
+      },
+      "tcp": {
+        "title": "Heltec V3 · Wi-Fi Companion",
+        "description": "Enter the IP address shown on the HiveFW Companion after it has joined your Wi-Fi network."
       }
     },
     "abort": {
