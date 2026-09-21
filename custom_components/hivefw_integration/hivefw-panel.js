@@ -145,6 +145,9 @@ class HiveFWPanel extends BasePanel {
     this.__manualOtaBusy = false;
     this.__manualOtaEntry = null;
     this.__manualOtaRetryTimer = null;
+    this.__otaProgress = null;
+    this.__otaProgressTimer = null;
+    this.__otaProgressBusy = false;
   }
 
   updated(changedProperties) {
@@ -253,6 +256,7 @@ class HiveFWPanel extends BasePanel {
     this.__ensureRepeaterStyles(root);
     this.__ensureTabs(root);
     this.__enhanceManualOtaCard(root);
+    this.__renderOtaLiveProgress(root);
 
     const entryId = this.__entryId() || null;
     if (this.__nodesMapLoadedEntry !== null && this.__nodesMapLoadedEntry !== entryId) {
@@ -372,6 +376,246 @@ class HiveFWPanel extends BasePanel {
       if (!this.__repeaterStatus && !this.__repeaterLoading) {
         void this.__loadRepeaterStatus();
       }
+    }
+  }
+
+  async __loadOtaProgress() {
+    if (!this.hass || this.__otaProgressBusy) return;
+    this.__otaProgressBusy = true;
+    try {
+      const msg = { type: "hivefw_integration/get_firmware_ota_progress" };
+      const entryId = this.__entryId();
+      if (entryId) msg.entry_id = entryId;
+      this.__otaProgress = await this.hass.callWS(msg);
+      this.__renderOtaLiveProgress(this.shadowRoot);
+    } catch (error) {
+      console.debug("HiveFW OTA progress unavailable:", error);
+    } finally {
+      this.__otaProgressBusy = false;
+    }
+  }
+
+  __startOtaProgressPolling() {
+    if (this.__otaProgressTimer) return;
+    void this.__loadOtaProgress();
+    this.__otaProgressTimer = window.setInterval(() => {
+      void this.__loadOtaProgress();
+    }, 500);
+  }
+
+  __stopOtaProgressPolling() {
+    if (this.__otaProgressTimer) {
+      window.clearInterval(this.__otaProgressTimer);
+      this.__otaProgressTimer = null;
+    }
+  }
+
+  __renderOtaLiveProgress(root) {
+    const settingsHost =
+      root?.querySelector("meshcore-settings-page") ||
+      this.shadowRoot?.querySelector("meshcore-settings-page");
+    const settingsRoot = settingsHost?.shadowRoot || null;
+    const manager =
+      settingsRoot?.querySelector(".firmware-manager") ||
+      root?.querySelector(".firmware-manager");
+    if (!manager) return;
+
+    let box = manager.querySelector(".hivefw-ota-live-progress");
+    const state = this.__otaProgress;
+    const stage = String(state?.stage || "idle");
+
+    if (!state || stage === "idle") {
+      box?.remove();
+      return;
+    }
+
+    if (!box) {
+      box = document.createElement("div");
+      box.className = "hivefw-ota-live-progress";
+      box.style.cssText =
+        "margin-top:14px;padding:12px;border:1px solid var(--divider-color);border-radius:12px;background:var(--secondary-background-color);";
+      manager.appendChild(box);
+    }
+
+    const percent = Math.max(0, Math.min(100, Number(state.percent) || 0));
+    const labels = {
+      preparing: "A preparar firmware",
+      authenticating: "A autenticar OTA",
+      uploading: "A enviar para o rádio",
+      rebooting: "Rádio a reiniciar",
+      verifying: "A confirmar nova versão",
+      complete: "Atualização concluída",
+      error: "Falha na atualização",
+    };
+
+    box.replaceChildren();
+
+    const head = document.createElement("div");
+    head.style.cssText =
+      "display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px;font-size:12px;font-weight:700;";
+
+    const label = document.createElement("span");
+    label.textContent = labels[stage] || stage;
+
+    const pct = document.createElement("span");
+    pct.textContent = percent + "%";
+
+    head.append(label, pct);
+
+    const track = document.createElement("div");
+    track.style.cssText =
+      "height:8px;overflow:hidden;border-radius:999px;background:var(--divider-color);";
+
+    const fill = document.createElement("div");
+    fill.style.cssText =
+      "height:100%;width:" + percent + "%;border-radius:inherit;background:var(--primary-color);transition:width .2s linear;";
+    track.appendChild(fill);
+
+    const detail = document.createElement("div");
+    detail.style.cssText =
+      "margin-top:7px;color:var(--secondary-text-color);font-size:10px;line-height:1.4;";
+    detail.textContent =
+      stage === "error"
+        ? String(state.error || state.detail || "Falha no processo OTA")
+        : String(state.detail || "");
+
+    box.append(head, track, detail);
+  }
+
+  async _installLatestFirmware() {
+    if (!this.hass || this._firmwareBusy) return;
+
+    this._firmwareBusy = true;
+    this._firmwareUploadStage = "uploading";
+    this.__otaProgress = {
+      stage: "preparing",
+      percent: 1,
+      detail: "A iniciar atualização",
+    };
+    this.__renderOtaLiveProgress(this.shadowRoot);
+    this.__startOtaProgressPolling();
+
+    try {
+      const msg = { type: "hivefw_integration/install_latest_firmware" };
+      const entryId = this.__entryId();
+      if (entryId) msg.entry_id = entryId;
+
+      const result = await this.hass.callWS(msg);
+      if (!result?.success) {
+        throw new Error("A atualização não foi aceite.");
+      }
+
+      await this.__loadOtaProgress();
+      this._firmwareUploadStage = "reconnecting";
+      await this._refreshFirmwareOtaStatus();
+
+      const installed =
+        result.installed_version ||
+        result.version ||
+        this._firmwareOtaStatus?.installed_version ||
+        "";
+      this._showStatusMessage(
+        installed
+          ? "Firmware " + installed + " instalado e confirmado."
+          : "Firmware instalado e confirmado.",
+        "success"
+      );
+    } catch (error) {
+      await this.__loadOtaProgress();
+      const message = error?.message || String(error);
+      this._showStatusMessage("Firmware OTA: " + message, "error");
+    } finally {
+      this.__stopOtaProgressPolling();
+      this._firmwareBusy = false;
+      this._firmwareUploadStage = null;
+      this.__renderOtaLiveProgress(this.shadowRoot);
+    }
+  }
+
+  async _uploadFirmwareFile() {
+    const entryId = this.__entryId();
+    if (
+      !this.hass ||
+      !this._firmwareFile ||
+      !entryId ||
+      this._firmwareBusy
+    ) return;
+
+    if (!this.hass.fetchWithAuth) {
+      this._showStatusMessage(
+        "Esta versão do Home Assistant não disponibiliza upload autenticado para o painel.",
+        "error"
+      );
+      return;
+    }
+
+    const file = this._firmwareFile;
+    if (
+      !file.name.toLowerCase().endsWith(".bin") ||
+      file.name.toLowerCase().includes("merged")
+    ) {
+      this._showStatusMessage(
+        "Seleciona o firmware .bin OTA, não o ficheiro merged.",
+        "error"
+      );
+      return;
+    }
+
+    this._firmwareBusy = true;
+    this._firmwareUploadStage = "uploading";
+    this.__otaProgress = {
+      stage: "preparing",
+      percent: 1,
+      detail: "A enviar o ficheiro para o Home Assistant",
+    };
+    this.__renderOtaLiveProgress(this.shadowRoot);
+    this.__startOtaProgressPolling();
+
+    try {
+      const form = new FormData();
+      form.append("entry_id", entryId);
+      form.append("firmware", file, file.name);
+
+      const response = await this.hass.fetchWithAuth(
+        "/api/hivefw_integration/firmware",
+        { method: "POST", body: form }
+      );
+
+      let payload = {};
+      try {
+        payload = await response.json();
+      } catch {}
+
+      if (!response.ok || !payload.success) {
+        throw new Error(payload.error || "HTTP " + response.status);
+      }
+
+      this._firmwareFile = null;
+      await this.__loadOtaProgress();
+      this._firmwareUploadStage = "reconnecting";
+      await this._refreshFirmwareOtaStatus();
+
+      const installed =
+        payload.installed_version ||
+        this._firmwareOtaStatus?.installed_version ||
+        "";
+      this._showStatusMessage(
+        installed
+          ? "Firmware " + installed + " instalado e confirmado."
+          : "Firmware instalado e confirmado.",
+        "success"
+      );
+    } catch (error) {
+      await this.__loadOtaProgress();
+      this._showStatusMessage(
+        "Firmware OTA: " + (error?.message || String(error)),
+        "error"
+      );
+    } finally {
+      this.__stopOtaProgressPolling();
+      this._firmwareBusy = false;
+      this._firmwareUploadStage = null;
+      this.__renderOtaLiveProgress(this.shadowRoot);
     }
   }
 
