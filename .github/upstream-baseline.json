@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "reviewed_at": "2026-09-21",
+  "repositories": [
+    {
+      "name": "MeshCore",
+      "repository": "meshcore-dev/MeshCore",
+      "branch": "main",
+      "reviewed_sha": "e94125987ed87497e706a0b54d1e80c709343980"
+    },
+    {
+      "name": "meshcore-ha",
+      "repository": "meshcore-dev/meshcore-ha",
+      "branch": "main",
+      "reviewed_sha": "0f99da64be8a0ab6eacd4e87246f2a70e624f2b6"
+    },
+    {
+      "name": "meshcore-ha-chat",
+      "repository": "mwolter805/meshcore-ha-chat",
+      "branch": "main",
+      "reviewed_sha": "6728b4216266563a4938d7208a8d77ad79882f3d"
+    },
+    {
+      "name": "meshcore_py",
+      "repository": "meshcore-dev/meshcore_py",
+      "branch": "main",
+      "reviewed_sha": "b32d8203ae6c76f493feac5729b0cc1636f39db8"
+    }
+  ]
+}

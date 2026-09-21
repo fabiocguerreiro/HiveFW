@@ -38,7 +38,9 @@ PANEL_URL = "/hivefw_integration_panel/hivefw-integration-panel.js"
 PANEL_WRAPPER_URL = "/hivefw_integration_panel/hivefw-panel.js"
 PANEL_LOGO_URL = "/hivefw_integration_panel/hivefw-wordmark.png"
 PANEL_BRAND_ICON_URL = "/hivefw_integration_panel/hivefw-icon.png"
-# Filesystem paths to the production bundle, HiveFW panel wrapper and shared brand.
+# Filesystem paths to the generated production bundles and shared brand.
+# Both JS bundles are built from frontend/src by Rollup; the integration-root
+# files are deployable build artefacts, not hand-maintained source.
 PANEL_FRONTEND_PATH = str(Path(__file__).parent / "hivefw-integration-panel.js")
 PANEL_WRAPPER_PATH = str(Path(__file__).parent / "hivefw-panel.js")
 PANEL_LOGO_PATH = str(Path(__file__).parent / "brand" / "logo.png")

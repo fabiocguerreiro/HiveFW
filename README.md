@@ -471,6 +471,10 @@ Numa clone de desenvolvimento podem ser configurados:
 git remote add upstream-meshcore https://github.com/meshcore-dev/MeshCore.git
 git remote add upstream-meshcore-ha https://github.com/meshcore-dev/meshcore-ha.git
 git remote add upstream-meshcore-ha-chat https://github.com/mwolter805/meshcore-ha-chat.git
+
+O repositório também mantém um baseline versionado e uma verificação semanal
+dos upstreams. O processo é apenas de acompanhamento — nunca faz merge
+automático. Ver [Acompanhamento dos upstreams](docs/upstream-sync.md).
 git fetch --all --prune
 ```
 

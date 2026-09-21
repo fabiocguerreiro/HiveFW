@@ -1,0 +1,121 @@
+name: Upstream Watch
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 6 * * 1"
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: hivefw-upstream-watch
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout HiveFW
+        uses: actions/checkout@v6
+
+      - name: Compare reviewed upstream baselines
+        id: compare
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import subprocess
+          from pathlib import Path
+
+          baseline = json.loads(
+              Path(".github/upstream-baseline.json").read_text(encoding="utf-8")
+          )
+
+          changed = []
+          rows = []
+          for item in baseline["repositories"]:
+              repo = item["repository"]
+              branch = item.get("branch", "main")
+              reviewed = item["reviewed_sha"]
+
+              current = subprocess.check_output(
+                  [
+                      "gh",
+                      "api",
+                      f"repos/{repo}/commits/{branch}",
+                      "--jq",
+                      ".sha",
+                  ],
+                  text=True,
+              ).strip()
+
+              status = "up to date" if current == reviewed else "review needed"
+              compare = f"https://github.com/{repo}/compare/{reviewed}...{current}"
+              rows.append(
+                  f"| {item['name']} | `{reviewed[:12]}` | "
+                  f"`{current[:12]}` | {status} | [compare]({compare}) |"
+              )
+              if current != reviewed:
+                  changed.append(item["name"])
+
+          report = [
+              "# HiveFW upstream watch",
+              "",
+              "This issue is generated from the versioned review baseline.",
+              "No upstream code is merged automatically.",
+              "",
+              "| Upstream | Reviewed | Current | State | Changes |",
+              "| --- | --- | --- | --- | --- |",
+              *rows,
+              "",
+              "After reviewing an upstream, update "
+              "`.github/upstream-baseline.json` to the reviewed HEAD.",
+              "",
+              "See `docs/upstream-sync.md` for the review procedure.",
+          ]
+          Path("/tmp/upstream-report.md").write_text(
+              "\n".join(report) + "\n", encoding="utf-8"
+          )
+
+          output = Path(os.environ["GITHUB_OUTPUT"])
+          with output.open("a", encoding="utf-8") as fh:
+              fh.write(f"changed={'true' if changed else 'false'}\n")
+              fh.write("names=" + ", ".join(changed) + "\n")
+          PY
+
+      - name: Create or update review issue
+        if: steps.compare.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          title="Upstream updates available"
+          issue_number="$(
+            gh issue list \
+              --repo "${GITHUB_REPOSITORY}" \
+              --state open \
+              --search "${title} in:title" \
+              --json number,title \
+              --jq '.[] | select(.title == "Upstream updates available") | .number' \
+              | head -n1
+          )"
+
+          if [[ -n "${issue_number}" ]]; then
+            gh issue edit "${issue_number}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --body-file /tmp/upstream-report.md
+          else
+            gh issue create \
+              --repo "${GITHUB_REPOSITORY}" \
+              --title "${title}" \
+              --body-file /tmp/upstream-report.md
+          fi
+
+      - name: Report no changes
+        if: steps.compare.outputs.changed != 'true'
+        run: echo "All tracked upstreams match the reviewed baseline."
