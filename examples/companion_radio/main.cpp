@@ -2,6 +2,10 @@
 #include <Mesh.h>
 #include "MyMesh.h"
 
+#if defined(ESP32)
+  #include <esp_ota_ops.h>
+#endif
+
 // Believe it or not, this std C function is busted on some platforms!
 static uint32_t _atoi(const char* sp) {
   uint32_t n = 0;
@@ -162,6 +166,45 @@ void halt() {
   while (1) ;
 }
 
+#if defined(ESP32)
+static void hivefwConfirmRunningOtaImage() {
+  const esp_partition_t* running =
+    esp_ota_get_running_partition();
+
+  if (running == nullptr) {
+    return;
+  }
+
+  esp_ota_img_states_t state;
+  const esp_err_t state_result =
+    esp_ota_get_state_partition(running, &state);
+
+  // On bootloaders with rollback enabled, a freshly selected OTA image starts
+  // in PENDING_VERIFY. Mark it valid as early as possible so a healthy HiveFW
+  // boot is not reverted to the previous slot on the next reset.
+  if (
+    state_result == ESP_OK &&
+    state == ESP_OTA_IMG_PENDING_VERIFY
+  ) {
+    const esp_err_t valid_result =
+      esp_ota_mark_app_valid_cancel_rollback();
+
+    if (valid_result == ESP_OK) {
+      Serial.printf(
+        "HiveFW OTA image confirmed: %s @ 0x%lx\n",
+        running->label,
+        (unsigned long)running->address
+      );
+    } else {
+      Serial.printf(
+        "HiveFW OTA confirmation failed: %d\n",
+        (int)valid_result
+      );
+    }
+  }
+}
+#endif
+
 /* WIFI RUNTIME CREDENTIALS + RECONNECT TRACKERS */
 #if defined(ESP32) && defined(WIFI_SSID)
   static String hivefw_wifi_ssid;
@@ -203,6 +246,11 @@ void halt() {
 
 void setup() {
   Serial.begin(115200);
+
+#if defined(ESP32)
+  hivefwConfirmRunningOtaImage();
+#endif
+
   board.begin();
 
 #ifdef HAS_EXTERNAL_WATCHDOG
