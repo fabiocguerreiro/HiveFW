@@ -2464,6 +2464,10 @@ async def ws_create_manual_ota_session(hass, connection, msg):
         connection.send_result(msg["id"], result)
     except HiveFWOtaError as ex:
         connection.send_error(msg["id"], "ota_manual_session_failed", str(ex))
+    except Exception as ex:
+        _LOGGER.exception("Unexpected HiveFW manual OTA session failure")
+        message = str(ex).strip() or ex.__class__.__name__
+        connection.send_error(msg["id"], "ota_internal_error", message)
 
 
 @websocket_api.websocket_command(
@@ -2486,6 +2490,10 @@ async def ws_install_latest_firmware(hass, connection, msg):
         connection.send_result(msg["id"], result)
     except HiveFWOtaError as ex:
         connection.send_error(msg["id"], "ota_install_failed", str(ex))
+    except Exception as ex:
+        _LOGGER.exception("Unexpected HiveFW OTA install failure")
+        message = str(ex).strip() or ex.__class__.__name__
+        connection.send_error(msg["id"], "ota_internal_error", message)
 
 
 # ─── meshcore/set_device_config ─────────────────────────────────────────
