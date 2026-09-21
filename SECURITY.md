@@ -1,57 +1,106 @@
 # Security Policy
 
-## Supported Versions
+## Versões suportadas
 
-Security fixes are applied to the latest release only. We do not backport
-fixes to older versions.
+O HiveFW aplica correções de segurança ao:
 
-| Version | Supported |
-|---------|-----------|
-| 1.15+ | ✅ |
-| <1.15 | ❌ |
+- `main` atual;
+- release estável mais recente, quando existir.
 
-## Reporting a Vulnerability
+Não existe compromisso de backport para releases anteriores.
 
-**Please do not report security vulnerabilities through public GitHub issues.**
+## Como reportar uma vulnerabilidade
 
-Use GitHub's private vulnerability reporting instead:
-1. Go to the **Security** tab of this repository
-2. Click **Report a vulnerability**
-3. Fill in the details and submit
+Não publiques vulnerabilidades de segurança em Issues, Discussions ou logs
+públicos.
 
-### What to include
+Usa **Security → Report a vulnerability** no repositório HiveFW (Private
+vulnerability reporting).
 
-A useful report tells us:
-- Which component or file is affected
-- What an attacker can do (impact) and under what conditions
-- A minimal reproduction case or proof-of-concept if you have one
-- Whether you believe it is remotely exploitable
+Inclui, quando possível:
 
-You do not need a working exploit to report. An incomplete report is better
-than no report.
+- versão/commit HiveFW;
+- componente afetado;
+- hardware utilizado (V3 ou T114);
+- pré-condições necessárias;
+- impacto;
+- passos mínimos de reprodução;
+- logs sanitizados;
+- indicação de qualquer segredo/chave que possa ter sido exposto.
 
-## What to expect
+Não coloques private keys, passwords Wi-Fi, tokens do Home Assistant ou
+credenciais OTA em Issues públicas.
 
-This is a volunteer-maintained open-source project. We will do our best to
-respond in a reasonable timeframe, but cannot commit to specific deadlines.
+## Âmbito HiveFW
 
-We ask that you give us a fair opportunity to investigate and address the
-issue before any public disclosure. If you have not heard back after
-**90 days**, feel free to follow up or proceed with disclosure at your
-discretion.
+### Firmware e rádio
 
-## Scope
+Incluído:
 
-In scope:
-- Remote code execution, memory corruption, or denial-of-service via crafted
-  radio packets
-- Authentication or encryption bypasses
-- Vulnerabilities in the packet routing or path handling logic
+- parsing e encaminhamento de pacotes MeshCore;
+- Companion protocol;
+- identidade, assinatura e armazenamento de chaves;
+- Repeater;
+- Regions / Flood Scopes;
+- Smart Advert;
+- gestão de contactos/canais;
+- BLE Companion do T114;
+- Wi-Fi/TCP Companion do V3;
+- portal de provisioning Wi-Fi;
+- NVS usada pelo HiveFW;
+- Web OTA e mecanismo de recuperação;
+- comandos administrativos expostos pelo firmware.
 
-Out of scope:
-- Physical access attacks (e.g., JTAG, UART extraction of keys)
-- Regulatory compliance (duty cycle, frequency restrictions)
-- Jamming or other physical-layer radio interference
-- Issues in third-party libraries (RadioLib, Crypto, etc.) — report those
-  upstream
-- "Best practice" suggestions without a demonstrated attack path
+### Home Assistant
+
+Incluído:
+
+- `hivefw_integration`;
+- WebSocket/API do painel;
+- armazenamento de histórico/configuração;
+- descoberta e controlo do rádio;
+- atualização OTA;
+- Backup & Restore;
+- manipulação de private keys e channel secrets;
+- frontend quando processa dados não confiáveis recebidos da mesh.
+
+## Fora do âmbito normal
+
+Normalmente não são vulnerabilidades do HiveFW:
+
+- jamming ou interferência RF;
+- ausência de cobertura;
+- violações de regras locais de frequência, potência ou duty cycle;
+- acesso JTAG/UART/flash quando o atacante já possui acesso físico privilegiado;
+- falhas exclusivamente num serviço externo;
+- vulnerabilidades puramente upstream sem código HiveFW envolvido.
+
+Mesmo assim, se não for claro onde está a causa, um relatório privado é
+preferível a divulgar publicamente.
+
+## Dependências e upstreams
+
+HiveFW deriva de MeshCore e incorpora/adapta componentes de meshcore-ha e
+meshcore-ha-chat. Uma correção pode exigir coordenação com o upstream
+responsável. Não removemos avisos de segurança ou autoria upstream ao portar
+uma correção.
+
+## Segredos e dados sensíveis
+
+O HiveFW trata como sensíveis, entre outros:
+
+- private key do dispositivo;
+- channel secrets;
+- passwords Wi-Fi;
+- credenciais/tokens Home Assistant;
+- credencial OTA efémera;
+- ficheiros de backup completos.
+
+Os backups exportados podem conter a private key do rádio e devem ser
+armazenados como credenciais.
+
+## Divulgação
+
+Pedimos tempo razoável para investigar e corrigir antes de divulgação pública.
+Quando a causa estiver num upstream, coordenaremos a divulgação com esse
+projeto quando apropriado.

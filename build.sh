@@ -1,105 +1,40 @@
 #!/usr/bin/env bash
+set -euo pipefail
 
-# exit when any command fails
-set -e
+SUPPORTED_TARGETS=(
+  "Heltec_v3_companion_radio_wifi"
+  "Heltec_t114_companion_radio_ble"
+)
 
-global_usage() {
-  cat - <<EOF
+usage() {
+  cat <<'EOF'
 Usage:
-sh build.sh <command> [target]
+  ./build.sh list
+  ./build.sh build-firmware <target>
+  ./build.sh build-supported
 
-Commands:
-  help|usage|-h|--help: Shows this message.
-  list|-l: List firmwares available to build.
-  build-firmware <target>: Build the firmware for the given build target.
-  build-firmwares: Build all firmwares for all targets.
-  build-matching-firmwares <build-match-spec>: Build all firmwares for build targets containing the string given for <build-match-spec>.
-  build-companion-firmwares: Build all companion firmwares for all build targets.
-  build-repeater-firmwares: Build all repeater firmwares for all build targets.
-  build-room-server-firmwares: Build all chat room server firmwares for all build targets.
+Supported targets:
+  Heltec_v3_companion_radio_wifi
+  Heltec_t114_companion_radio_ble
 
-Examples:
-Build firmware for the "RAK_4631_repeater" device target
-$ sh build.sh build-firmware RAK_4631_repeater
-
-Build all firmwares for device targets containing the string "RAK_4631"
-$ sh build.sh build-matching-firmwares <build-match-spec>
-
-Build all companion firmwares
-$ sh build.sh build-companion-firmwares
-
-Build all repeater firmwares
-$ sh build.sh build-repeater-firmwares
-
-Build all chat room server firmwares
-$ sh build.sh build-room-server-firmwares
-
-Build all kiss radio firmwares
-$ sh build.sh build-kiss-radio-firmwares
-
-Environment Variables:
-  DISABLE_DEBUG=1: Disables all debug logging flags (MESH_DEBUG, MESH_PACKET_LOGGING, etc.)
-                   If not set, debug flags from variant platformio.ini files are used.
-
-Examples:
-Build without debug logging:
-$ export FIRMWARE_VERSION=v1.0.0
-$ export DISABLE_DEBUG=1
-$ sh build.sh build-firmware RAK_4631_repeater
-
-Build with debug logging (default, uses flags from variant files):
-$ export FIRMWARE_VERSION=v1.0.0
-$ sh build.sh build-firmware RAK_4631_repeater
+Environment:
+  FIRMWARE_VERSION=<version>  Override VERSION for a local build.
+  DISABLE_DEBUG=1            Disable HiveFW debug logging flags.
 EOF
 }
 
-# get a list of pio env names that start with "env:"
-get_pio_envs() {
-  pio project config | grep 'env:' | sed 's/env://'
-}
-
-# Catch cries for help before doing anything else.
-case $1 in
-  help|usage|-h|--help)
-    global_usage
-    exit 1
-    ;;
-  list|-l)
-    get_pio_envs
-    exit 0
-    ;;
-esac
-
-# cache project config json for use in get_platform_for_env()
-PIO_CONFIG_JSON=$(pio project config --json-output)
-
-# $1 should be the string to find (case insensitive)
-get_pio_envs_containing_string() {
-  shopt -s nocasematch
-  envs=($(get_pio_envs))
-  for env in "${envs[@]}"; do
-      if [[ "$env" == *${1}* ]]; then
-        echo $env
-      fi
+is_supported_target() {
+  local requested="$1"
+  local target
+  for target in "${SUPPORTED_TARGETS[@]}"; do
+    [[ "$target" == "$requested" ]] && return 0
   done
+  return 1
 }
 
-# $1 should be the string to find (case insensitive)
-get_pio_envs_ending_with_string() {
-  shopt -s nocasematch
-  envs=($(get_pio_envs))
-  for env in "${envs[@]}"; do
-    if [[ "$env" == *${1} ]]; then
-      echo $env
-    fi
-  done
-}
-
-# get platform flag for a given environment
-# $1 should be the environment name
 get_platform_for_env() {
-  local env_name=$1
-  printf '%s' "$PIO_CONFIG_JSON" | python3 -c "
+  local env_name="$1"
+  pio project config --json-output | python3 -c "
 import sys, json, re
 data = json.load(sys.stdin)
 for section, options in data:
@@ -107,208 +42,88 @@ for section, options in data:
         for key, value in options:
             if key == 'build_flags':
                 for flag in value:
-                    match = re.search(r'(ESP32_PLATFORM|NRF52_PLATFORM|STM32_PLATFORM|RP2040_PLATFORM)', flag)
+                    match = re.search(r'(ESP32_PLATFORM|NRF52_PLATFORM)', flag)
                     if match:
                         print(match.group(1))
-                        sys.exit(0)
+                        raise SystemExit
 "
 }
 
-# disable all debug logging flags if DISABLE_DEBUG=1 is set
 disable_debug_flags() {
-  if [ "$DISABLE_DEBUG" == "1" ]; then
-    export PLATFORMIO_BUILD_FLAGS="${PLATFORMIO_BUILD_FLAGS} -UMESH_DEBUG -UBLE_DEBUG_LOGGING -UWIFI_DEBUG_LOGGING -UBRIDGE_DEBUG -UGPS_NMEA_DEBUG -UCORE_DEBUG_LEVEL -UESPNOW_DEBUG_LOGGING -UDEBUG_RP2040_WIRE -UDEBUG_RP2040_SPI -UDEBUG_RP2040_CORE -UDEBUG_RP2040_PORT -URADIOLIB_DEBUG_SPI -UCFG_DEBUG -URADIOLIB_DEBUG_BASIC -URADIOLIB_DEBUG_PROTOCOL"
+  if [[ "${DISABLE_DEBUG:-0}" == "1" ]]; then
+    export PLATFORMIO_BUILD_FLAGS="${PLATFORMIO_BUILD_FLAGS:-} -UMESH_DEBUG -UBLE_DEBUG_LOGGING -UWIFI_DEBUG_LOGGING -UGPS_NMEA_DEBUG -UCORE_DEBUG_LEVEL -URADIOLIB_DEBUG_SPI -UCFG_DEBUG -URADIOLIB_DEBUG_BASIC -URADIOLIB_DEBUG_PROTOCOL"
   fi
 }
 
-# build firmware for the provided pio env in $1
 build_firmware() {
-  # get env platform for post build actions
-  ENV_PLATFORM=($(get_platform_for_env $1))
-
-  # get git commit sha
-  COMMIT_HASH=$(git rev-parse --short HEAD)
-
-  # set firmware build date
-  FIRMWARE_BUILD_DATE=$(LC_ALL=C date '+%b %d %Y')
-
-  # get firmware version from VERSION as the single source of truth.
-  # An explicit FIRMWARE_VERSION environment variable still overrides it.
-  if [ -z "$FIRMWARE_VERSION" ]; then
-    if [ ! -f VERSION ]; then
-      echo "VERSION file not found and FIRMWARE_VERSION is not set"
-      exit 1
-    fi
-
-    FIRMWARE_VERSION=$(tr -d '[:space:]' < VERSION)
+  local target="$1"
+  if ! is_supported_target "$target"; then
+    echo "Unsupported HiveFW target: $target" >&2
+    echo "Use './build.sh list' to see supported hardware." >&2
+    exit 2
   fi
 
-  if [ -z "$FIRMWARE_VERSION" ]; then
-    echo "Firmware version is empty"
-    exit 1
+  local env_platform
+  env_platform="$(get_platform_for_env "$target")"
+
+  local commit_hash
+  commit_hash="$(git rev-parse --short HEAD)"
+  local build_date
+  build_date="$(LC_ALL=C date '+%b %d %Y')"
+
+  local version="${FIRMWARE_VERSION:-}"
+  if [[ -z "$version" ]]; then
+    version="$(tr -d '[:space:]' < VERSION)"
   fi
+  [[ -n "$version" ]] || { echo "Firmware version is empty" >&2; exit 1; }
 
-  # set firmware version string
-  # e.g: v1.0.0-abcdef
-  FIRMWARE_VERSION_STRING="${FIRMWARE_VERSION}-${COMMIT_HASH}"
+  local version_string="${version}-${commit_hash}"
+  local output_name="${target}-${version_string}"
 
-  # craft filename
-  # e.g: RAK_4631_Repeater-v1.0.0-SHA
-  FIRMWARE_FILENAME="$1-${FIRMWARE_VERSION_STRING}"
-
-  # add firmware version info to end of existing platformio build flags in environment vars
-  export PLATFORMIO_BUILD_FLAGS="${PLATFORMIO_BUILD_FLAGS} -DFIRMWARE_BUILD_DATE='\"${FIRMWARE_BUILD_DATE}\"' -DFIRMWARE_VERSION='\"${FIRMWARE_VERSION_STRING}\"'"
-
-  # disable debug flags if requested
+  export PLATFORMIO_BUILD_FLAGS="${PLATFORMIO_BUILD_FLAGS:-} -DFIRMWARE_BUILD_DATE='\"${build_date}\"' -DFIRMWARE_VERSION='\"${version_string}\"'"
   disable_debug_flags
 
-  # build firmware target
-  pio run -e $1
+  mkdir -p out
+  pio run -e "$target"
 
-  # build merge-bin for esp32 fresh install, copy .bins to out folder (e.g: Heltec_v3_room_server-v1.0.0-SHA.bin)
-  if [ "$ENV_PLATFORM" == "ESP32_PLATFORM" ]; then
-    pio run -t mergebin -e $1
-    cp .pio/build/$1/firmware.bin out/${FIRMWARE_FILENAME}.bin 2>/dev/null || true
-    cp .pio/build/$1/firmware-merged.bin out/${FIRMWARE_FILENAME}-merged.bin 2>/dev/null || true
+  if [[ "$env_platform" == "ESP32_PLATFORM" ]]; then
+    pio run -t mergebin -e "$target"
+    cp ".pio/build/$target/firmware.bin" "out/${output_name}.bin"
+    cp ".pio/build/$target/firmware-merged.bin" "out/${output_name}-merged.bin"
+  elif [[ "$env_platform" == "NRF52_PLATFORM" ]]; then
+    python3 bin/uf2conv/uf2conv.py ".pio/build/$target/firmware.hex" -c -o ".pio/build/$target/firmware.uf2" -f 0xADA52840
+    cp ".pio/build/$target/firmware.uf2" "out/${output_name}.uf2"
+    cp ".pio/build/$target/firmware.zip" "out/${output_name}.zip"
+  else
+    echo "Unsupported platform for target $target: $env_platform" >&2
+    exit 3
   fi
-
-  # build .uf2 for nrf52 boards, copy .uf2 and .zip to out folder (e.g: RAK_4631_Repeater-v1.0.0-SHA.uf2)
-  if [ "$ENV_PLATFORM" == "NRF52_PLATFORM" ]; then
-    python3 bin/uf2conv/uf2conv.py .pio/build/$1/firmware.hex -c -o .pio/build/$1/firmware.uf2 -f 0xADA52840
-    cp .pio/build/$1/firmware.uf2 out/${FIRMWARE_FILENAME}.uf2 2>/dev/null || true
-    cp .pio/build/$1/firmware.zip out/${FIRMWARE_FILENAME}.zip 2>/dev/null || true
-  fi
-
-  # for stm32, copy .bin and .hex to out folder
-  if [ "$ENV_PLATFORM" == "STM32_PLATFORM" ]; then
-    cp .pio/build/$1/firmware.bin out/${FIRMWARE_FILENAME}.bin 2>/dev/null || true
-    cp .pio/build/$1/firmware.hex out/${FIRMWARE_FILENAME}.hex 2>/dev/null || true
-  fi
-
-  # for rp2040, copy .bin and .uf2 to out folder
-  if [ "$ENV_PLATFORM" == "RP2040_PLATFORM" ]; then
-    cp .pio/build/$1/firmware.bin out/${FIRMWARE_FILENAME}.bin 2>/dev/null || true
-    cp .pio/build/$1/firmware.uf2 out/${FIRMWARE_FILENAME}.uf2 2>/dev/null || true
-  fi
-
 }
 
-# firmwares containing $1 will be built
-build_all_firmwares_matching() {
-  envs=($(get_pio_envs_containing_string "$1"))
-  for env in "${envs[@]}"; do
-      build_firmware $env
-  done
-}
-
-# firmwares ending with $1 will be built
-build_all_firmwares_by_suffix() {
-  envs=($(get_pio_envs_ending_with_string "$1"))
-  for env in "${envs[@]}"; do
-    build_firmware $env
-  done
-}
-
-build_repeater_firmwares() {
-
-#  # build specific repeater firmwares
-#  build_firmware "Heltec_v2_repeater"
-#  build_firmware "Heltec_v3_repeater"
-#  build_firmware "Xiao_C3_Repeater_sx1262"
-#  build_firmware "Xiao_S3_WIO_Repeater"
-#  build_firmware "LilyGo_T3S3_sx1262_Repeater"
-#  build_firmware "RAK_4631_Repeater"
-
-  # build all repeater firmwares
-  build_all_firmwares_by_suffix "_repeater"
-
-}
-
-build_companion_firmwares() {
-
-#  # build specific companion firmwares
-#  build_firmware "Heltec_v2_companion_radio_usb"
-#  build_firmware "Heltec_v2_companion_radio_ble"
-#  build_firmware "Heltec_v3_companion_radio_usb"
-#  build_firmware "Heltec_v3_companion_radio_ble"
-#  build_firmware "Xiao_S3_WIO_companion_radio_ble"
-#  build_firmware "LilyGo_T3S3_sx1262_companion_radio_usb"
-#  build_firmware "LilyGo_T3S3_sx1262_companion_radio_ble"
-#  build_firmware "RAK_4631_companion_radio_usb"
-#  build_firmware "RAK_4631_companion_radio_ble"
-#  build_firmware "t1000e_companion_radio_ble"
-
-  # build all companion firmwares
-  build_all_firmwares_by_suffix "_companion_radio_usb"
-  build_all_firmwares_by_suffix "_companion_radio_ble"
-
-}
-
-build_room_server_firmwares() {
-
-#  # build specific room server firmwares
-#  build_firmware "Heltec_v3_room_server"
-#  build_firmware "RAK_4631_room_server"
-
-  # build all room server firmwares
-  build_all_firmwares_by_suffix "_room_server"
-
-}
-
-build_kiss_modem_firmwares() {
-
-#  # build specific kiss radio firmwares
-#  build_firmware "Heltec_v3_kiss_modem"
-#  build_firmware "RAK_4631_kiss_modem"
-
-  # build all room server firmwares
-  build_all_firmwares_by_suffix "_kiss_modem"
-
-}
-
-build_firmwares() {
-  build_companion_firmwares
-  build_repeater_firmwares
-  build_room_server_firmwares
-}
-
-# clean build dir
-rm -rf out
-mkdir -p out
-
-# handle script args
-if [[ $1 == "build-firmware" ]]; then
-  TARGETS=${@:2}
-  if [ "$TARGETS" ]; then
-    for env in $TARGETS; do
-      build_firmware $env
+command="${1:-}"
+case "$command" in
+  list|-l)
+    printf '%s\n' "${SUPPORTED_TARGETS[@]}"
+    ;;
+  build-firmware)
+    [[ -n "${2:-}" ]] || { usage; exit 1; }
+    rm -rf out
+    mkdir -p out
+    build_firmware "$2"
+    ;;
+  build-supported|build-firmwares)
+    rm -rf out
+    mkdir -p out
+    for target in "${SUPPORTED_TARGETS[@]}"; do
+      build_firmware "$target"
     done
-  else
-    echo "usage: $0 build-firmware <target>"
+    ;;
+  help|usage|-h|--help|"")
+    usage
+    ;;
+  *)
+    echo "Unknown command: $command" >&2
+    usage
     exit 1
-  fi
-elif [[ $1 == "build-matching-firmwares" ]]; then
-  if [ "$2" ]; then
-     build_all_firmwares_matching $2
-  else
-     echo "usage: $0 build-matching-firmwares <build-match-spec>"
-    exit 1
-  fi
-elif [[ $1 == "build-firmwares" ]]; then
-  build_firmwares
-elif [[ $1 == "build-companion-firmwares" ]]; then
-  build_companion_firmwares
-elif [[ $1 == "build-repeater-firmwares" ]]; then
-  build_repeater_firmwares
-elif [[ $1 == "build-room-server-firmwares" ]]; then
-  build_room_server_firmwares
-elif [[ $1 == "build-kiss-radio-firmwares" ]]; then
-  build_kiss_modem_firmwares
-elif [[ $1 == "get-companion-firmwares-to-build" ]]; then
-  get_pio_envs_ending_with_string "_companion_radio_usb"
-  get_pio_envs_ending_with_string "_companion_radio_ble"
-elif [[ $1 == "get-repeater-firmwares-to-build" ]]; then
-  get_pio_envs_ending_with_string "_repeater"
-elif [[ $1 == "get-room-server-firmwares-to-build" ]]; then
-  get_pio_envs_ending_with_string "_room_server"
-fi
+    ;;
+esac

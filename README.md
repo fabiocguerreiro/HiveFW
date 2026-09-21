@@ -81,12 +81,14 @@ HiveFW/
 | Repeater opcional | Sim | Sim |
 | UI HiveFW | Sim | Sim, modelo com display |
 | Wi-Fi / TCP Companion | **Sim** | Não |
-| BLE Companion | Build disponível | **Build principal** |
+| BLE Companion | Não | **Sim** |
 | Home Assistant direto | **TCP/Wi-Fi** | **BLE** |
 | Web OTA | **Sim** | Não |
 | BLE DFU | Não é o método principal | **Sim** |
 | UF2 | Não é o método principal | **Sim** |
 | Versão HiveFW | **Comum** | **Comum** |
+
+Política e matriz de suporte: [docs/supported_hardware.md](docs/supported_hardware.md).
 
 Ambientes principais:
 
@@ -505,4 +507,4 @@ HiveFW deriva do trabalho open-source do ecossistema MeshCore.
 - [meshcore_py](https://github.com/meshcore-dev/meshcore_py)
 - [Documentação MeshCore](https://docs.meshcore.io/)
 
-Consultar `LICENSE`, `license.txt`, `THIRD_PARTY_NOTICES.md` e `licenses/` para os termos e atribuições aplicáveis.
+Consultar `LICENSE`, `THIRD_PARTY_NOTICES.md` e os ficheiros de licença mantidos junto dos componentes de terceiros para os termos e atribuições aplicáveis.
