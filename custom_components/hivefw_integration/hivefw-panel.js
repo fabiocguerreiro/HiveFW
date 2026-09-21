@@ -100,6 +100,14 @@ class HiveFWPanel extends BasePanel {
     this.__hiveNeighborsSort = "recent";
     this.__hiveNeighborsLoadedEntry = null;
     this.__neighborsOverlay = null;
+    this.__hiveNeighborDiscovery = null;
+    this.__hiveNeighborDiscoveryLoading = false;
+    this.__hiveNeighborDiscoveryStarting = false;
+    this.__hiveNeighborDiscoveryLoadedEntry = null;
+    this.__hiveNeighborDiscoveryPollTimer = null;
+    this.__hiveNeighborDiscoverySignature = "";
+    this.__hiveNeighborMapMarkerElements = new Map();
+    this.__hiveNeighborMapFocusId = "";
 
     this.__consoleHistory = [];
     this.__consoleCommandHistory = [];
@@ -320,14 +328,26 @@ class HiveFWPanel extends BasePanel {
         this.__hiveNeighborsError = null;
         this.__hiveNeighborsLoadedEntry = entryId;
       }
+      if (entryId !== this.__hiveNeighborDiscoveryLoadedEntry) {
+        this.__hiveNeighborDiscovery = null;
+        this.__hiveNeighborDiscoveryLoadedEntry = entryId;
+        this.__hiveNeighborDiscoverySignature = "";
+        this.__hiveNeighborMapFocusId = "";
+        this.__stopHiveNeighborDiscoveryPolling();
+      }
 
       const container = root.querySelector(".page-container");
       if (!container) return;
       const overlay = this.__ensureNeighborsOverlay(container);
       this.__renderHiveNeighbors(overlay);
 
+      // Deliberately independent: the original passive Vizinhos query must
+      // never wait for, or fail because of, the active discovery API.
       if (!this.__hiveNeighbors && !this.__hiveNeighborsLoading) {
         void this.__loadHiveNeighbors();
+      }
+      if (!this.__hiveNeighborDiscovery && !this.__hiveNeighborDiscoveryLoading) {
+        void this.__loadHiveNeighborDiscovery();
       }
     }
   }
@@ -1200,7 +1220,161 @@ class HiveFWPanel extends BasePanel {
         background: var(--primary-background-color);
       }
 
-      .hive-neighbors-toolbar {
+      .hive-neighbors-three {
+        display:grid;
+        grid-template-columns:minmax(300px,.95fr) minmax(320px,1fr) minmax(380px,1.35fr);
+        gap:12px;
+        width:100%;
+        height:100%;
+        min-height:0;
+      }
+      .hive-neighbors-column {
+        min-width:0;
+        min-height:0;
+        overflow:hidden;
+        border:1px solid var(--divider-color);
+        border-radius:16px;
+        background:var(--card-background-color);
+        display:flex;
+        flex-direction:column;
+      }
+      .hive-neighbors-left-scroll,
+      .hive-neighbors-discovery-scroll {
+        min-height:0;
+        overflow:auto;
+        padding:14px;
+      }
+      .hive-neighbors-left-scroll .mcr-wrap {
+        width:100%;
+        max-width:none;
+        margin:0;
+      }
+      .hive-neighbors-left-scroll .mcr-hero {
+        padding:18px;
+      }
+      .hive-neighbors-left-scroll .mcr-grid {
+        grid-template-columns:repeat(2,minmax(0,1fr));
+      }
+      .hive-neighbors-left-scroll .hive-neighbors-grid {
+        grid-template-columns:1fr;
+      }
+      .hive-discovery-head {
+        display:flex;
+        justify-content:space-between;
+        align-items:flex-start;
+        gap:10px;
+        padding:16px;
+        border-bottom:1px solid var(--divider-color);
+      }
+      .hive-discovery-eyebrow {
+        color:var(--primary-color);
+        font-size:9px;
+        font-weight:760;
+        letter-spacing:.11em;
+        text-transform:uppercase;
+        margin-bottom:4px;
+      }
+      .hive-discovery-title {
+        font-size:16px;
+        font-weight:720;
+      }
+      .hive-discovery-subtitle {
+        margin-top:5px;
+        color:var(--secondary-text-color);
+        font-size:10px;
+        line-height:1.4;
+      }
+      .hive-discovery-status {
+        padding:10px 11px;
+        border-radius:10px;
+        background:color-mix(in srgb,var(--primary-color) 8%,transparent);
+        font-size:10px;
+        line-height:1.4;
+        margin-bottom:10px;
+      }
+      .hive-discovery-item {
+        display:grid;
+        grid-template-columns:minmax(0,1fr) auto;
+        align-items:center;
+        gap:9px;
+        padding:10px;
+        border:1px solid var(--divider-color);
+        border-radius:10px;
+        background:var(--primary-background-color);
+        cursor:pointer;
+      }
+      .hive-discovery-item + .hive-discovery-item { margin-top:7px; }
+      .hive-discovery-item:hover,
+      .hive-discovery-item.selected {
+        border-color:var(--primary-color);
+        background:color-mix(in srgb,var(--primary-color) 6%,var(--primary-background-color));
+      }
+      .hive-discovery-signal {
+        min-width:62px;
+        text-align:right;
+        font-size:12px;
+        font-weight:700;
+      }
+      .hive-discovery-empty {
+        padding:22px 14px;
+        border:1px dashed var(--divider-color);
+        border-radius:11px;
+        color:var(--secondary-text-color);
+        text-align:center;
+        font-size:10px;
+        line-height:1.45;
+      }
+      .hive-neighbors-map {
+        position:relative;
+      }
+      .hive-neighbors-map-host {
+        position:relative;
+        flex:1 1 auto;
+        min-height:0;
+      }
+      .hive-neighbors-map-host ha-map {
+        display:block;
+        width:100%;
+        height:100%;
+        min-height:420px;
+      }
+      .hive-neighbors-map-note {
+        display:grid;
+        place-items:center;
+        height:100%;
+        min-height:360px;
+        padding:24px;
+        box-sizing:border-box;
+        color:var(--secondary-text-color);
+        text-align:center;
+        font-size:11px;
+        line-height:1.45;
+      }
+      .hive-neighbors-map-count {
+        position:absolute;
+        top:10px;
+        right:10px;
+        z-index:30;
+        padding:5px 8px;
+        border:1px solid var(--divider-color);
+        border-radius:999px;
+        background:color-mix(in srgb,var(--card-background-color) 92%,transparent);
+        box-shadow:0 1px 5px rgba(0,0,0,.16);
+        font-size:9px;
+        font-weight:700;
+        pointer-events:none;
+      }
+      @media (max-width:1050px) {
+        .hive-neighbors-overlay { overflow:auto; }
+        .hive-neighbors-three {
+          grid-template-columns:1fr;
+          height:auto;
+        }
+        .hive-neighbors-column { min-height:360px; }
+        .hive-neighbors-map { min-height:500px; }
+      }
+
+            .hive-neighbors-toolbar {
         display:flex;
         justify-content:space-between;
         align-items:center;
@@ -6788,6 +6962,7 @@ class HiveFWPanel extends BasePanel {
       this.__neighborsOverlay.remove();
     }
     this.__neighborsOverlay = null;
+    this.__stopHiveNeighborDiscoveryPolling();
   }
 
   async __loadHiveNeighbors() {
@@ -6820,15 +6995,44 @@ class HiveFWPanel extends BasePanel {
   }
 
   __renderHiveNeighbors(container) {
-    // 'container' is our private overlay, never Lit's .page-container.
     container.replaceChildren();
 
     const page = document.createElement("div");
     page.className = "mcr-page";
+    page.style.overflow = "hidden";
+
+    const layout = document.createElement("div");
+    layout.className = "hive-neighbors-three";
+
+    const left = document.createElement("section");
+    left.className = "hive-neighbors-column";
+    const leftScroll = document.createElement("div");
+    leftScroll.className = "hive-neighbors-left-scroll";
+    left.appendChild(leftScroll);
+
+    const middle = document.createElement("section");
+    middle.className = "hive-neighbors-column";
+
+    const right = document.createElement("section");
+    right.className = "hive-neighbors-column hive-neighbors-map";
+
+    layout.append(left, middle, right);
+    page.appendChild(layout);
+    container.appendChild(page);
+
+    // Preserve the original Vizinhos page exactly as the passive source in
+    // column one. Active discovery is rendered independently beside it.
+    this.__renderHiveNeighborsLeft(leftScroll);
+    this.__renderHiveNeighborDiscovery(middle);
+    this.__renderHiveNeighborDiscoveryMap(right);
+  }
+
+  __renderHiveNeighborsLeft(container) {
+    container.replaceChildren();
+
     const wrap = document.createElement("div");
     wrap.className = "mcr-wrap";
-    page.appendChild(wrap);
-    container.appendChild(page);
+    container.appendChild(wrap);
 
     const hero = document.createElement("section");
     hero.className = "mcr-hero";
@@ -6952,6 +7156,339 @@ class HiveFWPanel extends BasePanel {
       grid.appendChild(this.__neighborCard(neighbor));
     }
     wrap.appendChild(grid);
+  }
+
+  async __loadHiveNeighborDiscovery() {
+    if (!this.hass || this.__hiveNeighborDiscoveryLoading) return;
+    this.__hiveNeighborDiscoveryLoading = true;
+    try {
+      const msg = { type: "hivefw_integration/get_hive_neighbor_discovery" };
+      const entryId = this.__entryId();
+      if (entryId) msg.entry_id = entryId;
+      const state = await this.hass.callWS(msg);
+      this.__applyHiveNeighborDiscoveryState(state);
+    } catch (error) {
+      // Active discovery is optional. Never let it change/fail the original
+      // passive Vizinhos page in the left column.
+      this.__hiveNeighborDiscovery = {
+        supported: false,
+        active: false,
+        count: 0,
+        results: [],
+        error: error?.message || "Descoberta ativa indisponível."
+      };
+      this.__rerenderHivePage();
+    } finally {
+      this.__hiveNeighborDiscoveryLoading = false;
+    }
+  }
+
+  async __startHiveNeighborDiscovery() {
+    if (!this.hass || this.__hiveNeighborDiscoveryStarting) return;
+    this.__hiveNeighborDiscoveryStarting = true;
+    this.__rerenderHivePage();
+    try {
+      const msg = { type: "hivefw_integration/start_hive_neighbor_discovery" };
+      const entryId = this.__entryId();
+      if (entryId) msg.entry_id = entryId;
+      const state = await this.hass.callWS(msg);
+      this.__applyHiveNeighborDiscoveryState(state, true);
+      this.__startHiveNeighborDiscoveryPolling();
+    } catch (error) {
+      this.__hiveNeighborDiscovery = {
+        supported: false,
+        active: false,
+        count: 0,
+        results: [],
+        error: error?.message || "Não foi possível iniciar a descoberta."
+      };
+      this.__rerenderHivePage();
+    } finally {
+      this.__hiveNeighborDiscoveryStarting = false;
+      this.__rerenderHivePage();
+    }
+  }
+
+  __applyHiveNeighborDiscoveryState(state, forceRender = false) {
+    const normalized = state && typeof state === "object"
+      ? state
+      : { supported:false, active:false, count:0, results:[] };
+    const results = Array.isArray(normalized.results) ? normalized.results : [];
+    const signature = JSON.stringify({
+      active:Boolean(normalized.active),
+      count:Number(normalized.count || results.length),
+      results:results.map((item) => [
+        item?.pubkey || item?.pubkey_prefix || "",
+        item?.snr ?? null,
+        item?.latitude ?? null,
+        item?.longitude ?? null
+      ])
+    });
+
+    this.__hiveNeighborDiscovery = normalized;
+    if (normalized.active) this.__startHiveNeighborDiscoveryPolling();
+    else this.__stopHiveNeighborDiscoveryPolling();
+
+    if (forceRender || signature !== this.__hiveNeighborDiscoverySignature) {
+      this.__hiveNeighborDiscoverySignature = signature;
+      this.__rerenderHivePage();
+    }
+  }
+
+  __startHiveNeighborDiscoveryPolling() {
+    if (this.__hiveNeighborDiscoveryPollTimer) return;
+    this.__hiveNeighborDiscoveryPollTimer = window.setInterval(async () => {
+      if (!this.hass || this._activeTab !== "neighbors") return;
+      try {
+        const msg = { type: "hivefw_integration/get_hive_neighbor_discovery" };
+        const entryId = this.__entryId();
+        if (entryId) msg.entry_id = entryId;
+        const state = await this.hass.callWS(msg);
+        this.__applyHiveNeighborDiscoveryState(state);
+      } catch {
+        // Keep the last result set visible through transient WS hiccups.
+      }
+    }, 1000);
+  }
+
+  __stopHiveNeighborDiscoveryPolling() {
+    if (this.__hiveNeighborDiscoveryPollTimer) {
+      window.clearInterval(this.__hiveNeighborDiscoveryPollTimer);
+      this.__hiveNeighborDiscoveryPollTimer = null;
+    }
+  }
+
+  __renderHiveNeighborDiscovery(container) {
+    container.replaceChildren();
+
+    const head = document.createElement("div");
+    head.className = "hive-discovery-head";
+    const heading = document.createElement("div");
+    const eyebrow = document.createElement("div");
+    eyebrow.className = "hive-discovery-eyebrow";
+    eyebrow.textContent = "ATIVO · RF ZERO-HOP";
+    const title = document.createElement("div");
+    title.className = "hive-discovery-title";
+    title.textContent = "Repetidores descobertos";
+    const subtitle = document.createElement("div");
+    subtitle.className = "hive-discovery-subtitle";
+    subtitle.textContent = "Pesquisa oficial MeshCore apenas a Repeaters em alcance direto.";
+    heading.append(eyebrow, title, subtitle);
+
+    const discover = document.createElement("button");
+    discover.className = "mcr-btn primary";
+    const active = Boolean(this.__hiveNeighborDiscovery?.active);
+    discover.disabled = this.__hiveNeighborDiscoveryStarting || active;
+    discover.textContent = this.__hiveNeighborDiscoveryStarting
+      ? "A iniciar…"
+      : active ? "A descobrir…" : "Descobrir";
+    discover.addEventListener("click", () => void this.__startHiveNeighborDiscovery());
+    head.append(heading, discover);
+    container.appendChild(head);
+
+    const scroll = document.createElement("div");
+    scroll.className = "hive-neighbors-discovery-scroll";
+    container.appendChild(scroll);
+
+    const state = this.__hiveNeighborDiscovery;
+    const status = document.createElement("div");
+    status.className = "hive-discovery-status";
+    if (active) {
+      status.textContent = "Pesquisa zero-hop ativa · as respostas aparecem à medida que chegam.";
+    } else if (state?.started_at) {
+      status.textContent = "Última pesquisa concluída · " + String(state.count || 0) + " Repeater(s) encontrado(s).";
+    } else if (state?.error) {
+      status.textContent = state.error;
+    } else {
+      status.textContent = "Carrega em Descobrir para emitir um único DISCOVER_REQ zero-hop.";
+    }
+    scroll.appendChild(status);
+
+    const results = Array.isArray(state?.results) ? state.results : [];
+    if (!results.length) {
+      const empty = document.createElement("div");
+      empty.className = "hive-discovery-empty";
+      empty.textContent = active
+        ? "A aguardar respostas dos Repeaters em alcance…"
+        : "Ainda não existem resultados de descoberta ativa.";
+      scroll.appendChild(empty);
+      return;
+    }
+
+    for (const item of results) {
+      const row = document.createElement("article");
+      row.className = "hive-discovery-item";
+      const id = String(item.pubkey || item.pubkey_prefix || "");
+      row.classList.toggle("selected", id === this.__hiveNeighborMapFocusId);
+
+      const info = document.createElement("div");
+      const name = document.createElement("div");
+      name.className = "hive-neighbor-name";
+      name.textContent = item.name || item.pubkey_prefix || "Repeater";
+      const prefix = document.createElement("div");
+      prefix.className = "hive-neighbor-prefix";
+      prefix.textContent = String(item.pubkey_prefix || "").toUpperCase();
+      const meta = document.createElement("div");
+      meta.className = "hive-neighbor-meta";
+      const direct = document.createElement("span");
+      direct.className = "hive-neighbor-pill";
+      direct.textContent = "ZERO-HOP";
+      meta.appendChild(direct);
+
+      const known = document.createElement("span");
+      known.textContent = item.known_contact ? "Conhecido" : "Novo";
+      meta.appendChild(known);
+
+      if (Number.isFinite(Number(item.latitude)) && Number.isFinite(Number(item.longitude))) {
+        const gps = document.createElement("span");
+        gps.textContent = "📍 GPS";
+        meta.appendChild(gps);
+      }
+      if (item.request_snr != null) {
+        const req = document.createElement("span");
+        req.textContent = "REQ " + Number(item.request_snr).toFixed(1) + " dB";
+        meta.appendChild(req);
+      }
+      info.append(name, prefix, meta);
+
+      const signal = document.createElement("div");
+      signal.className = "hive-discovery-signal";
+      signal.textContent = item.snr == null ? "—" : Number(item.snr).toFixed(1) + " dB";
+
+      row.append(info, signal);
+      row.addEventListener("click", () => {
+        this.__hiveNeighborMapFocusId = id;
+        this.__rerenderHivePage();
+      });
+      scroll.appendChild(row);
+    }
+  }
+
+  __hiveNeighborDiscoveryLocated() {
+    const results = Array.isArray(this.__hiveNeighborDiscovery?.results)
+      ? this.__hiveNeighborDiscovery.results : [];
+    return results.filter((item) => {
+      const lat = Number(item.latitude);
+      const lon = Number(item.longitude);
+      return Number.isFinite(lat) && Number.isFinite(lon)
+        && lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180
+        && !(lat === 0 && lon === 0);
+    });
+  }
+
+  __hiveNeighborMapLocations() {
+    const active = new Set();
+    const locations = this.__hiveNeighborDiscoveryLocated().map((item) => {
+      const id = String(item.pubkey || item.pubkey_prefix || "");
+      active.add(id);
+      let marker = this.__hiveNeighborMapMarkerElements.get(id);
+      if (!marker) {
+        marker = document.createElement("div");
+        this.__hiveNeighborMapMarkerElements.set(id, marker);
+      }
+      const selected = id === this.__hiveNeighborMapFocusId;
+      marker.style.cssText =
+        "width:30px;height:30px;border-radius:50%;display:grid;place-items:center;" +
+        "font-size:9px;font-weight:750;color:white;border:" +
+        (selected ? "3px" : "2px") + " solid white;box-shadow:" +
+        (selected
+          ? "0 0 0 3px rgba(255,152,0,.30),0 2px 7px rgba(0,0,0,.32);"
+          : "0 1px 5px rgba(0,0,0,.30);") +
+        "background:" + (selected
+          ? "var(--warning-color,#ff9800);"
+          : "var(--primary-color,#03a9f4);");
+      marker.textContent = String(item.name || item.pubkey_prefix || "?").slice(0,2).toUpperCase();
+      return {
+        id,
+        location:[Number(item.latitude), Number(item.longitude)],
+        element:marker,
+        elementSize:[36,36],
+        title:item.name || item.pubkey_prefix,
+        locationEditable:false,
+        activatable:true
+      };
+    });
+    for (const id of this.__hiveNeighborMapMarkerElements.keys()) {
+      if (!active.has(id)) this.__hiveNeighborMapMarkerElements.delete(id);
+    }
+    return locations;
+  }
+
+  __renderHiveNeighborDiscoveryMap(container) {
+    container.replaceChildren();
+
+    const head = document.createElement("div");
+    head.className = "hive-discovery-head";
+    const heading = document.createElement("div");
+    const eyebrow = document.createElement("div");
+    eyebrow.className = "hive-discovery-eyebrow";
+    eyebrow.textContent = "DESCOBERTA ATIVA";
+    const title = document.createElement("div");
+    title.className = "hive-discovery-title";
+    title.textContent = "Mapa";
+    const subtitle = document.createElement("div");
+    subtitle.className = "hive-discovery-subtitle";
+    subtitle.textContent = "Localização conhecida dos Repeaters encontrados.";
+    heading.append(eyebrow, title, subtitle);
+    head.appendChild(heading);
+    container.appendChild(head);
+
+    const host = document.createElement("div");
+    host.className = "hive-neighbors-map-host";
+    container.appendChild(host);
+
+    const located = this.__hiveNeighborDiscoveryLocated();
+    const total = Array.isArray(this.__hiveNeighborDiscovery?.results)
+      ? this.__hiveNeighborDiscovery.results.length : 0;
+
+    if (!customElements.get("ha-map")) {
+      const note = document.createElement("div");
+      note.className = "hive-neighbors-map-note";
+      note.textContent = "A carregar o mapa do Home Assistant…";
+      host.appendChild(note);
+      customElements.whenDefined("ha-map").then(() => this.__rerenderHivePage());
+      return;
+    }
+
+    if (!located.length) {
+      const note = document.createElement("div");
+      note.className = "hive-neighbors-map-note";
+      note.textContent = total
+        ? String(total) + " Repeater(s) encontrado(s), mas ainda sem localização conhecida."
+        : "Os Repeaters encontrados aparecerão aqui quando a descoberta começar.";
+      host.appendChild(note);
+      return;
+    }
+
+    const count = document.createElement("div");
+    count.className = "hive-neighbors-map-count";
+    count.textContent = String(located.length) + "/" + String(total) + " com localização";
+    host.appendChild(count);
+
+    const map = document.createElement("ha-map");
+    map.entities = [];
+    map.editableLocations = this.__hiveNeighborMapLocations();
+    map.autoFit = true;
+    map.clusterMarkers = true;
+    map.scaleRuler = true;
+    map.addEventListener("editable-location-clicked", (event) => {
+      const id = event?.detail?.id;
+      if (!id) return;
+      this.__hiveNeighborMapFocusId = String(id);
+      this.__rerenderHivePage();
+    });
+    host.appendChild(map);
+
+    if (this.__hiveNeighborMapFocusId) {
+      const selected = located.find(
+        (item) => String(item.pubkey || item.pubkey_prefix || "") === this.__hiveNeighborMapFocusId
+      );
+      if (selected) {
+        queueMicrotask(() => {
+          map.setView?.([Number(selected.latitude), Number(selected.longitude)], 14);
+        });
+      }
+    }
   }
 
   __neighborCard(neighbor) {
