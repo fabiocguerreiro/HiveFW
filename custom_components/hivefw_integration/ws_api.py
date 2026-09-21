@@ -40,6 +40,7 @@ from .const import (
 from .message_store import MessageStore
 from .ota import (
     HiveFWOtaError,
+    async_create_manual_ota_session,
     async_get_ota_status,
     async_install_latest_release,
 )
@@ -661,6 +662,7 @@ def async_register_ws_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_get_duty_cycle)
     websocket_api.async_register_command(hass, ws_set_duty_cycle)
     websocket_api.async_register_command(hass, ws_get_firmware_ota_status)
+    websocket_api.async_register_command(hass, ws_create_manual_ota_session)
     websocket_api.async_register_command(hass, ws_install_latest_firmware)
     websocket_api.async_register_command(hass, ws_set_device_config)
     websocket_api.async_register_command(hass, ws_execute_local)
@@ -2420,6 +2422,28 @@ async def ws_get_firmware_ota_status(hass, connection, msg):
         connection.send_result(msg["id"], result)
     except HiveFWOtaError as ex:
         connection.send_error(msg["id"], "ota_status_failed", str(ex))
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hivefw_integration/create_manual_ota_session",
+        vol.Optional("entry_id"): str,
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_create_manual_ota_session(hass, connection, msg):
+    """Rotate and reveal one ephemeral Web OTA credential to an HA admin."""
+    coordinator = _get_coordinator(hass, msg.get("entry_id"))
+    if not coordinator:
+        connection.send_error(msg["id"], "not_found", "No HiveFW coordinator found")
+        return
+
+    try:
+        result = await async_create_manual_ota_session(hass, coordinator)
+        connection.send_result(msg["id"], result)
+    except HiveFWOtaError as ex:
+        connection.send_error(msg["id"], "ota_manual_session_failed", str(ex))
 
 
 @websocket_api.websocket_command(
