@@ -133,27 +133,34 @@ export class MeshCorePanel extends LitElement {
 
       .hivefw-header-brand-white {
         display: inline-block;
-        width: 112px;
-        height: 28px;
+        width: 128px;
+        height: 34px;
         flex: 0 0 auto;
         border-radius: 8px;
         background: rgba(17, 17, 17, .92);
         position: relative;
+        overflow: hidden;
         box-shadow: inset 0 0 0 1px rgba(255,255,255,.08);
       }
 
-      .hivefw-header-brand-white::before {
+      .hivefw-header-brand-white::before,
+      .hivefw-header-brand-white::after {
         content: '';
         position: absolute;
-        inset: 6px 9px;
-        background: #fff;
-        -webkit-mask: url('/hivefw_integration_panel/hivefw-wordmark.png') center / contain no-repeat;
-        mask: url('/hivefw_integration_panel/hivefw-wordmark.png') center / contain no-repeat;
+        inset: 5px 8px;
+        background: url('/hivefw_integration_panel/hivefw-wordmark.png?v=orange-2') center / contain no-repeat;
+      }
+
+      /* Keep the orange emblem from the original asset, but turn only the
+         HiveFW lettering white where the header background is dark. */
+      .hivefw-header-brand-white::after {
+        filter: brightness(0) invert(1);
+        clip-path: inset(0 0 0 29%);
       }
 
       :host([narrow]) .hivefw-header-brand-white {
-        width: 82px;
-        height: 26px;
+        width: 104px;
+        height: 30px;
       }
 
       .device-info {
