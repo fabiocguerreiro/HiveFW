@@ -523,7 +523,7 @@ class HiveFWPanel extends BasePanel {
           ? null
           : Number(state.channel_idx);
 
-      if (next !== this.__appsSosChannelLast) {
+      if (force || next !== this.__appsSosChannelLast) {
         this.__appsSosChannelLast = next;
         this.__applyAppsSosChannelToChat(next);
       }
