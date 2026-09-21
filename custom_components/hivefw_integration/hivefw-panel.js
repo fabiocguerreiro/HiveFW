@@ -7947,7 +7947,7 @@ class HiveFWPanel extends BasePanel {
     const subtitle = document.createElement("p");
     subtitle.className = "mcr-subtitle";
     subtitle.textContent =
-      "Repeaters cujo último advert guardado pelo Companion foi recebido diretamente, com zero hops. A consulta usa a cache Advert Path já existente no firmware e não gera tráfego LoRa.";
+      "Repeaters realmente ouvidos diretamente pelo rádio. A lista usa a tabela de vizinhos do Repeater, acumula vários nós zero-hop e exclui adverts recebidos por Share Contact. Atualizar não gera tráfego LoRa.";
     heading.append(eyebrow, title, subtitle);
 
     const refresh = document.createElement("button");
@@ -7962,7 +7962,7 @@ class HiveFWPanel extends BasePanel {
     if (this.__hiveNeighborsLoading && !this.__hiveNeighbors) {
       wrap.appendChild(this.__state(
         "A carregar",
-        "A consultar os caminhos dos adverts guardados pelo Companion."
+        "A consultar a tabela local de vizinhos diretos do Repeater."
       ));
       return;
     }
@@ -7998,7 +7998,7 @@ class HiveFWPanel extends BasePanel {
     summary.className = "mcr-grid";
     summary.append(
       this.__metric("Vizinhos", String(data.count ?? neighbors.length), "Repeaters diretos"),
-      this.__metric("Método", "Zero-hop", "Advert Path"),
+      this.__metric("Método", "Zero-hop", "Tabela Repeater"),
       this.__metric(
         "Último advert",
         latest == null ? "—" : this.__age(latest),
@@ -8039,7 +8039,7 @@ class HiveFWPanel extends BasePanel {
     if (!neighbors.length) {
       wrap.appendChild(this.__state(
         "Ainda sem vizinhos zero-hop",
-        "Nenhum contacto Repeater tem neste momento um Advert Path direto guardado no Companion."
+        "Ainda não foi ouvido diretamente nenhum advert de Repeater desde o arranque."
       ));
       return;
     }
