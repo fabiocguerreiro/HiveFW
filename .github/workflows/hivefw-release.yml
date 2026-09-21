@@ -1,0 +1,208 @@
+name: Build & Release HiveFW
+
+concurrency:
+  group: hivefw-release-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "VERSION"
+      - "build.sh"
+      - "version-from-file.py"
+      - "platformio.ini"
+      - "examples/companion_radio/**"
+      - "variants/heltec_v3/**"
+      - "variants/heltec_t114/**"
+      - "arch/esp32/AsyncElegantOTA/**"
+      - ".github/workflows/hivefw-release.yml"
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Setup build environment
+        uses: ./.github/actions/setup-build-environment
+
+      - name: Resolve firmware version
+        id: version
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+            VERSION="${VERSION#V}"
+          else
+            VERSION="$(tr -d '[:space:]' < VERSION)"
+            VERSION="${VERSION#V}"
+            VERSION="${VERSION#v}"
+          fi
+
+          MANIFEST_VERSION="$(python - <<'PY'
+          import json
+          from pathlib import Path
+          data=json.loads(Path("custom_components/hivefw_integration/manifest.json").read_text())
+          print(data["version"])
+          PY
+          )"
+
+          if [[ "${VERSION}" != "${MANIFEST_VERSION}" ]]; then
+            echo "Version mismatch: VERSION=${VERSION}, manifest=${MANIFEST_VERSION}"
+            exit 1
+          fi
+          test -n "$VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare release assets
+        run: mkdir -p release-assets
+
+      - name: Build Heltec V3 Wi-Fi OTA
+        env:
+          FIRMWARE_VERSION: V${{ steps.version.outputs.version }}
+        shell: bash
+        run: |
+          ./build.sh build-firmware Heltec_v3_companion_radio_wifi
+
+          V3_BIN="$(find out -maxdepth 1 -type f \
+            -name 'Heltec_v3_companion_radio_wifi-*.bin' \
+            ! -name '*-merged.bin' \
+            -print -quit)"
+
+          if [[ -z "$V3_BIN" || ! -s "$V3_BIN" ]]; then
+            echo "Heltec V3 OTA application image was not produced"
+            exit 1
+          fi
+
+          cp "$V3_BIN" release-assets/
+          (
+            cd release-assets
+            sha256sum "$(basename "$V3_BIN")" > "$(basename "$V3_BIN").sha256"
+          )
+
+          # Build a USB recovery package that repairs bootloader/partition
+          # metadata and app0 while deliberately preserving NVS (0x9000),
+          # where HiveFW stores the runtime Wi-Fi credentials.
+          V3_BUILD_DIR=".pio/build/Heltec_v3_companion_radio_wifi"
+          BOOT_APP0="$HOME/.platformio/packages/framework-arduinoespressif32/tools/partitions/boot_app0.bin"
+          RECOVERY_DIR="recovery-v3"
+          RECOVERY_ZIP="release-assets/$(basename "$V3_BIN" .bin)-recovery.zip"
+
+          test -s "$V3_BUILD_DIR/bootloader.bin"
+          test -s "$V3_BUILD_DIR/partitions.bin"
+          test -s "$V3_BUILD_DIR/firmware.bin"
+          test -s "$BOOT_APP0"
+
+          rm -rf "$RECOVERY_DIR"
+          mkdir -p "$RECOVERY_DIR"
+          cp "$V3_BUILD_DIR/bootloader.bin" "$RECOVERY_DIR/bootloader.bin"
+          cp "$V3_BUILD_DIR/partitions.bin" "$RECOVERY_DIR/partitions.bin"
+          cp "$BOOT_APP0" "$RECOVERY_DIR/boot_app0.bin"
+          cp "$V3_BUILD_DIR/firmware.bin" "$RECOVERY_DIR/firmware.bin"
+
+          cat > "$RECOVERY_DIR/FLASH_RECOVERY.txt" <<'EOF'
+          HiveFW Heltec V3 USB recovery
+          ==============================
+
+          This recovery layout PRESERVES NVS at 0x9000, including HiveFW
+          runtime Wi-Fi credentials. Do NOT erase flash first.
+
+          Put the Heltec V3 in USB boot/download mode and run:
+
+          python -m esptool --chip esp32s3 --port <PORT> --baud 921600 write_flash \
+            0x0000 bootloader.bin \
+            0x8000 partitions.bin \
+            0xE000 boot_app0.bin \
+            0x10000 firmware.bin
+
+          If 921600 is unreliable, retry with --baud 460800.
+
+          IMPORTANT:
+          - Do not use erase_flash.
+          - Do not write anything at 0x9000.
+          - boot_app0.bin at 0xE000 resets the OTA selection metadata.
+          EOF
+
+          (
+            cd "$RECOVERY_DIR"
+            sha256sum bootloader.bin partitions.bin boot_app0.bin firmware.bin > SHA256SUMS.txt
+            zip -9 "../$RECOVERY_ZIP"               bootloader.bin partitions.bin boot_app0.bin firmware.bin               FLASH_RECOVERY.txt SHA256SUMS.txt
+          )
+          sha256sum "$RECOVERY_ZIP" > "$RECOVERY_ZIP.sha256"
+
+      - name: Build Heltec T114 BLE DFU
+        env:
+          FIRMWARE_VERSION: V${{ steps.version.outputs.version }}
+        shell: bash
+        run: |
+          ./build.sh build-firmware Heltec_t114_companion_radio_ble
+
+          T114_ZIP="$(find out -maxdepth 1 -type f \
+            -name 'Heltec_t114_companion_radio_ble-*.zip' \
+            -print -quit)"
+          T114_UF2="$(find out -maxdepth 1 -type f \
+            -name 'Heltec_t114_companion_radio_ble-*.uf2' \
+            -print -quit)"
+
+          if [[ -z "$T114_ZIP" || ! -s "$T114_ZIP" ]]; then
+            echo "Heltec T114 BLE DFU ZIP was not produced"
+            exit 1
+          fi
+
+          if [[ -z "$T114_UF2" || ! -s "$T114_UF2" ]]; then
+            echo "Heltec T114 UF2 was not produced"
+            exit 1
+          fi
+
+          cp "$T114_ZIP" "$T114_UF2" release-assets/
+          (
+            cd release-assets
+            sha256sum "$(basename "$T114_ZIP")" > "$(basename "$T114_ZIP").sha256"
+            sha256sum "$(basename "$T114_UF2")" > "$(basename "$T114_UF2").sha256"
+          )
+
+      - name: Validate device-specific release assets
+        shell: bash
+        run: |
+          V3_COUNT="$(find release-assets -maxdepth 1 -type f -name 'Heltec_v3_companion_radio_wifi-*.bin' ! -name '*.sha256' | wc -l)"
+          V3_RECOVERY_COUNT="$(find release-assets -maxdepth 1 -type f -name 'Heltec_v3_companion_radio_wifi-*-recovery.zip' ! -name '*.sha256' | wc -l)"
+          T114_ZIP_COUNT="$(find release-assets -maxdepth 1 -type f -name 'Heltec_t114_companion_radio_ble-*.zip' ! -name '*.sha256' | wc -l)"
+          T114_UF2_COUNT="$(find release-assets -maxdepth 1 -type f -name 'Heltec_t114_companion_radio_ble-*.uf2' ! -name '*.sha256' | wc -l)"
+
+          if [[ "$V3_COUNT" -lt 1 || "$V3_RECOVERY_COUNT" -lt 1 || "$T114_ZIP_COUNT" -lt 1 || "$T114_UF2_COUNT" -lt 1 ]]; then
+            echo "Release blocked: V3 OTA + V3 recovery + T114 DFU/UF2 assets are required."
+            ls -lh release-assets
+            exit 1
+          fi
+
+      - name: List release assets
+        run: ls -lh release-assets
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: HiveFW-${{ steps.version.outputs.version }}
+          path: release-assets/*
+          if-no-files-found: error
+
+      - name: Publish GitHub Release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ github.ref_name }}
+          target_commitish: ${{ github.sha }}
+          name: HiveFW ${{ steps.version.outputs.version }}
+          draft: false
+          prerelease: ${{ contains(steps.version.outputs.version, 'alpha') || contains(steps.version.outputs.version, 'beta') || contains(steps.version.outputs.version, 'rc') || contains(steps.version.outputs.version, 'test') }}
+          generate_release_notes: true
+          files: release-assets/*
