@@ -404,6 +404,39 @@ export interface HiveNeighborsResponse {
   neighbors: HiveNeighborInfo[];
 }
 
+
+/**
+ * Repeater returned by the standard MeshCore DISCOVER_REQ / DISCOVER_RESP
+ * zero-hop exchange. Location is present only when this integration already
+ * knows a valid advertised GPS position for the returned public key.
+ */
+export interface HiveNeighborDiscoveryResult {
+  name: string;
+  pubkey: string;
+  pubkey_prefix: string;
+  known_contact: boolean;
+  snr?: number | null;
+  request_snr?: number | null;
+  rssi?: number | null;
+  path_len: 0;
+  discovered_at: string;
+  secs_ago: number;
+  latitude?: number;
+  longitude?: number;
+  map_entity_id?: string;
+}
+
+export interface HiveNeighborDiscoveryResponse {
+  supported: boolean;
+  active: boolean;
+  started_at: string;
+  ends_at: string;
+  remaining_seconds: number;
+  count: number;
+  results: HiveNeighborDiscoveryResult[];
+  error?: string;
+}
+
 export interface LocalRepeaterStatus {
   supported: boolean;
   repeat: boolean;

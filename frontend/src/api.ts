@@ -6,6 +6,7 @@ import type {
   ManagedDevice,
   DeviceConfig,
   HiveNeighborsResponse,
+  HiveNeighborDiscoveryResponse,
   LocalRepeaterStatus,
   StoredMessage,
   FloodScopes,
@@ -630,6 +631,36 @@ export async function getHiveNeighbors(
       neighbors: [],
     };
   }
+}
+
+
+/**
+ * Start a standard MeshCore zero-hop Repeater discovery window.
+ * Results arrive asynchronously and are read with getHiveNeighborDiscovery().
+ */
+export async function startHiveNeighborDiscovery(
+  hass: HomeAssistant,
+  entryId?: string,
+): Promise<HiveNeighborDiscoveryResponse> {
+  const msg: Record<string, unknown> = {
+    type: 'hivefw_integration/start_hive_neighbor_discovery',
+  };
+  if (entryId) msg.entry_id = entryId;
+  return hass.callWS<HiveNeighborDiscoveryResponse>(msg);
+}
+
+/**
+ * Read the current active-discovery session without transmitting anything.
+ */
+export async function getHiveNeighborDiscovery(
+  hass: HomeAssistant,
+  entryId?: string,
+): Promise<HiveNeighborDiscoveryResponse> {
+  const msg: Record<string, unknown> = {
+    type: 'hivefw_integration/get_hive_neighbor_discovery',
+  };
+  if (entryId) msg.entry_id = entryId;
+  return hass.callWS<HiveNeighborDiscoveryResponse>(msg);
 }
 
 /**
