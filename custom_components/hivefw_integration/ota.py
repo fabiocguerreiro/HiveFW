@@ -18,7 +18,6 @@ from collections.abc import Callable
 from typing import Any
 
 from aiohttp import BasicAuth, ClientConnectionError, ClientTimeout, web
-from aiohttp.payload import Payload
 from meshcore import EventType
 
 from homeassistant.components.http import HomeAssistantView
@@ -92,50 +91,24 @@ def get_ota_progress(hass: HomeAssistant, entry_id: str | None) -> dict[str, Any
     return dict(state)
 
 
-class _MultipartFirmwarePayload(Payload):
-    """Fixed-length multipart payload matching AsyncElegantOTA's own uploader."""
-
-    def __init__(
-        self,
-        firmware: bytes,
-        md5: str,
-        progress: Callable[[int], None] | None = None,
-    ) -> None:
-        self._firmware = firmware
-        self._progress = progress
-        boundary = f"----HiveFWOTA{secrets.token_hex(12)}"
-        self._prefix = (
-            f"--{boundary}\r\n"
-            'Content-Disposition: form-data; name="MD5"\r\n'
-            "\r\n"
-            f"{md5}\r\n"
-            f"--{boundary}\r\n"
-            'Content-Disposition: form-data; name="firmware"; filename="firmware"\r\n'
-            "Content-Type: application/octet-stream\r\n"
-            "\r\n"
-        ).encode("utf-8")
-        self._suffix = f"\r\n--{boundary}--\r\n".encode("utf-8")
-
-        super().__init__(
-            firmware,
-            content_type=f"multipart/form-data; boundary={boundary}",
-        )
-        self._size = len(self._prefix) + len(firmware) + len(self._suffix)
-
-    async def write(self, writer) -> None:
-        await writer.write(self._prefix)
-
-        total = len(self._firmware)
-        sent = 0
-        chunk_size = 16 * 1024
-        for offset in range(0, total, chunk_size):
-            chunk = self._firmware[offset : offset + chunk_size]
-            await writer.write(chunk)
-            sent += len(chunk)
-            if self._progress:
-                self._progress(round(sent * 100 / total))
-
-        await writer.write(self._suffix)
+def _build_multipart_firmware_body(
+    firmware: bytes,
+    md5: str,
+) -> tuple[bytes, str]:
+    """Build the exact fixed-length multipart body expected by AsyncElegantOTA."""
+    boundary = f"----HiveFWOTA{secrets.token_hex(12)}"
+    prefix = (
+        f"--{boundary}\r\n"
+        'Content-Disposition: form-data; name="MD5"\r\n'
+        "\r\n"
+        f"{md5}\r\n"
+        f"--{boundary}\r\n"
+        'Content-Disposition: form-data; name="firmware"; filename="firmware"\r\n'
+        "Content-Type: application/octet-stream\r\n"
+        "\r\n"
+    ).encode("utf-8")
+    suffix = f"\r\n--{boundary}--\r\n".encode("utf-8")
+    return prefix + firmware + suffix, boundary
 
 
 class _OtaSecretFilter(logging.Filter):
@@ -460,34 +433,31 @@ async def async_upload_firmware_bytes(
 
         md5 = hashlib.md5(firmware, usedforsecurity=False).hexdigest()
 
-        def upload_progress(pct: int) -> None:
-            overall = 10 + round(max(0, min(100, pct)) * 0.78)
-            publish(
-                "uploading",
-                overall,
-                f"A enviar firmware para o rádio · {pct}%",
-            )
-
-        payload = _MultipartFirmwarePayload(
+        multipart_body, boundary = _build_multipart_firmware_body(
             firmware,
             md5,
-            progress=upload_progress,
         )
 
         url = f"http://{host}/update"
         session = async_get_clientsession(hass)
         response_lost_during_reboot = False
 
-        publish("uploading", 10, "A iniciar upload para o rádio · 0%")
+        publish(
+            "uploading",
+            12,
+            f"A enviar {len(firmware) / 1024:.0f} KiB para o rádio",
+        )
 
         try:
             async with session.post(
                 url,
-                data=payload,
+                data=multipart_body,
                 auth=BasicAuth(OTA_USERNAME, token),
                 headers={
                     "Accept": "text/plain",
                     "Connection": "close",
+                    "Content-Type": f"multipart/form-data; boundary={boundary}",
+                    "Content-Length": str(len(multipart_body)),
                 },
                 timeout=ClientTimeout(
                     total=90,
@@ -501,6 +471,7 @@ async def async_upload_firmware_bytes(
                         f"Radio rejected OTA upload (HTTP {response.status}: "
                         f"{body or 'empty response'})"
                     )
+                publish("uploading", 88, "Firmware recebido e validado pelo rádio")
         except (ClientConnectionError, asyncio.TimeoutError) as ex:
             if await _wait_for_web_ota_return(hass, host):
                 response_lost_during_reboot = True
