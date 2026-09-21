@@ -1,22 +1,47 @@
-THIRD-PARTY NOTICES
-===================
+# Third-party notices
 
-Embedded MeshCore Home Assistant engine
----------------------------------------
+HiveFW is distributed under the MIT License in [LICENSE](LICENSE).
 
-Parts of custom_components/hivefw_integration/engine/ were adapted from:
+This repository also contains or adapts code from upstream projects whose
+original copyright notices must be preserved. Those notices apply to the
+corresponding portions of HiveFW and do not transfer ownership of upstream
+code to the HiveFW project.
 
-  Project: meshcore-dev/meshcore-ha
-  Base commit: 0f99da64be8a0ab6eacd4e87246f2a70e624f2b6
-  Upstream version at import: 2.10.0
-  License: MIT
+## MeshCore
 
-The adapted engine is distributed as part of HiveFW; installing a separate
-Home Assistant MeshCore integration is not required.
+Project: https://github.com/meshcore-dev/MeshCore
 
-MIT License
+Copyright (c) 2025 Scott Powell / rippleradios.com
+
+License: MIT
+
+HiveFW firmware is derived from MeshCore. The original MeshCore copyright
+notice is retained here for the derived firmware portions.
+
+## meshcore-ha
+
+Project: https://github.com/meshcore-dev/meshcore-ha
 
 Copyright (c) 2025 Alex Wolden
+
+License: MIT
+
+Parts of `custom_components/hivefw_integration/engine/` were adapted from
+meshcore-ha. The integration is embedded in HiveFW and does not require a
+separate meshcore-ha installation.
+
+## meshcore-ha-chat
+
+Project: https://github.com/mwolter805/meshcore-ha-chat
+
+Copyright (c) 2026 Matt Wolter
+
+License: MIT
+
+Parts of the Home Assistant frontend/integration originated from or were
+adapted from meshcore-ha-chat.
+
+## MIT permission notice for the upstream MIT components above
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -25,8 +50,8 @@ to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
 copies of the Software, and to permit persons to whom the Software is
 furnished to do so, subject to the following conditions:
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+The applicable copyright notice(s) above and this permission notice shall be
+included in all copies or substantial portions of the Software.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
@@ -35,3 +60,13 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+## Other bundled third-party components
+
+Some bundled components retain their own license files, including:
+
+- `arch/esp32/AsyncElegantOTA/LICENSE`;
+- `lib/ed25519/license.txt`;
+- `licenses/Geist-OFL.txt`.
+
+Those files remain authoritative for their respective components.
