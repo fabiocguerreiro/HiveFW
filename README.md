@@ -65,6 +65,7 @@ Entre as funcionalidades partilhadas pelo V3 e pelo T114 estão:
 - Modo Repeater ativável/desativável pela app.
 - Identidade de advert adaptada ao estado Repeater.
 - Smart Advert quando Repeater e Auto Advert estão ativos, com intervalo mínimo de 24 h e persistência do último envio.
+- Vizinhos com a mesma semântica do Repeater oficial: tabela acumulada de Repeaters realmente ouvidos a zero-hop, excluindo adverts recebidos por Share Contact.
 - Diagnóstico de CAD: timeouts, recuperação RX, force-TX e duração máxima observada.
 - Contadores de adverts TX/RX.
 - Descoberta de Repeaters e vizinhos diretos.

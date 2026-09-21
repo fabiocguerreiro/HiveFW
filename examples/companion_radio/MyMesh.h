@@ -445,6 +445,7 @@ private:
 
   bool _iter_started;
   bool _cli_rescue;
+  bool _processing_shared_advert = false;
   bool send_unscoped;   // force un-scoped flood (instead of using send_scope)
   // MeshCore Repeater CLI:
   // region def suporta uma linha de até 160 caracteres.
@@ -514,11 +515,13 @@ private:
 
   struct RepeaterNeighbour {
     mesh::Identity id;
+    uint32_t advert_timestamp;
     uint32_t heard_timestamp;
     int8_t snr;
   };
 
-  #define MAX_REPEATER_NEIGHBOURS 16
+  // Match the normal MeshCore repeater capacity on Heltec-class hardware.
+  #define MAX_REPEATER_NEIGHBOURS 50
   RepeaterNeighbour repeater_neighbours[MAX_REPEATER_NEIGHBOURS];
 };
 

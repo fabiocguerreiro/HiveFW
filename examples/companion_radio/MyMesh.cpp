@@ -54,7 +54,8 @@ extern bool hivefw_set_ota_token(const char* token);
 #define CMD_SET_CUSTOM_VAR            41
 #define CMD_GET_ADVERT_PATH           42
 #define CMD_GET_TUNING_PARAMS         43
-// NOTE: CMD range 44..49 parked, potentially for WiFi operations
+#define CMD_GET_HIVE_NEIGHBOURS       44   // HiveFW local neighbour-table page
+// NOTE: CMD range 45..49 parked, potentially for WiFi operations
 #define CMD_SEND_BINARY_REQ           50
 #define CMD_FACTORY_RESET             51
 #define CMD_SEND_PATH_DISCOVERY_REQ   52
@@ -370,13 +371,29 @@ void MyMesh::onContactsFull() {
   }
 }
 
+static bool hivefwIsSharedAdvert(const mesh::Packet* packet) {
+  if (packet == NULL || !packet->hasTransportCodes()) {
+    return false;
+  }
+
+  // MeshCore Share Contact sends a saved advert as transport-direct with
+  // transport codes {0,0}. The official repeater explicitly excludes these
+  // from its neighbour table because the RF transmitter is not the advert's
+  // signed identity.
+  return packet->transport_codes[0] == 0 &&
+         packet->transport_codes[1] == 0;
+}
+
 void MyMesh::onAdvertRecv(mesh::Packet* packet, const mesh::Identity& id,
                            uint32_t timestamp, const uint8_t* app_data,
                            size_t app_data_len) {
-  // HiveFW Companion: contar todos os adverts recebidos.
   companion_advert_rx_count++;
 
-  // Primeiro preservamos integralmente o comportamento normal do Companion.
+  const bool shared_advert = hivefwIsSharedAdvert(packet);
+
+  // Preserve normal Companion contact processing, but tell
+  // onDiscoveredContact() not to treat a Share packet as a measured RF path.
+  _processing_shared_advert = shared_advert;
   BaseChatMesh::onAdvertRecv(
     packet,
     id,
@@ -384,28 +401,32 @@ void MyMesh::onAdvertRecv(mesh::Packet* packet, const mesh::Identity& id,
     app_data,
     app_data_len
   );
+  _processing_shared_advert = false;
 
-  // A tabela de vizinhos só é relevante quando estamos em modo Repetidor.
   if (!_prefs.isRepeatEn()) {
     return;
   }
 
-  // VIZINHO = Repeater anunciado directamente (zero-hop).
-  if (packet == NULL || packet->getPathHashCount() != 0) {
+  // Same rule as the official simple_repeater:
+  // zero path hashes + NOT a Share packet + Repeater advert.
+  if (
+    packet == NULL ||
+    packet->getPathHashCount() != 0 ||
+    shared_advert
+  ) {
     return;
   }
 
   AdvertDataParser parser(app_data, app_data_len);
-
   if (!parser.isValid() || parser.getType() != ADV_TYPE_REPEATER) {
     return;
   }
 
-  uint32_t now = getRTCClock()->getCurrentTime();
+  const uint32_t now = getRTCClock()->getCurrentTime();
 
-  // Procurar um vizinho já existente.
   RepeaterNeighbour* neighbour = NULL;
   RepeaterNeighbour* oldest = &repeater_neighbours[0];
+  uint32_t oldest_timestamp = 0xFFFFFFFFUL;
 
   for (int i = 0; i < MAX_REPEATER_NEIGHBOURS; i++) {
     if (id.matches(repeater_neighbours[i].id)) {
@@ -413,17 +434,18 @@ void MyMesh::onAdvertRecv(mesh::Packet* packet, const mesh::Identity& id,
       break;
     }
 
-    if (repeater_neighbours[i].heard_timestamp < oldest->heard_timestamp) {
-      oldest = &repeater_neighbours[i];
+    if (repeater_neighbours[i].heard_timestamp < oldest_timestamp) {
+      neighbour = &repeater_neighbours[i];
+      oldest_timestamp = repeater_neighbours[i].heard_timestamp;
     }
   }
 
-  // Novo vizinho: usar a entrada mais antiga.
   if (neighbour == NULL) {
     neighbour = oldest;
   }
 
   neighbour->id = id;
+  neighbour->advert_timestamp = timestamp;
   neighbour->heard_timestamp = now;
   neighbour->snr = (int8_t)(packet->getSNR() * 4);
 }
@@ -443,8 +465,15 @@ void MyMesh::onDiscoveredContact(ContactInfo &contact, bool is_new, uint8_t path
 #endif
   }
 
-  // add inbound-path to mem cache
-  if (path && mesh::Packet::isValidPathLen(path_len)) {  // check path is valid
+  // Add inbound path to the normal Companion cache, except for Share Contact.
+  // A shared advert is authenticated as the original node but physically
+  // transmitted by somebody else, so using its zero-hop path as RF evidence
+  // would create false neighbours (for example a remote 868 MHz node).
+  if (
+    !_processing_shared_advert &&
+    path &&
+    mesh::Packet::isValidPathLen(path_len)
+  ) {
     AdvertPath* p = advert_paths;
     uint32_t oldest = 0xFFFFFFFF;
     for (int i = 0; i < ADVERT_PATH_TABLE_SIZE; i++) {   // check if already in table, otherwise evict oldest
@@ -3443,6 +3472,100 @@ void MyMesh::handleCmdFrame(size_t len) {
     } else {
       writeErrFrame(ERR_CODE_ILLEGAL_ARG);
     }
+  } else if (cmd_frame[0] == CMD_GET_HIVE_NEIGHBOURS) {
+    // Local-only, paged view of the same neighbour table semantics used by
+    // the official MeshCore simple_repeater. No LoRa traffic is generated.
+    const uint8_t offset = len >= 2 ? cmd_frame[1] : 0;
+
+    const RepeaterNeighbour* sorted[MAX_REPEATER_NEIGHBOURS];
+    int neighbour_count = 0;
+
+    for (int n = 0; n < MAX_REPEATER_NEIGHBOURS; n++) {
+      if (repeater_neighbours[n].heard_timestamp > 0) {
+        sorted[neighbour_count++] = &repeater_neighbours[n];
+      }
+    }
+
+    for (int a = 0; a < neighbour_count - 1; a++) {
+      for (int b = a + 1; b < neighbour_count; b++) {
+        if (sorted[b]->heard_timestamp > sorted[a]->heard_timestamp) {
+          const RepeaterNeighbour* tmp = sorted[a];
+          sorted[a] = sorted[b];
+          sorted[b] = tmp;
+        }
+      }
+    }
+
+    out_frame[0] = RESP_CODE_CUSTOM_VARS;
+    char* dp = (char*)&out_frame[1];
+    size_t remaining = sizeof(out_frame) - 1;
+
+    int written = snprintf(
+      dp,
+      remaining,
+      "nbr_total:%d,nbr_offset:%u",
+      neighbour_count,
+      offset
+    );
+
+    if (written < 0 || (size_t)written >= remaining) {
+      writeErrFrame(ERR_CODE_BAD_STATE);
+      return;
+    }
+
+    dp += written;
+    remaining -= written;
+
+    uint8_t page_count = 0;
+    const uint32_t now = getRTCClock()->getCurrentTime();
+
+    for (
+      int n = offset;
+      n < neighbour_count && page_count < 4;
+      n++
+    ) {
+      char prefix[13];
+      mesh::Utils::toHex(prefix, sorted[n]->id.pub_key, 6);
+
+      const uint32_t secs_ago =
+        now >= sorted[n]->heard_timestamp
+          ? now - sorted[n]->heard_timestamp
+          : 0;
+
+      written = snprintf(
+        dp,
+        remaining,
+        ",n%u:%s|%lu|%d",
+        page_count,
+        prefix,
+        (unsigned long)secs_ago,
+        (int)sorted[n]->snr
+      );
+
+      if (written < 0 || (size_t)written >= remaining) {
+        break;
+      }
+
+      dp += written;
+      remaining -= written;
+      page_count++;
+    }
+
+    written = snprintf(
+      dp,
+      remaining,
+      ",nbr_count:%u",
+      page_count
+    );
+
+    if (written < 0 || (size_t)written >= remaining) {
+      writeErrFrame(ERR_CODE_BAD_STATE);
+      return;
+    }
+
+    dp += written;
+    _serial->writeFrame(out_frame, dp - (char*)out_frame);
+
   } else if (cmd_frame[0] == CMD_GET_ADVERT_PATH && len >= PUB_KEY_SIZE+2) {
     // FUTURE use:  uint8_t reserved = cmd_frame[1];
     uint8_t *pub_key = &cmd_frame[2];
