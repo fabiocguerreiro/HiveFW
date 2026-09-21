@@ -439,6 +439,7 @@ class HiveFWPanel extends BasePanel {
 
     const percent = Math.max(0, Math.min(100, Number(state.percent) || 0));
     const labels = {
+      downloading: "A descarregar Release",
       preparing: "A preparar firmware",
       authenticating: "A autenticar OTA",
       uploading: "A enviar para o rádio",
