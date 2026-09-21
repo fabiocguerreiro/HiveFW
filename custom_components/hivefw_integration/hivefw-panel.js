@@ -107,6 +107,8 @@ class HiveFWPanel extends BasePanel {
     this.__hiveNeighborDiscoveryPollTimer = null;
     this.__hiveNeighborDiscoverySignature = "";
     this.__hiveNeighborMapMarkerElements = new Map();
+    this.__hiveNeighborMapLeafletMarkers = new Map();
+    this.__hiveNeighborMapElement = null;
     this.__hiveNeighborMapFocusId = "";
 
     this.__consoleHistory = [];
@@ -1213,11 +1215,15 @@ class HiveFWPanel extends BasePanel {
         position: relative;
       }
       .hive-neighbors-overlay {
-        position: absolute;
-        inset: 0;
-        z-index: 20;
-        overflow: auto;
-        background: var(--primary-background-color);
+        position:absolute;
+        inset:0;
+        z-index:20;
+        overflow:hidden;
+        background:var(--primary-background-color);
+      }
+      .hive-neighbors-overlay > .mcr-page {
+        height:100%;
+        min-height:0;
       }
 
       .hive-neighbors-three {
@@ -1227,10 +1233,13 @@ class HiveFWPanel extends BasePanel {
         width:100%;
         height:100%;
         min-height:0;
+        overflow:hidden;
+        box-sizing:border-box;
       }
       .hive-neighbors-column {
         min-width:0;
         min-height:0;
+        height:100%;
         overflow:hidden;
         border:1px solid var(--divider-color);
         border-radius:16px;
@@ -1240,8 +1249,13 @@ class HiveFWPanel extends BasePanel {
       }
       .hive-neighbors-left-scroll,
       .hive-neighbors-discovery-scroll {
+        flex:1 1 0;
+        height:0;
         min-height:0;
-        overflow:auto;
+        overflow-y:auto;
+        overflow-x:hidden;
+        overscroll-behavior:contain;
+        scrollbar-gutter:stable;
         padding:14px;
       }
       .hive-neighbors-left-scroll .mcr-wrap {
@@ -1329,14 +1343,16 @@ class HiveFWPanel extends BasePanel {
       }
       .hive-neighbors-map-host {
         position:relative;
-        flex:1 1 auto;
+        flex:1 1 0;
+        height:0;
         min-height:0;
+        overflow:hidden;
       }
       .hive-neighbors-map-host ha-map {
         display:block;
         width:100%;
         height:100%;
-        min-height:420px;
+        min-height:0;
       }
       .hive-neighbors-map-note {
         display:grid;
@@ -1366,12 +1382,25 @@ class HiveFWPanel extends BasePanel {
       }
       @media (max-width:1050px) {
         .hive-neighbors-overlay { overflow:auto; }
+        .hive-neighbors-overlay > .mcr-page { height:auto; min-height:100%; }
         .hive-neighbors-three {
           grid-template-columns:1fr;
           height:auto;
+          overflow:visible;
         }
-        .hive-neighbors-column { min-height:360px; }
+        .hive-neighbors-column { height:auto; min-height:360px; }
+        .hive-neighbors-left-scroll,
+        .hive-neighbors-discovery-scroll {
+          flex:0 0 auto;
+          height:auto;
+          overflow:visible;
+        }
         .hive-neighbors-map { min-height:500px; }
+        .hive-neighbors-map-host {
+          flex:0 0 auto;
+          height:430px;
+          min-height:430px;
+        }
       }
 
             .hive-neighbors-toolbar {
@@ -7024,7 +7053,7 @@ class HiveFWPanel extends BasePanel {
     // column one. Active discovery is rendered independently beside it.
     this.__renderHiveNeighborsLeft(leftScroll);
     this.__renderHiveNeighborDiscovery(middle);
-    this.__renderHiveNeighborDiscoveryMap(right);
+    void this.__renderHiveNeighborDiscoveryMap(right);
   }
 
   __renderHiveNeighborsLeft(container) {
@@ -7414,8 +7443,58 @@ class HiveFWPanel extends BasePanel {
     return locations;
   }
 
-  __renderHiveNeighborDiscoveryMap(container) {
+  __hiveNeighborLegacyLeafletLayers(map, items) {
+    const L = map?.Leaflet;
+    if (!L) return [];
+    this.__hiveNeighborMapLeafletMarkers.clear();
+
+    return items.map((item) => {
+      const lat = Number(item.latitude);
+      const lon = Number(item.longitude);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+
+      const id = String(item.pubkey || item.pubkey_prefix || "");
+      const name = String(item.name || item.pubkey_prefix || "Repeater");
+      const selected = id === this.__hiveNeighborMapFocusId;
+      const color = selected ? "#ff9800" : "#03a9f4";
+
+      const icon = L.divIcon?.({
+        className: "hivefw-neighbor-discovery-marker",
+        html:
+          '<span style="display:grid;place-items:center;width:18px;height:18px;border-radius:50%;' +
+          'background:' + color + ';color:white;border:2px solid white;' +
+          'box-shadow:0 1px 5px rgba(0,0,0,.4);font-size:8px;font-weight:750;">' +
+          String(name).slice(0,2).toUpperCase() +
+          '</span>',
+        iconSize: [22,22],
+        iconAnchor: [11,11],
+      });
+
+      const marker = L.marker([lat, lon], {
+        title: name,
+        keyboard: true,
+        riseOnHover: true,
+        ...(icon ? { icon } : {}),
+      });
+
+      marker.bindTooltip?.(name, {
+        direction: "top",
+        offset: [0,-12],
+      });
+      marker.on?.("click", () => {
+        this.__hiveNeighborMapFocusId = id;
+        const current = this.__hiveNeighborMapElement;
+        current?.leafletMap?.setView?.([lat, lon], 14, { animate:true });
+      });
+
+      if (id) this.__hiveNeighborMapLeafletMarkers.set(id, marker);
+      return marker;
+    }).filter(Boolean);
+  }
+
+  async __renderHiveNeighborDiscoveryMap(container) {
     container.replaceChildren();
+    this.__hiveNeighborMapElement = null;
 
     const head = document.createElement("div");
     head.className = "hive-discovery-head";
@@ -7441,12 +7520,14 @@ class HiveFWPanel extends BasePanel {
     const total = Array.isArray(this.__hiveNeighborDiscovery?.results)
       ? this.__hiveNeighborDiscovery.results.length : 0;
 
-    if (!customElements.get("ha-map")) {
+    const ready = await this.__ensureMapLoaded();
+    if (!container.isConnected) return;
+
+    if (!ready) {
       const note = document.createElement("div");
       note.className = "hive-neighbors-map-note";
-      note.textContent = "A carregar o mapa do Home Assistant…";
+      note.textContent = "Não foi possível carregar o mapa do Home Assistant.";
       host.appendChild(note);
-      customElements.whenDefined("ha-map").then(() => this.__rerenderHivePage());
       return;
     }
 
@@ -7466,27 +7547,62 @@ class HiveFWPanel extends BasePanel {
     host.appendChild(count);
 
     const map = document.createElement("ha-map");
-    map.entities = [];
-    map.editableLocations = this.__hiveNeighborMapLocations();
-    map.autoFit = true;
+    map.autoFit = false;
     map.clusterMarkers = true;
     map.scaleRuler = true;
-    map.addEventListener("editable-location-clicked", (event) => {
-      const id = event?.detail?.id;
-      if (!id) return;
-      this.__hiveNeighborMapFocusId = String(id);
-      this.__rerenderHivePage();
-    });
+    map.themeMode = "light";
     host.appendChild(map);
+    this.__hiveNeighborMapElement = map;
+
+    // Let the flex/grid layout settle before Leaflet measures the container.
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    if (!map.isConnected) return;
+
+    // Home Assistant 2026.9 exposes Leaflet layers rather than
+    // editableLocations. Use the same compatibility path as the Nodes map.
+    if ("layers" in map && await this.__waitForLegacyLeaflet(map)) {
+      map.entities = [];
+      map.layers = this.__hiveNeighborLegacyLeafletLayers(map, located);
+
+      const coords = located.map((item) => [
+        Number(item.latitude),
+        Number(item.longitude),
+      ]);
+      if (coords.length === 1) {
+        map.leafletMap?.setView?.(coords[0], 11, { animate:false });
+      } else if (coords.length > 1 && map.Leaflet?.latLngBounds) {
+        const bounds = map.Leaflet.latLngBounds(coords);
+        map.leafletMap?.fitBounds?.(bounds, {
+          padding:[28,28],
+          maxZoom:12,
+          animate:false,
+        });
+      }
+      map.leafletMap?.invalidateSize?.(false);
+    } else {
+      const entityIds = located
+        .map((item) => item.map_entity_id)
+        .filter((entityId) => entityId && this.hass?.states?.[entityId]);
+      map.entities = entityIds;
+      if ("editableLocations" in map) {
+        map.editableLocations = this.__hiveNeighborMapLocations();
+      }
+      map.autoFit = true;
+    }
 
     if (this.__hiveNeighborMapFocusId) {
       const selected = located.find(
-        (item) => String(item.pubkey || item.pubkey_prefix || "") === this.__hiveNeighborMapFocusId
+        (item) =>
+          String(item.pubkey || item.pubkey_prefix || "") ===
+          this.__hiveNeighborMapFocusId
       );
       if (selected) {
-        queueMicrotask(() => {
-          map.setView?.([Number(selected.latitude), Number(selected.longitude)], 14);
-        });
+        const coords = [Number(selected.latitude), Number(selected.longitude)];
+        if (map.leafletMap) {
+          map.leafletMap.setView(coords, 14, { animate:false });
+        } else {
+          map.setView?.(coords, 14);
+        }
       }
     }
   }
