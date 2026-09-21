@@ -109,6 +109,8 @@ class HiveFWPanel extends BasePanel {
     this.__hiveNeighborMapMarkerElements = new Map();
     this.__hiveNeighborMapLeafletMarkers = new Map();
     this.__hiveNeighborMapElement = null;
+    this.__hiveNeighborMapSignalLayers = [];
+    this.__hiveNeighborLocalMarker = null;
     this.__hiveNeighborMapFocusId = "";
 
     this.__consoleHistory = [];
@@ -341,7 +343,9 @@ class HiveFWPanel extends BasePanel {
       const container = root.querySelector(".page-container");
       if (!container) return;
       const overlay = this.__ensureNeighborsOverlay(container);
-      this.__renderHiveNeighbors(overlay);
+      if (!overlay.querySelector(".hive-neighbors-three")) {
+        this.__renderHiveNeighbors(overlay);
+      }
 
       // Deliberately independent: the original passive Vizinhos query must
       // never wait for, or fail because of, the active discovery API.
@@ -350,6 +354,9 @@ class HiveFWPanel extends BasePanel {
       }
       if (!this.__hiveNeighborDiscovery && !this.__hiveNeighborDiscoveryLoading) {
         void this.__loadHiveNeighborDiscovery();
+      }
+      if (!this.__repeaterStatus && !this.__repeaterLoading) {
+        void this.__loadRepeaterStatus();
       }
     }
   }
@@ -1256,6 +1263,8 @@ class HiveFWPanel extends BasePanel {
         overflow-x:hidden;
         overscroll-behavior:contain;
         scrollbar-gutter:stable;
+        touch-action:pan-y;
+        -webkit-overflow-scrolling:touch;
         padding:14px;
       }
       .hive-neighbors-left-scroll .mcr-wrap {
@@ -1363,6 +1372,17 @@ class HiveFWPanel extends BasePanel {
         font-size:10px;
         line-height:1.45;
       }
+      .hive-neighbor-signal-label {
+        border:1px solid var(--divider-color) !important;
+        border-radius:7px !important;
+        background:color-mix(in srgb,var(--card-background-color) 92%,transparent) !important;
+        color:var(--primary-text-color) !important;
+        box-shadow:0 1px 4px rgba(0,0,0,.18) !important;
+        padding:2px 5px !important;
+        font-size:9px !important;
+        font-weight:700 !important;
+      }
+      .hive-neighbor-signal-label::before { display:none !important; }
       .hive-neighbors-map {
         position:relative;
       }
@@ -7024,7 +7044,7 @@ class HiveFWPanel extends BasePanel {
 
     this.__hiveNeighborsLoading = true;
     this.__hiveNeighborsError = null;
-    this.__rerenderHivePage();
+    this.__rerenderHiveNeighborsLeftOnly();
 
     try {
       const msg = { type: "hivefw_integration/get_hive_neighbors" };
@@ -7036,7 +7056,7 @@ class HiveFWPanel extends BasePanel {
         error?.message || "Não foi possível carregar os vizinhos.";
     } finally {
       this.__hiveNeighborsLoading = false;
-      this.__rerenderHivePage();
+      this.__rerenderHiveNeighborsLeftOnly();
     }
   }
 
@@ -7046,6 +7066,45 @@ class HiveFWPanel extends BasePanel {
     if (!container) return;
     const overlay = this.__ensureNeighborsOverlay(container);
     this.__renderHiveNeighbors(overlay);
+  }
+
+  __rerenderHiveNeighborsLeftOnly() {
+    if (this._activeTab !== "neighbors") return;
+    const overlay = this.__neighborsOverlay;
+    const left = overlay?.querySelector(".hive-neighbors-passive .hive-neighbors-left-scroll");
+    if (!left) {
+      this.__rerenderHivePage();
+      return;
+    }
+    const scrollTop = left.scrollTop;
+    this.__renderHiveNeighborsLeft(left);
+    left.scrollTop = scrollTop;
+  }
+
+  __rerenderHiveNeighborDiscoveryOnly(renderMap = false) {
+    if (this._activeTab !== "neighbors") return;
+    const overlay = this.__neighborsOverlay;
+    const middle = overlay?.querySelector(".hive-neighbors-discovery");
+    if (!middle) {
+      this.__rerenderHivePage();
+      return;
+    }
+
+    const oldScroll = middle.querySelector(".hive-neighbors-discovery-scroll");
+    const scrollTop = oldScroll?.scrollTop || 0;
+    this.__renderHiveNeighborDiscovery(middle);
+    const newScroll = middle.querySelector(".hive-neighbors-discovery-scroll");
+    if (newScroll) {
+      newScroll.scrollTop = scrollTop;
+      requestAnimationFrame(() => {
+        if (newScroll.isConnected) newScroll.scrollTop = scrollTop;
+      });
+    }
+
+    if (renderMap) {
+      const right = overlay?.querySelector(".hive-neighbors-map");
+      if (right) void this.__renderHiveNeighborDiscoveryMap(right);
+    }
   }
 
   __renderHiveNeighbors(container) {
@@ -7059,13 +7118,13 @@ class HiveFWPanel extends BasePanel {
     layout.className = "hive-neighbors-three";
 
     const left = document.createElement("section");
-    left.className = "hive-neighbors-column";
+    left.className = "hive-neighbors-column hive-neighbors-passive";
     const leftScroll = document.createElement("div");
     leftScroll.className = "hive-neighbors-left-scroll";
     left.appendChild(leftScroll);
 
     const middle = document.createElement("section");
-    middle.className = "hive-neighbors-column";
+    middle.className = "hive-neighbors-column hive-neighbors-discovery";
 
     const right = document.createElement("section");
     right.className = "hive-neighbors-column hive-neighbors-map";
@@ -7258,7 +7317,7 @@ class HiveFWPanel extends BasePanel {
       error: ""
     };
     this.__hiveNeighborDiscoverySignature = "";
-    this.__rerenderHivePage();
+    this.__rerenderHiveNeighborDiscoveryOnly(true);
 
     try {
       const msg = { type: "hivefw_integration/start_hive_neighbor_discovery" };
@@ -7279,14 +7338,16 @@ class HiveFWPanel extends BasePanel {
         error: error?.message || "Não foi possível iniciar a descoberta."
       };
       this.__stopHiveNeighborDiscoveryPolling();
-      this.__rerenderHivePage();
+      this.__rerenderHiveNeighborDiscoveryOnly(true);
     } finally {
       this.__hiveNeighborDiscoveryStarting = false;
-      this.__rerenderHivePage();
+      this.__rerenderHiveNeighborDiscoveryOnly(false);
     }
   }
 
   __applyHiveNeighborDiscoveryState(state, forceRender = false) {
+    const previous = this.__hiveNeighborDiscovery;
+    const wasActive = Boolean(previous?.active);
     const normalized = state && typeof state === "object"
       ? state
       : { supported:false, active:false, count:0, results:[] };
@@ -7299,6 +7360,7 @@ class HiveFWPanel extends BasePanel {
       results:results.map((item) => [
         item?.pubkey || item?.pubkey_prefix || "",
         item?.snr ?? null,
+        item?.rssi ?? null,
         item?.latitude ?? null,
         item?.longitude ?? null
       ])
@@ -7310,7 +7372,11 @@ class HiveFWPanel extends BasePanel {
 
     if (forceRender || signature !== this.__hiveNeighborDiscoverySignature) {
       this.__hiveNeighborDiscoverySignature = signature;
-      this.__rerenderHivePage();
+      const firstState = !previous;
+      const finishedNow = wasActive && !normalized.active;
+      this.__rerenderHiveNeighborDiscoveryOnly(
+        firstState || finishedNow || (forceRender && !normalized.active)
+      );
     }
   }
 
@@ -7451,7 +7517,16 @@ class HiveFWPanel extends BasePanel {
       row.append(info, signal);
       row.addEventListener("click", () => {
         this.__hiveNeighborMapFocusId = id;
-        this.__rerenderHivePage();
+        this.__rerenderHiveNeighborDiscoveryOnly(false);
+
+        const lat = Number(item.latitude);
+        const lon = Number(item.longitude);
+        const map = this.__hiveNeighborMapElement;
+        if (Number.isFinite(lat) && Number.isFinite(lon)) {
+          map?.leafletMap?.setView?.([lat, lon], 14, { animate:true });
+          const marker = this.__hiveNeighborMapLeafletMarkers.get(id);
+          marker?.openTooltip?.();
+        }
       });
       scroll.appendChild(row);
     }
@@ -7507,15 +7582,60 @@ class HiveFWPanel extends BasePanel {
     return locations;
   }
 
+  __hiveNeighborLocalMapPoint() {
+    const local = this.__localRepeaterMapContact?.();
+    const coords = this.__nodeCoords(local);
+    if (!local || !coords) return null;
+    return {
+      id: "__hivefw_local__",
+      name: String(local.adv_name || local.name || this.__repeaterStatus?.name || "HiveFW"),
+      latitude: Number(coords[0]),
+      longitude: Number(coords[1]),
+      contact: local,
+    };
+  }
+
   __hiveNeighborLegacyLeafletLayers(map, items) {
     const L = map?.Leaflet;
     if (!L) return [];
     this.__hiveNeighborMapLeafletMarkers.clear();
+    this.__hiveNeighborMapSignalLayers = [];
+    this.__hiveNeighborLocalMarker = null;
 
-    return items.map((item) => {
+    const layers = [];
+    const local = this.__hiveNeighborLocalMapPoint();
+    const localCoords = local
+      ? [Number(local.latitude), Number(local.longitude)]
+      : null;
+
+    if (local && localCoords) {
+      const localIcon = L.divIcon?.({
+        className: "hivefw-neighbor-local-marker",
+        html:
+          '<span style="display:grid;place-items:center;width:24px;height:24px;border-radius:50%;' +
+          'background:var(--warning-color,#ff9800);color:white;border:3px solid white;' +
+          'box-shadow:0 1px 7px rgba(0,0,0,.42);font-size:9px;font-weight:800;">H</span>',
+        iconSize:[30,30],
+        iconAnchor:[15,15],
+      });
+      const localMarker = L.marker(localCoords, {
+        title: local.name,
+        keyboard:true,
+        riseOnHover:true,
+        ...(localIcon ? { icon:localIcon } : {}),
+      });
+      localMarker.bindTooltip?.("HiveFW local · " + local.name, {
+        direction:"top",
+        offset:[0,-14],
+      });
+      this.__hiveNeighborLocalMarker = localMarker;
+      layers.push(localMarker);
+    }
+
+    for (const item of items) {
       const lat = Number(item.latitude);
       const lon = Number(item.longitude);
-      if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
 
       const id = String(item.pubkey || item.pubkey_prefix || "");
       const name = String(item.name || item.pubkey_prefix || "Repeater");
@@ -7530,30 +7650,65 @@ class HiveFWPanel extends BasePanel {
           'box-shadow:0 1px 5px rgba(0,0,0,.4);font-size:8px;font-weight:750;">' +
           String(name).slice(0,2).toUpperCase() +
           '</span>',
-        iconSize: [22,22],
-        iconAnchor: [11,11],
+        iconSize:[22,22],
+        iconAnchor:[11,11],
       });
 
       const marker = L.marker([lat, lon], {
-        title: name,
-        keyboard: true,
-        riseOnHover: true,
+        title:name,
+        keyboard:true,
+        riseOnHover:true,
         ...(icon ? { icon } : {}),
       });
-
       marker.bindTooltip?.(name, {
-        direction: "top",
-        offset: [0,-12],
+        direction:"top",
+        offset:[0,-12],
       });
       marker.on?.("click", () => {
         this.__hiveNeighborMapFocusId = id;
-        const current = this.__hiveNeighborMapElement;
-        current?.leafletMap?.setView?.([lat, lon], 14, { animate:true });
+        map?.leafletMap?.setView?.([lat, lon], 14, { animate:true });
+        marker.openTooltip?.();
+        this.__rerenderHiveNeighborDiscoveryOnly(false);
       });
 
       if (id) this.__hiveNeighborMapLeafletMarkers.set(id, marker);
-      return marker;
-    }).filter(Boolean);
+      layers.push(marker);
+
+      if (localCoords && (lat !== localCoords[0] || lon !== localCoords[1])) {
+        const rssi = Number(item.rssi);
+        const snr = Number(item.snr);
+        const hasRssi = Number.isFinite(rssi);
+        const hasSnr = Number.isFinite(snr);
+        const normalized = hasRssi
+          ? Math.max(0, Math.min(1, (rssi + 120) / 70))
+          : (hasSnr ? Math.max(0, Math.min(1, (snr + 20) / 35)) : 0.35);
+        const line = L.polyline(
+          [localCoords, [lat, lon]],
+          {
+            weight: 2 + normalized * 3,
+            opacity: 0.45 + normalized * 0.4,
+            dashArray: "8 6",
+            interactive: true,
+          }
+        );
+        const signal = [
+          hasRssi ? "RSSI " + Math.round(rssi) + " dBm" : null,
+          hasSnr ? "SNR " + snr.toFixed(1) + " dB" : null,
+        ].filter(Boolean).join(" · ");
+        if (signal) {
+          line.bindTooltip?.(signal, {
+            permanent:true,
+            direction:"center",
+            className:"hive-neighbor-signal-label",
+            opacity:0.92,
+          });
+        }
+        this.__hiveNeighborMapSignalLayers.push(line);
+        layers.unshift(line);
+      }
+    }
+
+    return layers;
   }
 
   async __renderHiveNeighborDiscoveryMap(container) {
@@ -7661,7 +7816,26 @@ class HiveFWPanel extends BasePanel {
         .filter((entityId) => entityId && this.hass?.states?.[entityId]);
       map.entities = entityIds;
       if ("editableLocations" in map) {
-        map.editableLocations = this.__hiveNeighborMapLocations();
+        const locations = this.__hiveNeighborMapLocations();
+        const localPoint = this.__hiveNeighborLocalMapPoint();
+        if (localPoint) {
+          const localElement = document.createElement("div");
+          localElement.textContent = "H";
+          localElement.style.cssText =
+            "width:30px;height:30px;border-radius:50%;display:grid;place-items:center;" +
+            "font-size:10px;font-weight:800;background:var(--warning-color,#ff9800);" +
+            "color:#fff;border:3px solid #fff;box-shadow:0 1px 6px rgba(0,0,0,.4)";
+          locations.unshift({
+            id:"__hivefw_local__",
+            location:[Number(localPoint.latitude), Number(localPoint.longitude)],
+            element:localElement,
+            elementSize:[36,36],
+            title:"HiveFW local · " + localPoint.name,
+            locationEditable:false,
+            activatable:false,
+          });
+        }
+        map.editableLocations = locations;
       }
       map.autoFit = true;
     }
