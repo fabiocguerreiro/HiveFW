@@ -140,6 +140,10 @@ class HiveFWPanel extends BasePanel {
     this.__appsSosChannelSyncBusy = false;
     this.__appsSosChannelLoadedEntry = null;
     this.__appsSosChannelLast = null;
+
+    this.__manualOtaSession = null;
+    this.__manualOtaBusy = false;
+    this.__manualOtaEntry = null;
   }
 
   updated(changedProperties) {
@@ -247,6 +251,7 @@ class HiveFWPanel extends BasePanel {
 
     this.__ensureRepeaterStyles(root);
     this.__ensureTabs(root);
+    this.__enhanceManualOtaCard(root);
 
     const entryId = this.__entryId() || null;
     if (this.__nodesMapLoadedEntry !== null && this.__nodesMapLoadedEntry !== entryId) {
@@ -365,6 +370,132 @@ class HiveFWPanel extends BasePanel {
       if (!this.__repeaterStatus && !this.__repeaterLoading) {
         void this.__loadRepeaterStatus();
       }
+    }
+  }
+
+  __enhanceManualOtaCard(root) {
+    const manager = root?.querySelector(".firmware-manager");
+    const grid = manager?.querySelector(".firmware-actions-grid");
+    if (!grid) return;
+
+    const entryId = String(this.__entryId() || "");
+    if (this.__manualOtaEntry !== entryId) {
+      this.__manualOtaEntry = entryId;
+      this.__manualOtaSession = null;
+      this.__manualOtaBusy = false;
+    }
+
+    let card = grid.querySelector(".hivefw-manual-ota-card");
+    if (!card) {
+      card = document.createElement("div");
+      card.className = "firmware-action-card hivefw-manual-ota-card";
+      grid.appendChild(card);
+    }
+
+    card.replaceChildren();
+
+    const title = document.createElement("div");
+    title.className = "firmware-action-title";
+    title.textContent = "OTA manual no browser";
+
+    const text = document.createElement("div");
+    text.className = "firmware-action-text";
+    text.textContent =
+      "Gera uma credencial efémera para abrir diretamente a página /update do rádio. A password deixa de ser válida após reboot ou nova rotação.";
+
+    const button = document.createElement("button");
+    button.className = "apply-button firmware-primary-action";
+    button.disabled = this.__manualOtaBusy;
+    button.textContent = this.__manualOtaBusy
+      ? "A gerar credencial…"
+      : "Gerar credencial temporária";
+    button.addEventListener("click", () => void this.__createManualOtaSession());
+
+    card.append(title, text, button);
+
+    const session = this.__manualOtaSession;
+    if (!session) return;
+
+    const details = document.createElement("div");
+    details.style.cssText =
+      "margin-top:12px;padding:12px;border:1px solid var(--divider-color);border-radius:10px;background:var(--secondary-background-color);font-size:12px;";
+
+    const addRow = (label, value, secret = false) => {
+      const row = document.createElement("div");
+      row.style.cssText =
+        "display:grid;grid-template-columns:82px minmax(0,1fr) auto;gap:8px;align-items:center;margin:6px 0;";
+
+      const key = document.createElement("strong");
+      key.textContent = label;
+
+      const val = document.createElement("code");
+      val.textContent = value;
+      val.style.cssText =
+        "min-width:0;overflow-wrap:anywhere;user-select:all;font-size:11px;";
+
+      const copy = document.createElement("button");
+      copy.className = "mcr-btn";
+      copy.textContent = "Copiar";
+      copy.addEventListener("click", async () => {
+        try {
+          await navigator.clipboard.writeText(value);
+          copy.textContent = "Copiado";
+          window.setTimeout(() => { copy.textContent = "Copiar"; }, 1200);
+        } catch {}
+      });
+
+      row.append(key, val, copy);
+      details.appendChild(row);
+    };
+
+    addRow("URL", String(session.url || ""));
+    addRow("Utilizador", String(session.username || "hivefw"));
+    addRow("Password", String(session.password || ""), true);
+
+    const open = document.createElement("a");
+    open.className = "apply-button";
+    open.href = String(session.url || "#");
+    open.target = "_blank";
+    open.rel = "noopener";
+    open.textContent = "Abrir página OTA";
+    open.style.cssText =
+      "display:inline-flex;align-items:center;justify-content:center;text-decoration:none;margin-top:10px;";
+    details.appendChild(open);
+
+    const note = document.createElement("div");
+    note.style.cssText =
+      "margin-top:9px;color:var(--secondary-text-color);font-size:10px;line-height:1.45;";
+    note.textContent =
+      "Usa firmware.bin de aplicação. Não uses ficheiros merged/factory nesta página.";
+    details.appendChild(note);
+
+    card.appendChild(details);
+  }
+
+  async __createManualOtaSession() {
+    if (!this.hass || this.__manualOtaBusy) return;
+
+    this.__manualOtaBusy = true;
+    this.__manualOtaSession = null;
+    this.__enhanceManualOtaCard(this.shadowRoot);
+
+    try {
+      const msg = { type: "hivefw_integration/create_manual_ota_session" };
+      const entryId = this.__entryId();
+      if (entryId) msg.entry_id = entryId;
+
+      const session = await this.hass.callWS(msg);
+      if (!session?.success || !session?.password || !session?.url) {
+        throw new Error("O rádio não devolveu uma sessão OTA válida.");
+      }
+
+      this.__manualOtaSession = session;
+    } catch (error) {
+      const message = error?.message || String(error);
+      this._showStatusMessage?.("OTA manual: " + message, "error");
+    } finally {
+      this.__manualOtaBusy = false;
+      this.__enhanceManualOtaCard(this.shadowRoot);
     }
   }
 
