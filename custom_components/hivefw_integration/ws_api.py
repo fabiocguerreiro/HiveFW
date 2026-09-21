@@ -3413,6 +3413,131 @@ async def ws_remove_channel(hass, connection, msg):
         )
 
 
+# ─── HiveFW APPS/SOS channel sync ───────────────────────────────────────
+# The Companion stores this selection persistently as apps_channel_hash.
+# HiveFW firmware exposes the currently resolved channel slot through the
+# standard MeshCore custom-variable API as "apps_channel".  Keeping the
+# translation on the radio makes the physical Companion UI and HA Chat share
+# one source of truth.
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hivefw_integration/get_apps_sos_channel",
+        vol.Optional("entry_id"): str,
+    }
+)
+@websocket_api.async_response
+async def ws_get_apps_sos_channel(hass, connection, msg):
+    """Return the APPS/SOS channel selected on the Companion."""
+    from meshcore.events import EventType
+
+    coordinator = _get_coordinator(hass, msg.get("entry_id"))
+    if not coordinator or not coordinator.api.mesh_core:
+        connection.send_error(msg["id"], "not_found", "No MeshCore coordinator found")
+        return
+
+    try:
+        result = await coordinator.api.mesh_core.commands.get_custom_vars()
+        if (
+            result is None
+            or getattr(result, "type", None) == EventType.ERROR
+            or getattr(result, "is_error", lambda: False)()
+        ):
+            connection.send_result(
+                msg["id"],
+                {"supported": False, "channel_idx": None},
+            )
+            return
+
+        payload = getattr(result, "payload", None) or {}
+        raw_value = payload.get("apps_channel")
+        if raw_value is None:
+            connection.send_result(
+                msg["id"],
+                {"supported": False, "channel_idx": None},
+            )
+            return
+
+        try:
+            channel_idx = int(raw_value)
+        except (TypeError, ValueError):
+            channel_idx = -1
+
+        connection.send_result(
+            msg["id"],
+            {
+                "supported": True,
+                "channel_idx": channel_idx if channel_idx >= 0 else None,
+            },
+        )
+    except Exception as ex:
+        _ws_send_error_safe(
+            connection,
+            msg["id"],
+            ex,
+            handler="ws_get_apps_sos_channel",
+        )
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hivefw_integration/set_apps_sos_channel",
+        vol.Optional("channel_idx"): vol.All(int, vol.Range(min=0, max=255)),
+        vol.Optional("entry_id"): str,
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_set_apps_sos_channel(hass, connection, msg):
+    """Set the Companion APPS/SOS channel using the standard custom-var API."""
+    from meshcore.events import EventType
+
+    coordinator = _get_coordinator(hass, msg.get("entry_id"))
+    if not coordinator or not coordinator.api.mesh_core:
+        connection.send_error(msg["id"], "not_found", "No MeshCore coordinator found")
+        return
+
+    channel_idx = msg.get("channel_idx")
+    value = "-1" if channel_idx is None else str(channel_idx)
+
+    try:
+        result = await coordinator.api.mesh_core.commands.set_custom_var(
+            "apps_channel",
+            value,
+        )
+        if (
+            result is None
+            or getattr(result, "type", None) == EventType.ERROR
+            or getattr(result, "is_error", lambda: False)()
+        ):
+            reason = "unsupported"
+            payload = getattr(result, "payload", None) if result is not None else None
+            if isinstance(payload, dict):
+                reason = str(payload.get("reason") or reason)
+            connection.send_error(
+                msg["id"],
+                "set_failed",
+                f"Unable to set Companion APPS/SOS channel: {reason}",
+            )
+            return
+
+        connection.send_result(
+            msg["id"],
+            {
+                "success": True,
+                "channel_idx": channel_idx,
+            },
+        )
+    except Exception as ex:
+        _ws_send_error_safe(
+            connection,
+            msg["id"],
+            ex,
+            handler="ws_set_apps_sos_channel",
+        )
+
+
 # ─── meshcore/get_hive_neighbors ────────────────────────────────────────
 # Derive direct Repeater neighbours from the Companion's existing advert-path
 # cache. This uses only protocol features already present in HiveFW/MeshCore:
