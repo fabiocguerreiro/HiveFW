@@ -7531,6 +7531,7 @@ class HiveFWPanel extends BasePanel {
 
     const radio = status.stats?.radio || {};
     const packets = status.stats?.packets || {};
+    const cad = status.stats?.cad || {};
     const list = document.createElement("div");
     list.className = "mcr-stat-list";
 
@@ -7544,6 +7545,16 @@ class HiveFWPanel extends BasePanel {
       ["Erros RX", packets.recv_errors],
       ["Airtime TX", radio.tx_air_secs != null ? this.__duration(radio.tx_air_secs) : null],
       ["Airtime RX", radio.rx_air_secs != null ? this.__duration(radio.rx_air_secs) : null],
+      ["CAD timeouts", cad.timeouts],
+      ["Recuperações RX", cad.recoveries],
+      ["CAD force TX", cad.forced_tx],
+      ["CAD busy máx.", cad.max_busy_ms != null ? `${(Number(cad.max_busy_ms) / 1000).toFixed(1)} s` : null],
+      [
+        "Último CAD timeout",
+        Number(cad.timeouts) > 0 && cad.last_timeout_age_secs != null
+          ? `${this.__duration(cad.last_timeout_age_secs)} atrás`
+          : null
+      ],
     ];
 
     for (const [label, value] of values) {
