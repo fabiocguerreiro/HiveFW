@@ -8864,19 +8864,10 @@ let e,t,i,o,r,a,s,n,l,d,c,p,h,u,m,g,v,f,y,b,_,x,w,$,k,S,C,M,A,R,F,T,O,z,I,N,D,E,
         width: 152px;
         height: 38px;
         flex: 0 0 auto;
-        position: relative;
-        overflow: visible;
-        background: transparent;
+        background: transparent url('/hivefw_integration_panel/hivefw-wordmark.png?v=dark-2') center / contain no-repeat;
       }
 
-      .hivefw-header-brand-white::before {
-        content: '';
-        position: absolute;
-        inset: 0;
-        background: url('/hivefw_integration_panel/hivefw-wordmark.png?v=dark-1') center / contain no-repeat;
-        filter: invert(1) hue-rotate(180deg);
-      }
-
+      .hivefw-header-brand-white::before,
       .hivefw-header-brand-white::after {
         content: none;
       }
