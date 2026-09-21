@@ -1338,12 +1338,19 @@ class HiveFWPanel extends BasePanel {
     const style = document.createElement("style");
     style.id = "meshcore-repeater-fork-styles";
     style.textContent = `
+      .hivefw-wordmark,
       .hivefw-header-logo {
         display:inline-block;
         width:128px;
         height:32px;
         flex:0 0 auto;
-        background:url('/hivefw_integration_panel/hivefw-wordmark.png') center/contain no-repeat;
+        background:
+          transparent
+          url('/hivefw_integration_panel/hivefw-wordmark.png?v=orange-1')
+          center/contain
+          no-repeat !important;
+        -webkit-mask:none !important;
+        mask:none !important;
       }
       .hivefw-header-product {
         font-weight:600;
@@ -1408,7 +1415,7 @@ class HiveFWPanel extends BasePanel {
         border-radius:8px;
         background:
           #fff
-          url('/hivefw_integration_panel/hivefw-wordmark.png')
+          url('/hivefw_integration_panel/hivefw-wordmark.png?v=orange-1')
           center/116px auto
           no-repeat;
         box-shadow:
