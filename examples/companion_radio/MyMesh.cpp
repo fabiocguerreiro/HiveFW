@@ -3226,20 +3226,10 @@ void MyMesh::handleCmdFrame(size_t len) {
     out_frame[0] = RESP_CODE_CUSTOM_VARS;
     char *dp = (char *)&out_frame[1];
     char *custom_start = dp;
-    for (int i = 0; i < sensors.getNumSettings() && dp - custom_start < 140; i++) {
-      if (i > 0) {
-        *dp++ = ',';
-      }
-      strcpy(dp, sensors.getSettingName(i));
-      dp = strchr(dp, 0);
-      *dp++ = ':';
-      strcpy(dp, sensors.getSettingValue(i));
-      dp = strchr(dp, 0);
-    }
 
-    // HiveFW Repeater controls exposed through the standard Companion
-    // custom-variable extension point. Keeping these values here means remote
-    // clients operate on the exact same persisted preferences as the local UI.
+    // HiveFW settings are appended first so critical Companion controls never
+    // disappear when sensor-specific custom vars approach the 140-byte frame
+    // budget.
     auto appendCustomVar = [&](const char *name, const char *value) {
       const size_t needed =
         strlen(name) + 1 + strlen(value) + (dp != custom_start ? 1 : 0);
@@ -3279,9 +3269,9 @@ void MyMesh::handleCmdFrame(size_t len) {
     snprintf(duty_value, sizeof(duty_value), "%d", duty_percent);
     appendCustomVar("duty_cycle", duty_value);
 
-    // HiveFW APPS/SOS channel. The local UI persists the channel hash because
-    // that remains stable independently of the display name. Companion clients
-    // work with channel_idx, so expose the currently selected slot here.
+    // The local UI persists a channel hash; clients use channel_idx. Resolve
+    // the current slot dynamically so changes made on the display are visible
+    // immediately to Home Assistant.
     int apps_channel_idx = -1;
     bool apps_channel_configured = false;
     for (int i = 0; i < PATH_HASH_SIZE; i++) {
@@ -3319,6 +3309,17 @@ void MyMesh::handleCmdFrame(size_t len) {
       apps_channel_idx
     );
     appendCustomVar("apps_channel", apps_channel_value);
+
+    // Preserve the standard sensor extension point with the remaining frame
+    // space. Settings that do not fit are omitted exactly as before.
+    for (int i = 0; i < sensors.getNumSettings(); i++) {
+      if (!appendCustomVar(
+            sensors.getSettingName(i),
+            sensors.getSettingValue(i)
+          )) {
+        break;
+      }
+    }
 
     _serial->writeFrame(out_frame, dp - (char *)out_frame);
   } else if (cmd_frame[0] == CMD_SET_CUSTOM_VAR && len >= 4) {
