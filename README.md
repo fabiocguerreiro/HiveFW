@@ -305,6 +305,8 @@ Depois instalar **HiveFW** e reiniciar o Home Assistant.
 
 Como o domínio continua a ser `hivefw_integration`, a mudança do antigo repositório para o monorepo não altera a identidade interna da integração. Para migrar uma instalação existente no HACS, remove a origem antiga do HACS e adiciona este novo repositório; não é necessário apagar a configuração HiveFW em **Definições → Dispositivos e Serviços**.
 
+Guia de migração: [docs/repository_migration.md](docs/repository_migration.md).
+
 ## Identidade no Home Assistant
 
 ```text
