@@ -181,20 +181,31 @@ export class NeighborsPage extends LitElement {
 
   private async _loadAll() {
     if (!this.hass) return;
+
+    // Preserve the original passive Vizinhos behavior: load it on its own
+    // path and never make it wait for active-discovery state.
     this._loading = true;
     this._error = null;
     try {
-      const [neighbors, discovery] = await Promise.all([
-        getHiveNeighbors(this.hass, this.config?.entry_id),
-        getHiveNeighborDiscovery(this.hass, this.config?.entry_id),
-      ]);
-      this._neighbors = neighbors;
-      this._discovery = discovery;
-      if (discovery.active) this._startPolling();
+      this._neighbors = await getHiveNeighbors(
+        this.hass,
+        this.config?.entry_id,
+      );
     } catch (err) {
       this._error = this._errorText(err, 'Não foi possível carregar os vizinhos.');
     } finally {
       this._loading = false;
+    }
+
+    try {
+      const discovery = await getHiveNeighborDiscovery(
+        this.hass,
+        this.config?.entry_id,
+      );
+      this._discovery = discovery;
+      if (discovery.active) this._startPolling();
+    } catch {
+      // Active discovery is optional and must not affect passive neighbours.
     }
   }
 
