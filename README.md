@@ -80,6 +80,8 @@ O V3 usa ESP32-S3 e inclui as funcionalidades de rede local:
 - integração remota com o Home Assistant.
 - reconexão Wi-Fi.
 - credenciais Wi-Fi persistidas em NVS.
+- portal de configuração Wi-Fi para primeiro arranque e manutenção em `/wifi`.
+- hotspot de provisioning automático quando a NVS ainda não tem SSID.
 - Web OTA.
 - token OTA aleatório de 192 bits, mantido apenas em RAM.
 - rotação do token imediatamente antes do flash pela integração HiveFW.
@@ -87,17 +89,36 @@ O V3 usa ESP32-S3 e inclui as funcionalidades de rede local:
 
 O Web OTA utiliza HTTP na LAN. Não deve ser exposto diretamente à Internet nem através de port-forwarding.
 
-### Migração Wi-Fi a partir da V1.11
+### Provisioning Wi-Fi a partir da V1.11.7
 
-Uma build local pode migrar o SSID/password compilados para a NVS do ESP32. Depois dessa migração, as Releases públicas podem usar placeholders e continuar a ligar à rede através das credenciais persistidas no equipamento.
+Uma instalação nova do Heltec V3 já não precisa de SSID/password compilados nem de `platformio.local.ini`.
 
-O ficheiro local de segredos não é versionado:
+Se a NVS `hivefw_net` ainda não tiver um SSID, o V3 cria automaticamente um hotspot com o nome atual/original do nó e disponibiliza:
 
-```bash
-cp platformio.local.ini.example platformio.local.ini
+```text
+http://192.168.4.1/wifi
 ```
 
-Depois editar apenas `platformio.local.ini`.
+A página HiveFW usa:
+
+```text
+Utilizador: hivefw
+Password:   hivefw
+```
+
+A partir daí é possível procurar redes, indicar SSID/password e gravar as credenciais na NVS. Depois do reboot o V3 liga-se ao router como Companion TCP/Wi-Fi.
+
+Num equipamento que **já tenha credenciais na NVS**, o boot não altera nem apaga esses valores e o hotspot não é iniciado. A mesma página fica disponível através do IP LAN do rádio:
+
+```text
+http://IP_DO_RADIO/wifi
+```
+
+A password atualmente guardada nunca é mostrada. A gravação só ocorre por ação explícita do utilizador.
+
+O Web OTA `/update` continua separado e mantém a autenticação efémera atual.
+
+Documentação detalhada: [Configuração Wi-Fi do Heltec V3](docs/hivefw_wifi_provisioning.md).
 
 ---
 
@@ -188,19 +209,19 @@ cd HiveFW-Companion-Repeater
 
 ### Heltec V3 Wi-Fi
 
-Para uma instalação que ainda necessita do bootstrap das credenciais:
+Não é necessário criar `platformio.local.ini` nem compilar credenciais privadas.
 
 ```bash
-cp platformio.local.ini.example platformio.local.ini
-# editar platformio.local.ini
 ./build.sh build-firmware Heltec_v3_companion_radio_wifi
 ```
 
-Para desenvolvimento rápido também pode ser usado:
+Para desenvolvimento rápido:
 
 ```bash
 pio run -e Heltec_v3_companion_radio_wifi
 ```
+
+Num V3 sem credenciais NVS, o próprio firmware abre o portal de provisioning no primeiro arranque.
 
 ### Heltec T114 BLE
 
