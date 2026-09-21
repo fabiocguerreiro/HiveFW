@@ -91,9 +91,8 @@ Home Assistant
       │
       └── HiveFW
             │
-            ├── TCP / Wi-Fi
-            ├── BLE
-            └── USB
+            ├── Heltec V3 · TCP / Wi-Fi
+            └── Heltec T114 · BLE
                   │
                   ▼
         HiveFW Companion-Repeater
@@ -105,7 +104,7 @@ Home Assistant
 O firmware HiveFW é **Companion primeiro**. Quando o modo Repeater é ativado, a ligação
 Companion continua disponível para o Home Assistant.
 
-Para instalações permanentes, TCP/Wi-Fi é normalmente a ligação mais conveniente.
+O HiveFW suporta oficialmente apenas **Heltec V3 por TCP/Wi-Fi** e **Heltec T114 por BLE**.
 
 ## Instalação com HACS
 
@@ -123,8 +122,16 @@ Depois:
 4. Reiniciar o Home Assistant.
 5. Abrir **Definições → Dispositivos e Serviços → Adicionar integração**.
 6. Procurar **HiveFW**.
-7. Configurar a ligação ao rádio.
-8. Abrir **HiveFW** na barra lateral.
+7. Para **Heltec V3 / Wi-Fi**, a integração apresenta primeiro uma etapa de preparação:
+   - num V3 limpo, ligar à rede temporária com o nome do dispositivo;
+   - abrir `http://192.168.4.1/wifi`;
+   - entrar com `hivefw / hivefw`;
+   - escolher a rede Wi-Fi normal e guardar;
+   - depois do reboot, usar no Home Assistant o IP mostrado no ecrã do Companion.
+8. Para **Heltec T114**, escolher BLE e selecionar/introduzir o endereço BLE.
+9. Abrir **HiveFW** na barra lateral.
+
+Depois de instalado, a aba **Dispositivo** mostra também um cartão **Wi-Fi do Companion** no V3. A partir daí é possível abrir diretamente `http://IP_DO_RADIO/wifi` para trocar de router/rede. A alteração reinicia o V3 e o IP pode mudar.
 
 O projeto assume uma instalação limpa do HiveFW e não mantém compatibilidade de migração
 com instalações antigas de `meshcore-ha-chat`.
@@ -132,8 +139,7 @@ com instalações antigas de `meshcore-ha-chat`.
 ## Requisitos
 
 - Home Assistant 2024.12 ou superior;
-- rádio Companion compatível;
-- TCP/Wi-Fi, BLE ou USB;
+- Heltec V3 para TCP/Wi-Fi ou Heltec T114 para BLE;
 - para todas as funcionalidades específicas:
   [HiveFW Companion-Repeater](https://github.com/fabiocguerreiro/HiveFW-Companion-Repeater).
 
@@ -189,10 +195,10 @@ Para HiveFW V1.11 ou superior, a integração gere o Web OTA sem armazenar uma p
 - imagens de factory/merged são recusadas pelo backend OTA;
 - Releases automáticas são verificadas por SHA-256 antes do envio ao rádio.
 
-A V1.11 é uma migração única para equipamentos já instalados: deve ser compilada localmente
-e instalada uma última vez pelo Web OTA existente. Nessa inicialização, as credenciais Wi-Fi
-são migradas para a NVS do ESP32. Atualizações posteriores podem usar imagens públicas sem
-SSID/password incorporados.
+No Heltec V3, as credenciais Wi-Fi ficam na NVS do ESP32. Um equipamento novo pode ser
+configurado diretamente pelo portal `/wifi`, sem `platformio.local.ini` nem SSID/password
+compilados no firmware. Equipamentos já configurados mantêm as credenciais NVS durante OTA.
+A mesma página `/wifi` fica disponível no IP LAN do rádio para alterar posteriormente a rede.
 
 O transporte Web OTA entre Home Assistant e ESP32 continua a ser HTTP na LAN, sem TLS.
 Utiliza esta funcionalidade apenas numa rede local de confiança.
