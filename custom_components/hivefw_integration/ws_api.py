@@ -43,6 +43,7 @@ from .ota import (
     async_create_manual_ota_session,
     async_get_ota_status,
     async_install_latest_release,
+    get_ota_progress,
 )
 from .utils import format_entity_id, parse_flood_scope_allowlist, sanitize_name
 
@@ -662,6 +663,7 @@ def async_register_ws_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_get_duty_cycle)
     websocket_api.async_register_command(hass, ws_set_duty_cycle)
     websocket_api.async_register_command(hass, ws_get_firmware_ota_status)
+    websocket_api.async_register_command(hass, ws_get_firmware_ota_progress)
     websocket_api.async_register_command(hass, ws_create_manual_ota_session)
     websocket_api.async_register_command(hass, ws_install_latest_firmware)
     websocket_api.async_register_command(hass, ws_set_device_config)
@@ -2422,6 +2424,24 @@ async def ws_get_firmware_ota_status(hass, connection, msg):
         connection.send_result(msg["id"], result)
     except HiveFWOtaError as ex:
         connection.send_error(msg["id"], "ota_status_failed", str(ex))
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hivefw_integration/get_firmware_ota_progress",
+        vol.Optional("entry_id"): str,
+    }
+)
+@websocket_api.require_admin
+@callback
+def ws_get_firmware_ota_progress(hass, connection, msg):
+    """Return in-memory OTA progress without issuing any radio command."""
+    entry_id = msg.get("entry_id")
+    if not entry_id:
+        coordinator = _get_coordinator(hass, None)
+        if coordinator is not None:
+            entry_id = str(coordinator.config_entry.entry_id)
+    connection.send_result(msg["id"], get_ota_progress(hass, entry_id))
 
 
 @websocket_api.websocket_command(
