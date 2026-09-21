@@ -7679,16 +7679,15 @@ class HiveFWPanel extends BasePanel {
         const snr = Number(item.snr);
         const hasRssi = Number.isFinite(rssi);
         const hasSnr = Number.isFinite(snr);
-        const normalized = hasRssi
-          ? Math.max(0, Math.min(1, (rssi + 120) / 70))
-          : (hasSnr ? Math.max(0, Math.min(1, (snr + 20) / 35)) : 0.35);
         const line = L.polyline(
           [localCoords, [lat, lon]],
           {
-            weight: 2 + normalized * 3,
-            opacity: 0.45 + normalized * 0.4,
-            dashArray: "8 6",
-            interactive: true,
+            // Mesmo traço visual usado pelo Trace: a intensidade medida
+            // fica no label, não na geometria da linha.
+            weight: 4,
+            opacity: .78,
+            dashArray: "9 6",
+            interactive: false,
           }
         );
         const signal = [
