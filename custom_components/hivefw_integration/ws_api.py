@@ -3577,7 +3577,7 @@ async def ws_get_hive_neighbors(hass, connection, msg):
 
 # ─── hivefw_integration active zero-hop discovery ───────────────────────
 
-_HIVE_NEIGHBOR_DISCOVERY_SECONDS = 60
+_HIVE_NEIGHBOR_DISCOVERY_SECONDS = 30
 _MESHCORE_ADV_TYPE_REPEATER = 2
 _MESHCORE_REPEATER_FILTER = 1 << _MESHCORE_ADV_TYPE_REPEATER
 
@@ -3827,11 +3827,19 @@ async def ws_start_hive_neighbor_discovery(hass, connection, msg):
             tag=tag,
             since=0,
         )
-        if (
-            result is None
-            or getattr(result, "type", None) == EventType.ERROR
-            or (hasattr(result, "is_error") and result.is_error())
-        ):
+        # A missing command ACK is not the same as an RF rejection. On some
+        # Companion/transport combinations the control packet can already be
+        # on-air while the local command acknowledgement is lost or times out.
+        # Keep the discovery window alive in that case so valid DISCOVER_RESP
+        # packets are still collected. Only an explicit ERROR aborts the scan.
+        explicit_error = (
+            result is not None
+            and (
+                getattr(result, "type", None) == EventType.ERROR
+                or (hasattr(result, "is_error") and result.is_error())
+            )
+        )
+        if explicit_error:
             reason = ""
             payload = getattr(result, "payload", None)
             if isinstance(payload, dict):
