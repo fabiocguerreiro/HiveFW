@@ -470,7 +470,7 @@ static void hivefwStartSetupAp(const char* node_name) {
   // SoftAP passphrases require at least 8 characters, so the provisioning AP
   // is open and the configuration surface itself is authenticated.
   if (!WiFi.softAP(hivefw_ap_ssid.c_str())) {
-    WIFI_DEBUG_PRINTLN("HiveFW WiFi setup AP could not be started");
+    Serial.println("HiveFW WiFi setup AP could not be started");
     return;
   }
 
@@ -479,8 +479,8 @@ static void hivefwStartSetupAp(const char* node_name) {
   hivefw_dns_server.setErrorReplyCode(DNSReplyCode::NoError);
   hivefw_dns_server.start(53, "*", ip);
 
-  WIFI_DEBUG_PRINTLN(
-    "HiveFW WiFi setup AP '%s' ready at http://%s/wifi",
+  Serial.printf(
+    "HiveFW WiFi setup AP '%s' ready at http://%s/wifi\n",
     hivefw_ap_ssid.c_str(),
     ip.toString().c_str()
   );
