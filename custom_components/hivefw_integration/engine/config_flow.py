@@ -370,7 +370,7 @@ class HiveFWConfigFlow(config_entries.ConfigFlow, domain=DOMAIN): # type: ignore
             if self.connection_type == CONNECTION_TYPE_BLE:
                 return await self.async_step_ble()
             if self.connection_type == CONNECTION_TYPE_TCP:
-                return await self.async_step_tcp()
+                return await self.async_step_wifi_setup()
 
         return self.async_show_form(
             step_id="user", data_schema=STEP_USER_DATA_SCHEMA, errors=errors
@@ -483,6 +483,18 @@ class HiveFWConfigFlow(config_entries.ConfigFlow, domain=DOMAIN): # type: ignore
 
         return self.async_show_form(
             step_id="ble", data_schema=schema, errors=errors
+        )
+
+    async def async_step_wifi_setup(
+        self, user_input: Optional[Dict[str, Any]] = None
+    ) -> FlowResult:
+        """Explain Heltec V3 captive provisioning before asking for its LAN IP."""
+        if user_input is not None:
+            return await self.async_step_tcp()
+
+        return self.async_show_form(
+            step_id="wifi_setup",
+            data_schema=vol.Schema({}),
         )
 
     async def async_step_tcp(self, user_input: Optional[Dict[str, Any]] = None) -> FlowResult:
