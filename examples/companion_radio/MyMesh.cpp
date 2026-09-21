@@ -3279,6 +3279,47 @@ void MyMesh::handleCmdFrame(size_t len) {
     snprintf(duty_value, sizeof(duty_value), "%d", duty_percent);
     appendCustomVar("duty_cycle", duty_value);
 
+    // HiveFW APPS/SOS channel. The local UI persists the channel hash because
+    // that remains stable independently of the display name. Companion clients
+    // work with channel_idx, so expose the currently selected slot here.
+    int apps_channel_idx = -1;
+    bool apps_channel_configured = false;
+    for (int i = 0; i < PATH_HASH_SIZE; i++) {
+      if (_prefs.apps_channel_hash[i] != 0) {
+        apps_channel_configured = true;
+        break;
+      }
+    }
+
+    if (apps_channel_configured) {
+#ifdef MAX_GROUP_CHANNELS
+      for (int i = 0; i < MAX_GROUP_CHANNELS; i++) {
+        ChannelDetails channel;
+        if (
+          getChannel(i, channel) &&
+          channel.name[0] != '\0' &&
+          memcmp(
+            channel.channel.hash,
+            _prefs.apps_channel_hash,
+            PATH_HASH_SIZE
+          ) == 0
+        ) {
+          apps_channel_idx = i;
+          break;
+        }
+      }
+#endif
+    }
+
+    char apps_channel_value[5];
+    snprintf(
+      apps_channel_value,
+      sizeof(apps_channel_value),
+      "%d",
+      apps_channel_idx
+    );
+    appendCustomVar("apps_channel", apps_channel_value);
+
     _serial->writeFrame(out_frame, dp - (char *)out_frame);
   } else if (cmd_frame[0] == CMD_SET_CUSTOM_VAR && len >= 4) {
     cmd_frame[len] = 0;
@@ -3312,6 +3353,42 @@ void MyMesh::handleCmdFrame(size_t len) {
             (100.0f / (float)duty) - 1.0f;
           savePrefs();
           success = true;
+        }
+      } else if (strcmp(sp, "apps_channel") == 0) {
+        char *endp = nullptr;
+        long channel_idx = strtol(np, &endp, 10);
+
+        if (endp != np && *endp == '\0') {
+          if (channel_idx == -1) {
+            memset(
+              _prefs.apps_channel_hash,
+              0,
+              sizeof(_prefs.apps_channel_hash)
+            );
+            savePrefs();
+            success = true;
+          } else {
+#ifdef MAX_GROUP_CHANNELS
+            if (
+              channel_idx >= 0 &&
+              channel_idx < MAX_GROUP_CHANNELS
+            ) {
+              ChannelDetails channel;
+              if (
+                getChannel((uint8_t)channel_idx, channel) &&
+                channel.name[0] != '\0'
+              ) {
+                memcpy(
+                  _prefs.apps_channel_hash,
+                  channel.channel.hash,
+                  PATH_HASH_SIZE
+                );
+                savePrefs();
+                success = true;
+              }
+            }
+#endif
+          }
         }
       } else if (strcmp(sp, "ota_token") == 0) {
         // Security-sensitive write-only control. It is intentionally NOT
