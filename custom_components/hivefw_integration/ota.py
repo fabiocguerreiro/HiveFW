@@ -17,7 +17,8 @@ import time
 from collections.abc import Callable
 from typing import Any
 
-from aiohttp import BasicAuth, ClientConnectionError, ClientTimeout, FormData, web
+from aiohttp import BasicAuth, ClientConnectionError, ClientTimeout, web
+from aiohttp.payload import Payload
 from meshcore import EventType
 
 from homeassistant.components.http import HomeAssistantView
@@ -43,6 +44,98 @@ _OTA_HTTP_REGISTERED = False
 
 class HiveFWOtaError(RuntimeError):
     """Raised when secure HiveFW OTA cannot be completed."""
+
+
+def _ota_progress_state(hass: HomeAssistant) -> dict[str, dict[str, Any]]:
+    """Return the per-entry in-memory OTA progress registry."""
+    return hass.data.setdefault(DOMAIN, {}).setdefault("_ota_progress", {})
+
+
+def _set_ota_progress(
+    hass: HomeAssistant,
+    entry_id: str,
+    *,
+    stage: str,
+    percent: int,
+    detail: str = "",
+    error: str | None = None,
+) -> None:
+    """Publish OTA progress without touching the radio or persistent storage."""
+    _ota_progress_state(hass)[entry_id] = {
+        "stage": stage,
+        "percent": max(0, min(100, int(percent))),
+        "detail": detail,
+        "error": error,
+        "updated_at": time.time(),
+    }
+
+
+def get_ota_progress(hass: HomeAssistant, entry_id: str | None) -> dict[str, Any]:
+    """Return local OTA progress for one entry, never querying the radio."""
+    if not entry_id:
+        return {
+            "stage": "idle",
+            "percent": 0,
+            "detail": "",
+            "error": None,
+            "updated_at": None,
+        }
+    state = _ota_progress_state(hass).get(entry_id)
+    if not isinstance(state, dict):
+        return {
+            "stage": "idle",
+            "percent": 0,
+            "detail": "",
+            "error": None,
+            "updated_at": None,
+        }
+    return dict(state)
+
+
+class _MultipartFirmwarePayload(Payload):
+    """Fixed-length multipart payload matching AsyncElegantOTA's own uploader."""
+
+    def __init__(
+        self,
+        firmware: bytes,
+        md5: str,
+        progress: Callable[[int], None] | None = None,
+    ) -> None:
+        self._firmware = firmware
+        self._progress = progress
+        boundary = f"----HiveFWOTA{secrets.token_hex(12)}"
+        self._prefix = (
+            f"--{boundary}\r\n"
+            'Content-Disposition: form-data; name="MD5"\r\n'
+            "\r\n"
+            f"{md5}\r\n"
+            f"--{boundary}\r\n"
+            'Content-Disposition: form-data; name="firmware"; filename="firmware"\r\n'
+            "Content-Type: application/octet-stream\r\n"
+            "\r\n"
+        ).encode("utf-8")
+        self._suffix = f"\r\n--{boundary}--\r\n".encode("utf-8")
+
+        super().__init__(
+            firmware,
+            content_type=f"multipart/form-data; boundary={boundary}",
+        )
+        self._size = len(self._prefix) + len(firmware) + len(self._suffix)
+
+    async def write(self, writer) -> None:
+        await writer.write(self._prefix)
+
+        total = len(self._firmware)
+        sent = 0
+        chunk_size = 16 * 1024
+        for offset in range(0, total, chunk_size):
+            chunk = self._firmware[offset : offset + chunk_size]
+            await writer.write(chunk)
+            sent += len(chunk)
+            if self._progress:
+                self._progress(round(sent * 100 / total))
+
+        await writer.write(self._suffix)
 
 
 class _OtaSecretFilter(logging.Filter):
@@ -335,7 +428,7 @@ async def async_upload_firmware_bytes(
     progress: Callable[[int], None] | None = None,
     expected_version: str | None = None,
 ) -> dict[str, Any]:
-    """Upload one ESP32 application image through secure ephemeral Web OTA."""
+    """Upload one ESP32 app image using AsyncElegantOTA-compatible multipart."""
     entry = coordinator.config_entry
     if entry.data.get(CONF_CONNECTION_TYPE) != CONNECTION_TYPE_TCP:
         raise HiveFWOtaError("Web OTA requires the HiveFW TCP/Wi-Fi connection")
@@ -344,90 +437,111 @@ async def async_upload_firmware_bytes(
     if not host:
         raise HiveFWOtaError("No TCP host is configured for this HiveFW device")
 
+    entry_id = str(entry.entry_id)
     _validate_firmware(firmware, filename)
-    if progress:
-        progress(5)
 
-    # The credential exists only in these local variables and in radio RAM.
-    token = await _rotate_ota_token(coordinator)
-    if progress:
-        progress(15)
-
-    md5 = hashlib.md5(firmware, usedforsecurity=False).hexdigest()
-    form = FormData()
-    form.add_field("MD5", md5)
-    # AsyncElegantOTA switches to filesystem mode only when *filename* equals
-    # "filesystem". Force a safe application filename regardless of upload name.
-    form.add_field(
-        "firmware",
-        firmware,
-        filename="firmware",
-        content_type="application/octet-stream",
-    )
-
-    url = f"http://{host}/update"
-    session = async_get_clientsession(hass)
-    response_lost_during_reboot = False
-    try:
+    def publish(stage: str, percent: int, detail: str = "") -> None:
+        _set_ota_progress(
+            hass,
+            entry_id,
+            stage=stage,
+            percent=percent,
+            detail=detail,
+        )
         if progress:
-            progress(30)
+            progress(percent)
+
+    publish("preparing", 3, "A validar a imagem de firmware")
+
+    token = ""
+    try:
+        publish("authenticating", 7, "A gerar credencial OTA efémera")
+        token = await _rotate_ota_token(coordinator)
+
+        md5 = hashlib.md5(firmware, usedforsecurity=False).hexdigest()
+
+        def upload_progress(pct: int) -> None:
+            overall = 10 + round(max(0, min(100, pct)) * 0.78)
+            publish(
+                "uploading",
+                overall,
+                f"A enviar firmware para o rádio · {pct}%",
+            )
+
+        payload = _MultipartFirmwarePayload(
+            firmware,
+            md5,
+            progress=upload_progress,
+        )
+
+        url = f"http://{host}/update"
+        session = async_get_clientsession(hass)
+        response_lost_during_reboot = False
+
+        publish("uploading", 10, "A iniciar upload para o rádio · 0%")
+
         try:
             async with session.post(
                 url,
-                data=form,
+                data=payload,
                 auth=BasicAuth(OTA_USERNAME, token),
-                # The V1.11 OTA handler can reboot before the final HTTP
-                # response is fully delivered. Keep enough time for the
-                # firmware body to upload, but do not leave HA waiting two
-                # minutes for a response from an ESP that has already rebooted.
+                headers={
+                    "Accept": "text/plain",
+                    "Connection": "close",
+                },
                 timeout=ClientTimeout(
-                    total=60,
+                    total=90,
                     sock_connect=8,
-                    sock_read=12,
+                    sock_read=20,
                 ),
             ) as response:
                 body = (await response.text()).strip()
                 if response.status != 200 or body != "OK":
                     raise HiveFWOtaError(
-                        f"Radio rejected OTA upload (HTTP {response.status}: {body or 'empty response'})"
+                        f"Radio rejected OTA upload (HTTP {response.status}: "
+                        f"{body or 'empty response'})"
                     )
         except (ClientConnectionError, asyncio.TimeoutError) as ex:
-            # HiveFW V1.11 could reboot quickly enough to close the socket or
-            # leave aiohttp waiting for the final response body. Do not report
-            # a false failure if the ESP demonstrably rebooted and returned on
-            # the LAN.
             if await _wait_for_web_ota_return(hass, host):
                 response_lost_during_reboot = True
             else:
                 raise HiveFWOtaError(
                     "Radio disconnected during OTA and did not return online"
                 ) from ex
+
+        publish("rebooting", 90, "Firmware aceite · rádio a reiniciar")
+        publish("verifying", 94, "A aguardar reconexão e confirmar a versão")
+
+        installed_version = await _refresh_after_reboot(
+            hass,
+            coordinator,
+            expected_version=expected_version,
+        )
+
+        publish("complete", 100, f"Firmware ativo: {installed_version or 'confirmado'}")
+
+        return {
+            "success": True,
+            "host": host,
+            "size": len(firmware),
+            "md5": md5,
+            "rebooting": False,
+            "installed_version": installed_version,
+            "response_lost_during_reboot": response_lost_during_reboot,
+        }
+    except Exception as ex:
+        current = get_ota_progress(hass, entry_id)
+        _set_ota_progress(
+            hass,
+            entry_id,
+            stage="error",
+            percent=int(current.get("percent", 0) or 0),
+            detail="Falha no processo OTA",
+            error=str(ex),
+        )
+        raise
     finally:
-        # Drop our reference as soon as the request finishes. The radio reboots
-        # and creates a different random boot token, invalidating this one.
         token = ""
-
-    if progress:
-        progress(90)
-
-    installed_version = await _refresh_after_reboot(
-        hass,
-        coordinator,
-        expected_version=expected_version,
-    )
-
-    if progress:
-        progress(100)
-
-    return {
-        "success": True,
-        "host": host,
-        "size": len(firmware),
-        "md5": md5,
-        "rebooting": False,
-        "installed_version": installed_version,
-        "response_lost_during_reboot": response_lost_during_reboot,
-    }
 
 
 async def async_get_latest_release(
