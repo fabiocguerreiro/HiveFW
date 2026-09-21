@@ -1,14 +1,13 @@
-site_name: MeshCore Docs
-site_url: https://meshcore-dev.github.io/meshcore/
-site_description: Documentation for the open source MeshCore firmware
+site_name: HiveFW Docs
+site_url: https://github.com/fabiocguerreiro/HiveFW
+site_description: Documentation for HiveFW firmware and Home Assistant integration
 
-repo_name: meshcore-dev/meshcore
-repo_url: https://github.com/meshcore-dev/meshcore/
+repo_name: fabiocguerreiro/HiveFW
+repo_url: https://github.com/fabiocguerreiro/HiveFW
 edit_uri: edit/main/docs/
 
 theme:
   name: material
-  logo: _assets/meshcore.svg
   features:
     - content.action.edit
     - content.code.copy
@@ -17,3 +16,20 @@ theme:
 
 extra_css:
   - _stylesheets/extra.css
+
+nav:
+  - Home: index.md
+  - Supported hardware: supported_hardware.md
+  - Wi-Fi provisioning: hivefw_wifi_provisioning.md
+  - Repository migration: repository_migration.md
+  - MeshCore protocol:
+      - Companion protocol: companion_protocol.md
+      - Packet format: packet_format.md
+      - Payloads: payloads.md
+      - Binary stats: stats_binary_frames.md
+      - Number allocations: number_allocations.md
+      - QR codes: qr_codes.md
+      - CLI commands: cli_commands.md
+  - nRF52 power management: nrf52_power_management.md
+  - FAQ: faq.md
+  - Local docs: docs.md
