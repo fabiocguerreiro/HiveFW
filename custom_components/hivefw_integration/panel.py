@@ -12,7 +12,6 @@ import logging
 from pathlib import Path
 
 from homeassistant.components.frontend import (
-    add_extra_js_url,
     async_register_built_in_panel,
     async_remove_panel as frontend_async_remove_panel,
 )
@@ -39,18 +38,15 @@ PANEL_URL = "/hivefw_integration_panel/hivefw-integration-panel.js"
 PANEL_WRAPPER_URL = "/hivefw_integration_panel/hivefw-panel.js"
 PANEL_LOGO_URL = "/hivefw_integration_panel/hivefw-wordmark.png"
 PANEL_BRAND_ICON_URL = "/hivefw_integration_panel/hivefw-icon.png"
-PANEL_SIDEBAR_BRAND_URL = "/hivefw_integration_panel/sidebar-brand.js"
 # Filesystem paths to the production bundle, HiveFW panel wrapper and shared brand.
 PANEL_FRONTEND_PATH = str(Path(__file__).parent / "hivefw-integration-panel.js")
 PANEL_WRAPPER_PATH = str(Path(__file__).parent / "hivefw-panel.js")
 PANEL_LOGO_PATH = str(Path(__file__).parent / "brand" / "logo.png")
 PANEL_BRAND_ICON_PATH = str(Path(__file__).parent / "brand" / "icon.png")
-PANEL_SIDEBAR_BRAND_PATH = str(Path(__file__).parent / "sidebar-brand.js")
 
-# Home Assistant's panel API requires an MDI identifier before the custom
-# sidebar image hook is mounted. Use an intentionally blank placeholder so the
-# old honeycomb icon never flashes before the HiveFW orange icon is applied.
-PANEL_ICON = "mdi:blank"
+# Use Home Assistant's native MDI icon in the sidebar. This renders immediately
+# with the same visual language as the rest of the Home Assistant navigation.
+PANEL_ICON = "mdi:hexagon-multiple"
 PANEL_TITLE = "HiveFW"
 
 # Sidebar URL slug — the panel will be reachable at /hivefw in the HA UI.
@@ -87,16 +83,10 @@ async def async_register_panel(hass: HomeAssistant) -> None:
                     PANEL_BRAND_ICON_PATH,
                     cache_headers=False,
                 ),
-                StaticPathConfig(
-                    PANEL_SIDEBAR_BRAND_URL,
-                    PANEL_SIDEBAR_BRAND_PATH,
-                    cache_headers=False,
-                ),
             ]
         )
-        add_extra_js_url(hass, PANEL_SIDEBAR_BRAND_URL)
         _static_path_registered = True
-        _LOGGER.debug("Registered HiveFW panel static paths and sidebar branding")
+        _LOGGER.debug("Registered HiveFW panel static paths")
     async_register_built_in_panel(
         hass,
         component_name="custom",
