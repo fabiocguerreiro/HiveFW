@@ -467,11 +467,14 @@ class HiveFWPanel extends BasePanel {
       copy.className = "mcr-btn";
       copy.textContent = "Copiar";
       copy.addEventListener("click", async () => {
-        try {
-          await navigator.clipboard.writeText(value);
-          copy.textContent = "Copiado";
-          window.setTimeout(() => { copy.textContent = "Copiar"; }, 1200);
-        } catch {}
+        const result = await this.__copyManualOtaText(value, val);
+        copy.textContent =
+          result === "copied"
+            ? "Copiado"
+            : result === "selected"
+              ? "Selecionado"
+              : "Falhou";
+        window.setTimeout(() => { copy.textContent = "Copiar"; }, 1400);
       });
 
       row.append(key, val, copy);
@@ -500,6 +503,58 @@ class HiveFWPanel extends BasePanel {
     details.appendChild(note);
 
     card.appendChild(details);
+  }
+
+  async __copyManualOtaText(value, sourceElement = null) {
+    const text = String(value ?? "");
+    if (!text) return "failed";
+
+    // Preferred path. Clipboard API is restricted to secure contexts and can
+    // also be blocked inside some Home Assistant embedding/browser setups.
+    try {
+      if (navigator.clipboard?.writeText && window.isSecureContext) {
+        await navigator.clipboard.writeText(text);
+        return "copied";
+      }
+    } catch {}
+
+    // Compatibility fallback for HTTP/local HA sessions and restrictive
+    // webviews. execCommand is deprecated but remains broadly supported for
+    // user-initiated copy operations.
+    let textarea = null;
+    try {
+      textarea = document.createElement("textarea");
+      textarea.value = text;
+      textarea.setAttribute("readonly", "");
+      textarea.setAttribute("aria-hidden", "true");
+      textarea.style.cssText =
+        "position:fixed;left:-9999px;top:0;width:1px;height:1px;opacity:0;pointer-events:none;";
+      document.body.appendChild(textarea);
+      textarea.focus({ preventScroll: true });
+      textarea.select();
+      textarea.setSelectionRange(0, textarea.value.length);
+      if (document.execCommand("copy")) {
+        return "copied";
+      }
+    } catch {
+    } finally {
+      textarea?.remove();
+    }
+
+    // Last-resort UX: select the visible value so Ctrl+C / context-menu copy
+    // works immediately instead of failing silently.
+    try {
+      if (sourceElement) {
+        const selection = window.getSelection();
+        const range = document.createRange();
+        range.selectNodeContents(sourceElement);
+        selection?.removeAllRanges();
+        selection?.addRange(range);
+        return "selected";
+      }
+    } catch {}
+
+    return "failed";
   }
 
   async __createManualOtaSession() {
