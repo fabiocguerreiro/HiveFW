@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "HiveFW",
-        "description": "Configure HiveFW directly with your Companion/Repeater over TCP/Wi-Fi, BLE or USB. HiveFW owns the radio connection, Home Assistant entities, services, chat, channels, nodes, telemetry and diagnostics; no separate MeshCore Home Assistant integration is required."
+        "description": "Configure HiveFW with one of the two supported targets: Heltec V3 over TCP/Wi-Fi or Heltec T114 over BLE. No separate MeshCore Home Assistant integration is required."
       },
       "wifi_setup": {
         "title": "Prepare the Heltec V3 Wi-Fi connection",
