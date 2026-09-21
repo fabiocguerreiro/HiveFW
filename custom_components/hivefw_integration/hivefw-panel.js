@@ -2744,6 +2744,7 @@ class HiveFWPanel extends BasePanel {
     // These cards remain wrapper-specific.
     this.__renderRxLogCard(sroot, grid);
     this.__renderObservabilityCard(sroot, grid);
+    this.__renderBackupRestoreCard(sroot, grid);
     this.__renderWifiPortalCard(sroot, grid);
 
     const wifiEntry = this.__entryId() || null;
@@ -2760,6 +2761,217 @@ class HiveFWPanel extends BasePanel {
 
     this.__settingsObserver?.takeRecords();
     this.__settingsObserver?.observe(sroot, { childList: true, subtree: true });
+  }
+
+
+  __backupFilename(backup) {
+    const rawName=String(backup?.name||"HiveFW")
+      .normalize("NFKD")
+      .replace(/[^\w.-]+/g,"_")
+      .replace(/^_+|_+$/g,"")
+      .slice(0,48)||"HiveFW";
+    const now=new Date();
+    const pad=(n)=>String(n).padStart(2,"0");
+    const stamp=
+      now.getFullYear()+
+      pad(now.getMonth()+1)+
+      pad(now.getDate())+"_"+
+      pad(now.getHours())+
+      pad(now.getMinutes())+
+      pad(now.getSeconds());
+    return "meshcore_backup_"+rawName+"_"+stamp+".json";
+  }
+
+  async __exportFullBackup(button) {
+    if(!this.hass||button?.disabled)return;
+    const original=button?.textContent||"Criar backup";
+    if(button){
+      button.disabled=true;
+      button.textContent="A criar backup…";
+    }
+
+    try{
+      const msg={type:"hivefw_integration/export_backup"};
+      const entryId=this.__entryId();
+      if(entryId)msg.entry_id=entryId;
+
+      const result=await this.hass.callWS(msg);
+      const backup=result?.backup;
+      if(!backup||typeof backup!=="object"){
+        throw new Error("O rádio não devolveu um backup válido.");
+      }
+
+      const blob=new Blob(
+        [JSON.stringify(backup,null,2)+"\n"],
+        {type:"application/json;charset=utf-8"}
+      );
+      const url=URL.createObjectURL(blob);
+      const link=document.createElement("a");
+      link.href=url;
+      link.download=this.__backupFilename(backup);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(()=>URL.revokeObjectURL(url),1000);
+
+      if(button){
+        const channels=Number(result?.channel_count||0);
+        const contacts=Number(result?.contact_count||0);
+        button.textContent="Guardado · "+channels+" canais · "+contacts+" contactos";
+        window.setTimeout(()=>{
+          if(button.isConnected)button.textContent=original;
+        },2600);
+      }
+    }catch(error){
+      console.error("HiveFW full backup failed:",error);
+      if(button){
+        button.textContent="Erro ao criar backup";
+        button.title=this.__otaErrorMessage(error);
+        window.setTimeout(()=>{
+          if(button.isConnected)button.textContent=original;
+        },2600);
+      }
+    }finally{
+      if(button)button.disabled=false;
+    }
+  }
+
+  async __restoreFullBackup(file,button,input) {
+    if(!this.hass||!file||button?.disabled)return;
+    const original=button?.textContent||"Restaurar backup";
+
+    try{
+      const text=await file.text();
+      const backup=JSON.parse(text);
+      const required=[
+        "name","public_key","private_key","radio_settings",
+        "position_settings","other_settings","auto_add_settings",
+        "channels","contacts"
+      ];
+      const missing=required.filter((key)=>!(key in (backup||{})));
+      if(missing.length){
+        throw new Error("Ficheiro MeshCore inválido. Falta: "+missing.join(", "));
+      }
+      if(!Array.isArray(backup.channels)||!Array.isArray(backup.contacts)){
+        throw new Error("Ficheiro MeshCore inválido: channels/contacts.");
+      }
+
+      const warning=
+        "Restaurar este backup vai substituir a configuração do rádio, canais, contactos e, se for diferente, a identidade/chave privada.\n\n"+
+        "Backup: "+String(backup.name||"sem nome")+
+        "\nCanais: "+backup.channels.length+
+        "\nContactos: "+backup.contacts.length+
+        "\n\nPretendes continuar?";
+      if(!window.confirm(warning))return;
+
+      if(button){
+        button.disabled=true;
+        button.textContent="A restaurar…";
+      }
+
+      const msg={
+        type:"hivefw_integration/restore_backup",
+        backup,
+      };
+      const entryId=this.__entryId();
+      if(entryId)msg.entry_id=entryId;
+
+      const result=await this.hass.callWS(msg);
+      if(!result?.success){
+        throw new Error("O restauro não foi concluído.");
+      }
+
+      if(button){
+        const suffix=result.identity_changed?" · identidade restaurada":"";
+        button.textContent=
+          "Restaurado · "+
+          Number(result.channels||0)+" canais · "+
+          Number(result.contacts||0)+" contactos"+
+          suffix;
+      }
+
+      // Refresh the visible device data after an in-place restore. An
+      // identity restore already reloads the config entry on the backend.
+      try{
+        await this._loadDeviceData?.();
+      }catch{}
+      this.requestUpdate?.();
+
+      window.setTimeout(()=>{
+        if(button?.isConnected)button.textContent=original;
+      },3600);
+    }catch(error){
+      console.error("HiveFW full restore failed:",error);
+      if(button){
+        button.textContent="Erro no restauro";
+        button.title=this.__otaErrorMessage(error);
+        window.setTimeout(()=>{
+          if(button.isConnected)button.textContent=original;
+        },3000);
+      }
+    }finally{
+      if(button)button.disabled=false;
+      if(input)input.value="";
+    }
+  }
+
+  __renderBackupRestoreCard(sroot,grid) {
+    let card=sroot.querySelector("#hive-backup-restore-card");
+    if(card)return;
+
+    card=document.createElement("div");
+    card.id="hive-backup-restore-card";
+    card.className="device-section";
+
+    const title=document.createElement("div");
+    title.className="card-title";
+    title.textContent="Backup & Restore";
+
+    const note=document.createElement("div");
+    note.className="hive-settings-note";
+    note.textContent=
+      "Backup completo no formato JSON original do MeshCore Companion: identidade/chave privada, nome, rádio, posição, opções de contactos, canais e contactos guardados no rádio.";
+
+    const security=document.createElement("div");
+    security.className="hive-settings-note";
+    security.style.cssText=
+      "margin-top:10px;padding:9px 10px;border-radius:8px;background:color-mix(in srgb,var(--warning-color,#ff9800) 10%,transparent);color:var(--primary-text-color);";
+    security.textContent=
+      "O ficheiro contém a chave privada do dispositivo. Guarda-o como credencial sensível.";
+
+    const actions=document.createElement("div");
+    actions.className="actions-row";
+    actions.style.marginTop="12px";
+
+    const exportButton=document.createElement("button");
+    exportButton.type="button";
+    exportButton.className="action-btn";
+    exportButton.textContent="Criar backup";
+    exportButton.title="Exportar backup completo compatível com a app MeshCore";
+    exportButton.addEventListener("click",()=>void this.__exportFullBackup(exportButton));
+
+    const restoreButton=document.createElement("button");
+    restoreButton.type="button";
+    restoreButton.className="action-btn";
+    restoreButton.textContent="Restaurar backup";
+    restoreButton.title="Restaurar um ficheiro de backup JSON da app MeshCore";
+
+    const input=document.createElement("input");
+    input.type="file";
+    input.accept=".json,application/json";
+    input.hidden=true;
+    input.addEventListener("change",()=>{
+      const file=input.files?.[0];
+      if(file)void this.__restoreFullBackup(file,restoreButton,input);
+    });
+    restoreButton.addEventListener("click",()=>{
+      input.value="";
+      input.click();
+    });
+
+    actions.append(exportButton,restoreButton,input);
+    card.append(title,note,security,actions);
+    grid.appendChild(card);
   }
 
   async __loadWifiPortalInfo() {
