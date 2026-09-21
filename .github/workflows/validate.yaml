@@ -1,0 +1,109 @@
+name: Validate
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  schedule:
+    - cron: "0 0 * * *"
+  workflow_dispatch:
+
+# Hassfest and HACS only need to read repository contents.
+permissions:
+  contents: read
+
+concurrency:
+  group: validate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  hassfest:
+    name: Hassfest
+    runs-on: ubuntu-latest
+    # Skip on non-canonical repos (e.g. the private dev mirror); HACS
+    # and Hassfest only make sense on the public canonical repo.
+    if: github.repository == 'fabiocguerreiro/HiveFW'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Run hassfest
+        # Pinned to 2026-04-07 HEAD on home-assistant/actions/master.
+        # Bump on a quarterly cadence to take security and behaviour
+        # fixes; verify with a full validate.yaml run after each bump.
+        uses: home-assistant/actions/hassfest@f4ca6f671bd429efb108c0f2fa0ae8af0215986c
+
+  hacs:
+    name: HACS
+    runs-on: ubuntu-latest
+    if: github.repository == 'fabiocguerreiro/HiveFW'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Run HACS validation
+        # Pinned to 2026-01-26 HEAD on hacs/action/main.
+        # Bump on a quarterly cadence to take security and behaviour
+        # fixes; verify with a full validate.yaml run after each bump.
+        uses: hacs/action@1ebf01c408f29afcb6406bd431bc98fd8cbb15aa
+        with:
+          category: integration
+
+  frontend:
+    # Builds and tests the Lit panel bundle. CodeQL/Hassfest/HACS do not
+    # exercise the rollup build, so without this job a dependency bump
+    # that breaks `npm run build` can merge green (see plugin-typescript
+    # v12 outDir break, 2026-06). This job is the gate that catches it.
+    name: Frontend build & test
+    runs-on: ubuntu-latest
+    if: github.repository == 'fabiocguerreiro/HiveFW'
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Set up Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build bundle
+        run: npm run build
+
+      - name: Run tests
+        run: npm test
+
+  backend:
+    name: Backend compile & test
+    runs-on: ubuntu-latest
+    if: github.repository == 'fabiocguerreiro/HiveFW'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: requirements_test.txt
+
+      - name: Install test dependencies
+        run: python -m pip install -r requirements_test.txt
+
+      - name: Compile backend
+        run: python -m compileall -q custom_components/hivefw_integration
+
+      - name: Run backend tests
+        run: python -m pytest tests/ -q
