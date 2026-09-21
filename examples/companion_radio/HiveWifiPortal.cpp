@@ -98,7 +98,7 @@ static String hivefwPageShell(
 <style>
 :root{
   color-scheme:light;
-  --bg:#e5e7eb;
+  --bg:#bfc3c8;
   --card:#ffffff;
   --text:#20242a;
   --muted:#68707a;
@@ -108,9 +108,11 @@ static String hivefwPageShell(
   --soft:#f6f7f8;
 }
 *{box-sizing:border-box}
+html{min-height:100%;background:var(--bg)}
 body{
   margin:0;
   min-height:100vh;
+  min-height:100dvh;
   background:var(--bg);
   color:var(--text);
   font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
@@ -135,12 +137,11 @@ body{
   gap:9px;
   margin-bottom:24px;
 }
-.logo-mark{width:62px;height:54px}
-.logo-text{
-  font-size:28px;
-  line-height:1;
-  font-weight:800;
-  letter-spacing:-.7px;
+.brand-logo{
+  display:block;
+  width:min(100%,256px);
+  height:auto;
+  object-fit:contain;
 }
 .logo-sub{font-size:12px;color:var(--muted)}
 h1{font-size:19px;margin:0 0 7px}
@@ -266,12 +267,7 @@ button,.button{
   html += F("</head><body><div class=\"wrap\"><div class=\"card\">");
   html += F(R"HTML(
 <div class="brand">
-<svg class="logo-mark" viewBox="0 0 64 56" aria-hidden="true">
-  <path d="M21 4h22l11 18-11 18H21L10 22 21 4Z" fill="none" stroke="#f57c00" stroke-width="4"/>
-  <path d="M21 40 12 52M43 40l9 12M10 22H2M54 22h8" stroke="#f57c00" stroke-width="4" stroke-linecap="round"/>
-  <path d="M23 15v15M41 15v15M23 22h18" stroke="#20242a" stroke-width="4" stroke-linecap="round"/>
-</svg>
-<div class="logo-text">HiveFW</div>
+<img class="brand-logo" alt="HiveFW" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAgAAAAA0CAYAAAD8DIBoAAACUElEQVR4nO3dwXaDIBAF0Kan///LdtNF4iLEDgj67l3nKIxo5jCgj23bvgZrneAxugEAwKvv2Q0AAM4nAQCAQBIAAAj0M+CYRxcVzF4jcLS91fbM7u9owxeVNFwtfrPHw+zz92b81cyO395q8Vz9fjnUPjMAABBIAgAAgSQAABDoP2sAzq4RrV5z6W3f39X7t1rN8Grxa+ndn9WuV9Vq/bna+Fstfld39vUvXT8zAAAQSAIAAIEkAAAQ6JM1AKvtk2/9fvWa290cjXe15uj60lP6eNr3/+znPROZAQCAQBIAAAgkAQCAQD2+BdCqAfWuKdm3mkWNscb98sp4emV8zDX1PTdmAAAgkAQAAAJJAAAgUI81AHvVmtLq+/rVzM61+nioOroPe3Q87hbfvdH3793jt9c7nneP39nvuXn7ezMAABBIAgAAgSQAABBoxBoAALij6rcTlmIGAAACSQAAIJAEAAACWQNwXHWf6qVrRtzO3fddt6T3v0r83uv9vO96PDMAABBIAgAAgSQAABBoxBqA6j5JNSWepY2H6rcBeC9tPLG21ngcen+bAQCAQBIAAAgkAQCAQD3WALS+V3y05qamybPq97DhmfEEf8wAAEAgCQAABJIAAECgT9YArL4vWQ1vrrOvt/dK1IjHq9HjV7xZlhkAAAgkAQCAQBIAAAj02LbuJbDeBzy7htZqf7U9o48/2+z3OFw9fi3V+IrPWFeP792fT6Nd6v/DDAAABJIAAEAgCQAABBqxBqDFu7gBYDIzAAAQSAIAAIEkAAAQ6Berc1Buj4Ug/wAAAABJRU5ErkJggg==">
 <div class="logo-sub">Companion &amp; Repeater</div>
 </div>
 )HTML");
@@ -365,15 +361,37 @@ static void hivefwSendConfigPage(AsyncWebServerRequest* request) {
 const button=document.getElementById('scan');
 const list=document.getElementById('wifi-networks');
 const status=document.getElementById('scan-status');
+const sleep=(ms)=>new Promise(resolve=>setTimeout(resolve,ms));
+async function requestScan(){
+  for(let attempt=0;attempt<60;attempt++){
+    const response=await fetch('/api/wifi/scan?t='+Date.now(),{
+      cache:'no-store',
+      credentials:'same-origin',
+      headers:{'Accept':'application/json'}
+    });
+    if(response.status===401){ location.href='/wifi'; return null; }
+    const type=(response.headers.get('content-type')||'').toLowerCase();
+    if(!type.includes('application/json')){
+      throw new Error('o portal não devolveu JSON; volta a entrar em /wifi');
+    }
+    const data=await response.json();
+    if(response.status===202||data.scanning){
+      status.textContent='A procurar redes…';
+      await sleep(500);
+      continue;
+    }
+    if(!response.ok) throw new Error(data.error||('HTTP '+response.status));
+    return data;
+  }
+  throw new Error('tempo de pesquisa excedido');
+}
 button.addEventListener('click',async()=>{
   button.disabled=true;
   status.style.display='block';
   status.textContent='A procurar redes…';
   try{
-    const response=await fetch('/wifi/scan',{cache:'no-store'});
-    if(response.status===401){ location.reload(); return; }
-    if(!response.ok) throw new Error('HTTP '+response.status);
-    const data=await response.json();
+    const data=await requestScan();
+    if(!data)return;
     list.replaceChildren();
     for(const network of (data.networks||[])){
       const option=document.createElement('option');
@@ -382,7 +400,7 @@ button.addEventListener('click',async()=>{
       list.appendChild(option);
     }
     status.textContent=(data.networks||[]).length
-      ? (data.networks.length+' redes encontradas. Escreve ou seleciona o SSID no campo acima.')
+      ? (data.networks.length+' redes encontradas. Seleciona ou escreve o SSID acima.')
       : 'Nenhuma rede encontrada. Podes escrever o SSID manualmente.';
   }catch(error){
     status.textContent='Não foi possível procurar redes: '+error.message;
@@ -439,11 +457,16 @@ static bool hivefwSaveCredentials(
     password = old_password;
   }
 
-  const size_t ssid_written = prefs.putString("ssid", ssid);
-  const size_t pwd_written = prefs.putString("pwd", password);
+  prefs.putString("ssid", ssid);
+  prefs.putString("pwd", password);
+
+  // Read-after-write validation also treats an intentionally empty password
+  // as a valid value, unlike checking putString()'s byte count.
+  const String saved_ssid = prefs.getString("ssid", "");
+  const String saved_password = prefs.getString("pwd", "");
   prefs.end();
 
-  return ssid_written > 0 && pwd_written > 0;
+  return saved_ssid == ssid && saved_password == password;
 }
 
 static void hivefwRedirectToWifi(AsyncWebServerRequest* request) {
@@ -531,26 +554,55 @@ void hivefwWifiPortalBegin(
     request->send(response);
   });
 
-  server->on("/wifi/scan", HTTP_GET, [](AsyncWebServerRequest* request) {
+  server->on("/api/wifi/scan", HTTP_GET, [](AsyncWebServerRequest* request) {
     if (!hivefwHasSession(request)) {
-      request->send(401, "application/json", "{\"error\":\"unauthorized\"}");
+      AsyncWebServerResponse* response = request->beginResponse(
+        401,
+        "application/json; charset=utf-8",
+        "{\"error\":\"unauthorized\"}"
+      );
+      response->addHeader("Cache-Control", "no-store");
+      request->send(response);
       return;
     }
 
-    // Scan only on explicit user action. Channel hopping can briefly disturb
-    // an active AP/STA link, so the portal never scans continuously.
-    const int count = WiFi.scanNetworks(false, true);
+    // Async scanning keeps the HTTP request handler responsive and avoids
+    // blocking the captive portal while the ESP32 hops through Wi-Fi channels.
+    int scan_state = WiFi.scanComplete();
 
-    String json = "{\"networks\":[";
+    if (scan_state == WIFI_SCAN_FAILED) {
+      WiFi.scanDelete();
+      WiFi.scanNetworks(true, true);
+      AsyncWebServerResponse* response = request->beginResponse(
+        202,
+        "application/json; charset=utf-8",
+        "{\"scanning\":true}"
+      );
+      response->addHeader("Cache-Control", "no-store");
+      request->send(response);
+      return;
+    }
+
+    if (scan_state == WIFI_SCAN_RUNNING) {
+      AsyncWebServerResponse* response = request->beginResponse(
+        202,
+        "application/json; charset=utf-8",
+        "{\"scanning\":true}"
+      );
+      response->addHeader("Cache-Control", "no-store");
+      request->send(response);
+      return;
+    }
+
+    String json = "{\"scanning\":false,\"networks\":[";
     bool first = true;
 
-    for (int i = 0; i < count; ++i) {
+    for (int i = 0; i < scan_state; ++i) {
       const String ssid = WiFi.SSID(i);
       if (ssid.length() == 0) {
         continue;
       }
 
-      // Avoid duplicate SSIDs in the UI.
       bool duplicate = false;
       for (int j = 0; j < i; ++j) {
         if (WiFi.SSID(j) == ssid) {
@@ -566,7 +618,6 @@ void hivefwWifiPortalBegin(
         json += ',';
       }
       first = false;
-
       json += "{\"ssid\":\"";
       json += hivefwJsonEscape(ssid);
       json += "\",\"rssi\":";
