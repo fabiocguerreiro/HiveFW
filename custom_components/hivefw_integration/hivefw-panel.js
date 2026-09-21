@@ -144,6 +144,7 @@ class HiveFWPanel extends BasePanel {
     this.__manualOtaSession = null;
     this.__manualOtaBusy = false;
     this.__manualOtaEntry = null;
+    this.__manualOtaRetryTimer = null;
   }
 
   updated(changedProperties) {
@@ -323,6 +324,7 @@ class HiveFWPanel extends BasePanel {
         this.__repeaterLoadedEntry = entryId;
       }
       this.__enhanceSettingsPage();
+      this.__enhanceManualOtaCard(root);
       if (!this.__repeaterStatus && !this.__repeaterLoading) {
         void this.__loadRepeaterStatus();
       }
@@ -374,9 +376,37 @@ class HiveFWPanel extends BasePanel {
   }
 
   __enhanceManualOtaCard(root) {
-    const manager = root?.querySelector(".firmware-manager");
+    // Firmware Manager lives inside <meshcore-settings-page>, which owns its
+    // own shadow root. Fall back to the supplied root only for compatibility
+    // with older bundles that rendered settings directly in the panel.
+    const settingsHost =
+      root?.querySelector("meshcore-settings-page") ||
+      this.shadowRoot?.querySelector("meshcore-settings-page");
+    const settingsRoot = settingsHost?.shadowRoot || null;
+    const manager =
+      settingsRoot?.querySelector(".firmware-manager") ||
+      root?.querySelector(".firmware-manager");
     const grid = manager?.querySelector(".firmware-actions-grid");
-    if (!grid) return;
+
+    if (!grid) {
+      // Lit schedules the child settings-page update after the parent panel
+      // update. Retry once the child has had a chance to render.
+      if (
+        this._activeTab === "settings" &&
+        !this.__manualOtaRetryTimer
+      ) {
+        this.__manualOtaRetryTimer = window.setTimeout(() => {
+          this.__manualOtaRetryTimer = null;
+          this.__enhanceManualOtaCard(this.shadowRoot);
+        }, 120);
+      }
+      return;
+    }
+
+    if (this.__manualOtaRetryTimer) {
+      window.clearTimeout(this.__manualOtaRetryTimer);
+      this.__manualOtaRetryTimer = null;
+    }
 
     const entryId = String(this.__entryId() || "");
     if (this.__manualOtaEntry !== entryId) {
