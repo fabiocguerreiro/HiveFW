@@ -179,38 +179,190 @@ export class NeighborsPage extends LitElement {
     }
   \`;
 
-  private async _load() {
+  private async _loadAll() {
     if (!this.hass) return;
     this._loading = true;
     this._error = null;
     try {
-      this._data = await getHiveNeighbors(this.hass, this.config?.entry_id);
+      const [neighbors, discovery] = await Promise.all([
+        getHiveNeighbors(this.hass, this.config?.entry_id),
+        getHiveNeighborDiscovery(this.hass, this.config?.entry_id),
+      ]);
+      this._neighbors = neighbors;
+      this._discovery = discovery;
+      if (discovery.active) this._startPolling();
     } catch (err) {
-      this._error = err instanceof Error ? err.message : 'Não foi possível carregar os vizinhos.';
+      this._error = this._errorText(err, 'Não foi possível carregar os vizinhos.');
     } finally {
       this._loading = false;
     }
   }
 
+  private async _refreshNeighbors() {
+    if (!this.hass) return;
+    try {
+      this._neighbors = await getHiveNeighbors(this.hass, this.config?.entry_id);
+    } catch (err) {
+      this._error = this._errorText(err, 'Falha ao atualizar os vizinhos.');
+    }
+  }
+
+  private async _startDiscovery() {
+    if (!this.hass || this._discovering) return;
+    this._discovering = true;
+    this._error = null;
+    try {
+      this._discovery = await startHiveNeighborDiscovery(
+        this.hass,
+        this.config?.entry_id,
+      );
+      this._mapFocusId = '';
+      this._startPolling();
+    } catch (err) {
+      this._error = this._errorText(err, 'Não foi possível iniciar a descoberta.');
+    } finally {
+      this._discovering = false;
+    }
+  }
+
+  private _startPolling() {
+    this._stopPolling();
+    this._pollTimer = setInterval(() => {
+      void this._pollDiscovery();
+    }, 1000);
+  }
+
+  private _stopPolling() {
+    if (this._pollTimer) {
+      clearInterval(this._pollTimer);
+      this._pollTimer = undefined;
+    }
+  }
+
+  private async _pollDiscovery() {
+    if (!this.hass) return;
+    try {
+      const result = await getHiveNeighborDiscovery(
+        this.hass,
+        this.config?.entry_id,
+      );
+      this._discovery = result;
+      if (!result.active) this._stopPolling();
+    } catch {
+      // Keep the last result set visible during a transient WS hiccup.
+    }
+  }
+
+  private _errorText(err: unknown, fallback: string): string {
+    if (err instanceof Error) return err.message || fallback;
+    if (typeof err === 'object' && err && 'message' in err) {
+      return String((err as { message?: unknown }).message || fallback);
+    }
+    return fallback;
+  }
+
   private _age(seconds: number): string {
     const value = Math.max(0, Math.floor(seconds || 0));
     if (value < 10) return 'agora';
-    if (value < 60) return `${value}s`;
+    if (value < 60) return String(value) + 's';
     const minutes = Math.floor(value / 60);
-    if (minutes < 60) return `${minutes} min`;
+    if (minutes < 60) return String(minutes) + ' min';
     const hours = Math.floor(minutes / 60);
-    if (hours < 24) return `${hours} h`;
-    return `${Math.floor(hours / 24)} d`;
+    if (hours < 24) return String(hours) + ' h';
+    return String(Math.floor(hours / 24)) + ' d';
   }
 
-  private _sorted(): HiveNeighborInfo[] {
-    const list = [...(this._data?.neighbors || [])];
-    if (this._sort === 'name') {
-      list.sort((a, b) => a.name.localeCompare(b.name));
-    } else {
-      list.sort((a, b) => a.secs_ago - b.secs_ago);
+  private _latestNeighborAge(): number | null {
+    const list = this._neighbors?.neighbors || [];
+    return list.length ? Math.min(...list.map((item) => item.secs_ago)) : null;
+  }
+
+  private _discoveredWithLocation(): HiveNeighborDiscoveryResult[] {
+    return (this._discovery?.results || []).filter((item) => {
+      const lat = Number(item.latitude);
+      const lon = Number(item.longitude);
+      return Number.isFinite(lat)
+        && Number.isFinite(lon)
+        && lat >= -90 && lat <= 90
+        && lon >= -180 && lon <= 180
+        && !(lat === 0 && lon === 0);
+    });
+  }
+
+  private _markerFor(item: HiveNeighborDiscoveryResult): HTMLElement {
+    const id = item.pubkey || item.pubkey_prefix;
+    let marker = this._mapMarkerElements.get(id);
+    if (!marker) {
+      marker = document.createElement('div');
+      this._mapMarkerElements.set(id, marker);
     }
-    return list;
+
+    const selected = this._mapFocusId === id;
+    marker.style.width = '30px';
+    marker.style.height = '30px';
+    marker.style.borderRadius = '50%';
+    marker.style.display = 'grid';
+    marker.style.placeItems = 'center';
+    marker.style.fontSize = '9px';
+    marker.style.fontWeight = '750';
+    marker.style.background = selected
+      ? 'var(--warning-color,#ff9800)'
+      : 'var(--primary-color,#03a9f4)';
+    marker.style.color = 'white';
+    marker.style.border = selected ? '3px solid white' : '2px solid white';
+    marker.style.boxShadow = selected
+      ? '0 0 0 3px rgba(255,152,0,.30),0 2px 7px rgba(0,0,0,.32)'
+      : '0 1px 5px rgba(0,0,0,.30)';
+    marker.textContent = (item.name || item.pubkey_prefix || '?').slice(0, 2).toUpperCase();
+    return marker;
+  }
+
+  private _mapLocations() {
+    const active = new Set<string>();
+    const locations = this._discoveredWithLocation().map((item) => {
+      const id = item.pubkey || item.pubkey_prefix;
+      active.add(id);
+      return {
+        id,
+        location: [Number(item.latitude), Number(item.longitude)] as [number, number],
+        element: this._markerFor(item),
+        elementSize: [36, 36] as [number, number],
+        title: item.name || item.pubkey_prefix,
+        locationEditable: false,
+        activatable: true,
+      };
+    });
+
+    for (const id of this._mapMarkerElements.keys()) {
+      if (!active.has(id)) this._mapMarkerElements.delete(id);
+    }
+    return locations;
+  }
+
+  private _focusDiscovery(item: HiveNeighborDiscoveryResult) {
+    const id = item.pubkey || item.pubkey_prefix;
+    this._mapFocusId = id;
+    this.requestUpdate();
+
+    const lat = Number(item.latitude);
+    const lon = Number(item.longitude);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+
+    void this.updateComplete.then(() => {
+      const map = this.renderRoot.querySelector('ha-map') as
+        (HTMLElement & {
+          setView?: (center: [number, number], zoom?: number) => void;
+        }) | null;
+      map?.setView?.([lat, lon], 14);
+    });
+  }
+
+  private _onMapClicked(e: CustomEvent<{ id: string }>) {
+    const item = (this._discovery?.results || []).find(
+      (candidate) =>
+        (candidate.pubkey || candidate.pubkey_prefix) === e.detail?.id,
+    );
+    if (item) this._focusDiscovery(item);
   }
 
   render() {
