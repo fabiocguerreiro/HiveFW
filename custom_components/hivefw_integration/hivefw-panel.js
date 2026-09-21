@@ -1413,22 +1413,25 @@ class HiveFWPanel extends BasePanel {
         height:34px;
         flex:0 0 auto;
         border-radius:8px;
-        background:
-          #fff
-          url('/hivefw_integration_panel/hivefw-wordmark.png?v=orange-1')
-          center/116px auto
-          no-repeat;
-        box-shadow:
-          inset 0 0 0 1px rgba(0,0,0,.10),
-          0 1px 2px rgba(0,0,0,.08);
+        background:rgba(17,17,17,.92);
+        position:relative;
+        overflow:hidden;
+        box-shadow:inset 0 0 0 1px rgba(255,255,255,.08);
       }
-      .hivefw-header-brand-white::before {
-        content:none;
+      .hivefw-header-brand-white::before,
+      .hivefw-header-brand-white::after {
+        content:"";
+        position:absolute;
+        inset:5px 8px;
+        background:url('/hivefw_integration_panel/hivefw-wordmark.png?v=orange-2') center/contain no-repeat;
+      }
+      .hivefw-header-brand-white::after {
+        filter:brightness(0) invert(1);
+        clip-path:inset(0 0 0 29%);
       }
       :host([narrow]) .hivefw-header-brand-white {
         width:104px;
         height:30px;
-        background-size:94px auto;
       }
 
       .hivefw-console-page {
