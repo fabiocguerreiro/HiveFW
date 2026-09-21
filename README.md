@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="logo/hivefw-wordmark-dark.png" alt="HiveFW" width="420">
+</p>
+
 # HiveFW Companion & Repeater
 
 **HiveFW** é um firmware baseado no [MeshCore](https://github.com/meshcore-dev/MeshCore) que mantém o **Companion Radio como função principal** e acrescenta um **modo Repeater opcional**, ativável pela aplicação MeshCore.
