@@ -188,6 +188,11 @@ void RadioLibWrapper::onSendFinished() {
   state = STATE_IDLE;
 }
 
+void RadioLibWrapper::recoverReceive() {
+  idle();
+  startRecv();
+}
+
 int16_t RadioLibWrapper::performChannelScan() {
   return _radio->scanChannel();
 }

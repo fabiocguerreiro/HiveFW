@@ -404,6 +404,9 @@ private:
   void checkSerialInterface();
   bool isValidClientRepeatFreq(uint32_t f) const;
 
+  uint32_t loadPersistedAutoAdvertEpoch();
+  void persistAutoAdvertEpoch(uint32_t epoch);
+
   // helpers, short-cuts
   void saveChannels() { _store->saveChannels(this); }
   void saveContacts();

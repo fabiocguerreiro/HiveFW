@@ -76,6 +76,14 @@ public:
   */
   virtual bool isReceiving() { return false; }
 
+  /**
+   * \brief abort a potentially stuck receive state and restart RX.
+   *
+   * The default implementation is intentionally a no-op so non-RadioLib
+   * transports keep their existing behaviour.
+   */
+  virtual void recoverReceive() { }
+
   virtual float getLastRSSI() const { return 0; }
   virtual float getLastSNR() const { return 0; }
 };
@@ -120,6 +128,14 @@ class Dispatcher {
   unsigned long outbound_expiry, outbound_start, total_air_time, rx_air_time;
   unsigned long next_tx_time;
   unsigned long cad_busy_start;
+  unsigned long cad_episode_start;
+  unsigned long cad_last_timeout_millis;
+  bool cad_recovery_attempted;
+  uint32_t cad_timeout_count;
+  uint32_t cad_recovery_count;
+  uint32_t cad_forced_tx_count;
+  uint32_t cad_last_busy_ms;
+  uint32_t cad_longest_busy_ms;
   unsigned long radio_nonrx_start;
   unsigned long next_floor_calib_time, next_agc_reset_time;
   bool  prev_isrecv_mode;
@@ -145,6 +161,14 @@ protected:
     total_air_time = rx_air_time = 0;
     next_tx_time = ms.getMillis();
     cad_busy_start = 0;
+    cad_episode_start = 0;
+    cad_last_timeout_millis = 0;
+    cad_recovery_attempted = false;
+    cad_timeout_count = 0;
+    cad_recovery_count = 0;
+    cad_forced_tx_count = 0;
+    cad_last_busy_ms = 0;
+    cad_longest_busy_ms = 0;
     next_floor_calib_time = next_agc_reset_time = 0;
     _err_flags = 0;
     radio_nonrx_start = 0;
@@ -187,8 +211,25 @@ public:
   uint32_t getNumSentDirect() const { return n_sent_direct; }
   uint32_t getNumRecvFlood() const { return n_recv_flood; }
   uint32_t getNumRecvDirect() const { return n_recv_direct; }
+
+  uint32_t getCADTimeoutCount() const { return cad_timeout_count; }
+  uint32_t getCADRecoveryCount() const { return cad_recovery_count; }
+  uint32_t getCADForcedTxCount() const { return cad_forced_tx_count; }
+  uint32_t getCADLastBusyMillis() const { return cad_last_busy_ms; }
+  uint32_t getCADLongestBusyMillis() const { return cad_longest_busy_ms; }
+  uint32_t getCADLastTimeoutAgeSeconds() const {
+    if (cad_last_timeout_millis == 0) return 0;
+    return (uint32_t)((_ms->getMillis() - cad_last_timeout_millis) / 1000UL);
+  }
+
   void resetStats() {
     n_sent_flood = n_sent_direct = n_recv_flood = n_recv_direct = 0;
+    cad_timeout_count = 0;
+    cad_recovery_count = 0;
+    cad_forced_tx_count = 0;
+    cad_last_busy_ms = 0;
+    cad_longest_busy_ms = 0;
+    cad_last_timeout_millis = 0;
     _err_flags = 0;
   }
 

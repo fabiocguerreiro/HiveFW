@@ -3,6 +3,10 @@
 #include <Arduino.h> // needed for PlatformIO
 #include <Mesh.h>
 
+#if defined(ESP32)
+#include <Preferences.h>
+#endif
+
 #if defined(ESP32) && defined(WIFI_SSID) && defined(WEB_OTA_ENABLED)
 extern bool hivefw_set_ota_token(const char* token);
 #endif
@@ -3310,6 +3314,22 @@ void MyMesh::handleCmdFrame(size_t len) {
     );
     appendCustomVar("apps_channel", apps_channel_value);
 
+    // Compact CAD diagnostics:
+    // timeouts/recoveries/forced_tx/last_busy_ms/max_busy_ms/age_s
+    char cad_diag_value[80];
+    snprintf(
+      cad_diag_value,
+      sizeof(cad_diag_value),
+      "%lu/%lu/%lu/%lu/%lu/%lu",
+      (unsigned long)getCADTimeoutCount(),
+      (unsigned long)getCADRecoveryCount(),
+      (unsigned long)getCADForcedTxCount(),
+      (unsigned long)getCADLastBusyMillis(),
+      (unsigned long)getCADLongestBusyMillis(),
+      (unsigned long)getCADLastTimeoutAgeSeconds()
+    );
+    appendCustomVar("cad_diag", cad_diag_value);
+
     // Preserve the standard sensor extension point with the remaining frame
     // space. Settings that do not fit are omitted exactly as before.
     for (int i = 0; i < sensors.getNumSettings(); i++) {
@@ -5206,6 +5226,12 @@ void MyMesh::loop() {
             sizeof(default_scope.key));
 
         sendFloodScoped(default_scope, pkt, 0);
+        companion_advert_tx_count++;
+
+        const uint32_t sent_epoch = getRTCClock()->getCurrentTime();
+        if (sent_epoch >= 1577836800UL) {
+          persistAutoAdvertEpoch(sent_epoch);
+        }
       }
 
       updateSmartAdvertTimer();
@@ -5251,72 +5277,76 @@ mesh::Packet* MyMesh::createSelfAdvert(const char* name, double lat, double lon)
   return createAdvert(self_id, app_data, app_data_len);
 }
 
+uint32_t MyMesh::loadPersistedAutoAdvertEpoch() {
+  uint32_t epoch = _prefs.getLastAutoAdvertEpoch();
+
+#if defined(ESP32)
+  Preferences prefs;
+  if (prefs.begin("hivefw_adv", true)) {
+    const uint32_t nvs_epoch = prefs.getUInt("last_auto", 0);
+    prefs.end();
+    if (nvs_epoch > epoch) {
+      epoch = nvs_epoch;
+    }
+  }
+#endif
+
+  return epoch;
+}
+
+void MyMesh::persistAutoAdvertEpoch(uint32_t epoch) {
+  if (epoch < 1577836800UL) {
+    return;
+  }
+
+  if (_prefs.getLastAutoAdvertEpoch() != epoch) {
+    _prefs.setLastAutoAdvertEpoch(epoch);
+    savePrefs();
+  }
+
+#if defined(ESP32)
+  Preferences prefs;
+  if (prefs.begin("hivefw_adv", false)) {
+    prefs.putUInt("last_auto", epoch);
+    prefs.end();
+  }
+#endif
+}
+
 void MyMesh::updateSmartAdvertTimer() {
-  // Smart Advert is exclusively a Repeater feature.
-  // It also requires AUTOADVERT to be enabled.
   if (!_prefs.isRepeatEn() || !_prefs.isAutoAdvertEn()) {
     next_smart_advert = 0;
     return;
   }
 
-  const uint32_t WINDOW_SIZE_SECONDS = 23 * 3600;
-  const int32_t JITTER_MAX_SECONDS = 3;
+  const uint32_t AUTO_ADVERT_INTERVAL_SECONDS = 24UL * 60UL * 60UL;
+  const uint32_t VALID_EPOCH_MIN = 1577836800UL;
 
-  uint32_t hash = 0;
-  const char* name = _prefs.node_name ? _prefs.node_name : "";
+  const uint32_t now_epoch = getRTCClock()->getCurrentTime();
 
-  mesh::Utils::sha256(
-      (uint8_t*)&hash,
-      sizeof(hash),
-      (const uint8_t*)name,
-      strlen(name),
-      self_id.pub_key,
-      4);
-
-  uint32_t my_offset = hash % WINDOW_SIZE_SECONDS;
-  uint32_t now_epoch = getRTCClock()->getCurrentTime();
-
-  if (now_epoch < 1577836800) {
-    int32_t random_jitter = ((hash ^ millis()) % 7) - 3;
-    uint32_t fallback_wait = my_offset + random_jitter;
-    if ((int32_t)fallback_wait < 0) {
-      fallback_wait = 0;
-    }
-    next_smart_advert = futureMillis(fallback_wait * 1000);
-  } else {
-    uint32_t current_cycle_start =
-        now_epoch - (now_epoch % WINDOW_SIZE_SECONDS);
-
-    uint32_t my_target_epoch =
-        current_cycle_start + my_offset;
-
-    int32_t random_jitter =
-        ((hash ^ current_cycle_start) %
-         ((JITTER_MAX_SECONDS * 2) + 1)) - JITTER_MAX_SECONDS;
-
-    int64_t target_epoch =
-        (int64_t)my_target_epoch + random_jitter;
-
-    if ((int64_t)now_epoch >= target_epoch) {
-      current_cycle_start += WINDOW_SIZE_SECONDS;
-
-      my_target_epoch =
-          current_cycle_start + my_offset;
-
-      random_jitter =
-          ((hash ^ current_cycle_start) %
-           ((JITTER_MAX_SECONDS * 2) + 1)) - JITTER_MAX_SECONDS;
-
-      target_epoch =
-          (int64_t)my_target_epoch + random_jitter;
-    }
-
-    uint32_t wait_seconds =
-        (uint32_t)(target_epoch - (int64_t)now_epoch);
-
+  if (now_epoch < VALID_EPOCH_MIN) {
     next_smart_advert =
-        futureMillis(wait_seconds * 1000);
+      futureMillis((int)(AUTO_ADVERT_INTERVAL_SECONDS * 1000UL));
+    return;
   }
+
+  uint32_t last_epoch = loadPersistedAutoAdvertEpoch();
+
+  if (last_epoch < VALID_EPOCH_MIN || last_epoch > now_epoch) {
+    persistAutoAdvertEpoch(now_epoch);
+    next_smart_advert =
+      futureMillis((int)(AUTO_ADVERT_INTERVAL_SECONDS * 1000UL));
+    return;
+  }
+
+  const uint32_t elapsed = now_epoch - last_epoch;
+  const uint32_t wait_seconds =
+    elapsed >= AUTO_ADVERT_INTERVAL_SECONDS
+      ? 1UL
+      : AUTO_ADVERT_INTERVAL_SECONDS - elapsed;
+
+  next_smart_advert =
+    futureMillis((int)(wait_seconds * 1000UL));
 }
 
 bool MyMesh::advert(bool flood) {

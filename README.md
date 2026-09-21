@@ -4,9 +4,11 @@
 
 # HiveFW Companion & Repeater
 
-**HiveFW** é um firmware baseado no [MeshCore](https://github.com/meshcore-dev/MeshCore) que mantém o **Companion Radio como função principal** e acrescenta um **modo Repeater opcional**, ativável pela aplicação MeshCore.
+**HiveFW** é um firmware local-first baseado no [MeshCore](https://github.com/meshcore-dev/MeshCore) que combina **Companion Radio + Repeater opcional** numa única imagem. O Companion permanece sempre disponível; o modo Repeater pode ser ativado quando necessário sem transformar o equipamento num firmware separado.
 
-O projeto usa uma única árvore de código e uma única versão para os equipamentos suportados. As funcionalidades comuns permanecem partilhadas; as capacidades dependentes do hardware ficam isoladas por plataforma.
+O projeto foca-se em **Heltec V3 por Wi-Fi/TCP** e **Heltec T114 por BLE**, integração direta com **Home Assistant**, configuração local, Web OTA no ESP32, descoberta de nós/vizinhos e diagnóstico do rádio.
+
+O **Auto Advert** do Repeater segue uma cadência mínima de **24 horas entre anúncios automáticos**. Anúncios manuais continuam independentes e não reiniciam essa cadência. No ESP32, o último Auto Advert é também espelhado em NVS para sobreviver a reboot e OTA.
 
 > **Companion primeiro. Repeater quando ativado. Uma versão para todas as plataformas HiveFW suportadas.**
 
@@ -62,7 +64,8 @@ Entre as funcionalidades partilhadas pelo V3 e pelo T114 estão:
 - Companion Radio como modo base.
 - Modo Repeater ativável/desativável pela app.
 - Identidade de advert adaptada ao estado Repeater.
-- Smart Advert quando Repeater e Auto Advert estão ativos.
+- Smart Advert quando Repeater e Auto Advert estão ativos, com intervalo mínimo de 24 h e persistência do último envio.
+- Diagnóstico de CAD: timeouts, recuperação RX, force-TX e duração máxima observada.
 - Contadores de adverts TX/RX.
 - Descoberta de Repeaters e vizinhos diretos.
 - Node Discovery associado ao modo Repeater.

@@ -19,6 +19,15 @@ namespace mesh {
 void Dispatcher::begin() {
   n_sent_flood = n_sent_direct = 0;
   n_recv_flood = n_recv_direct = 0;
+  cad_busy_start = 0;
+  cad_episode_start = 0;
+  cad_last_timeout_millis = 0;
+  cad_recovery_attempted = false;
+  cad_timeout_count = 0;
+  cad_recovery_count = 0;
+  cad_forced_tx_count = 0;
+  cad_last_busy_ms = 0;
+  cad_longest_busy_ms = 0;
   _err_flags = 0;
   radio_nonrx_start = _ms->getMillis();
 
@@ -286,23 +295,64 @@ void Dispatcher::checkSend() {
   }
   
   if (!millisHasNowPassed(next_tx_time)) return;
+
+  const unsigned long cad_now = _ms->getMillis();
   if (_radio->isReceiving()) {
     if (cad_busy_start == 0) {
-      cad_busy_start = _ms->getMillis();   // record when CAD busy state started
+      cad_busy_start = cad_now;
+    }
+    if (cad_episode_start == 0) {
+      cad_episode_start = cad_now;
     }
 
-    if (_ms->getMillis() - cad_busy_start > getCADFailMaxDuration()) {
+    if (cad_now - cad_busy_start > getCADFailMaxDuration()) {
       _err_flags |= ERR_EVENT_CAD_TIMEOUT;
+      cad_timeout_count++;
+      cad_last_timeout_millis = cad_now;
 
-      MESH_DEBUG_PRINTLN("%s Dispatcher::checkSend(): CAD busy max duration reached!", getLogDateTime());
-      // channel activity has gone on too long... (Radio might be in a bad state)
-      // force the pending transmit below...
+      uint32_t episode_busy_ms = (uint32_t)(cad_now - cad_episode_start);
+      cad_last_busy_ms = episode_busy_ms;
+      if (episode_busy_ms > cad_longest_busy_ms) {
+        cad_longest_busy_ms = episode_busy_ms;
+      }
+
+      if (!cad_recovery_attempted) {
+        cad_recovery_attempted = true;
+        cad_recovery_count++;
+
+        MESH_DEBUG_PRINTLN(
+          "%s Dispatcher::checkSend(): CAD busy max duration reached; restarting RX",
+          getLogDateTime()
+        );
+
+        _radio->recoverReceive();
+        cad_busy_start = cad_now;
+        next_tx_time = futureMillis(getCADFailRetryDelay());
+        return;
+      }
+
+      cad_forced_tx_count++;
+      MESH_DEBUG_PRINTLN(
+        "%s Dispatcher::checkSend(): CAD still busy after RX recovery; forcing pending TX",
+        getLogDateTime()
+      );
     } else {
       next_tx_time = futureMillis(getCADFailRetryDelay());
       return;
     }
   }
-  cad_busy_start = 0;  // reset busy state
+
+  if (cad_episode_start != 0) {
+    uint32_t episode_busy_ms = (uint32_t)(cad_now - cad_episode_start);
+    cad_last_busy_ms = episode_busy_ms;
+    if (episode_busy_ms > cad_longest_busy_ms) {
+      cad_longest_busy_ms = episode_busy_ms;
+    }
+  }
+
+  cad_busy_start = 0;
+  cad_episode_start = 0;
+  cad_recovery_attempted = false;
 
   outbound = _mgr->getNextOutbound(_ms->getMillis());
   if (outbound) {

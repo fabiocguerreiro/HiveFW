@@ -38,6 +38,7 @@ public:
   bool startSendRaw(const uint8_t* bytes, int len) override;
   bool isSendComplete() override;
   void onSendFinished() override;
+  void recoverReceive() override;
   bool isInRecvMode() const override;
   bool isChannelActive();
 
