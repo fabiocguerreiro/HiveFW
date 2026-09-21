@@ -1,13 +1,16 @@
-# Local Documentation
+# Documentação local
 
-This document explains how to build and view the MeshCore documentation locally.
+Para visualizar a documentação HiveFW localmente:
 
-## Building and viewing Docs
-
-```
-pip install mkdocs
-pip install mkdocs-material
+```bash
+pip install mkdocs mkdocs-material
+mkdocs serve
 ```
 
-- `mkdocs serve` - Start the live-reloading docs server.
-- `mkdocs build` - Build the documentation site.
+Build estática:
+
+```bash
+mkdocs build
+```
+
+A documentação principal do projeto está também no [README](../README.md).
