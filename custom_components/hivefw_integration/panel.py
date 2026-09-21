@@ -47,10 +47,10 @@ PANEL_LOGO_PATH = str(Path(__file__).parent / "brand" / "logo.png")
 PANEL_BRAND_ICON_PATH = str(Path(__file__).parent / "brand" / "icon.png")
 PANEL_SIDEBAR_BRAND_PATH = str(Path(__file__).parent / "sidebar-brand.js")
 
-# Home Assistant's panel API requires an MDI identifier here. The global
-# sidebar-brand module replaces this fallback with the real HiveFW brand icon
-# once the frontend sidebar is mounted.
-PANEL_ICON = "mdi:hexagon-multiple"
+# Home Assistant's panel API requires an MDI identifier before the custom
+# sidebar image hook is mounted. Use an intentionally blank placeholder so the
+# old honeycomb icon never flashes before the HiveFW orange icon is applied.
+PANEL_ICON = "mdi:blank"
 PANEL_TITLE = "HiveFW"
 
 # Sidebar URL slug — the panel will be reachable at /hivefw in the HA UI.
@@ -80,12 +80,12 @@ async def async_register_panel(hass: HomeAssistant) -> None:
                 StaticPathConfig(
                     PANEL_LOGO_URL,
                     PANEL_LOGO_PATH,
-                    cache_headers=True,
+                    cache_headers=False,
                 ),
                 StaticPathConfig(
                     PANEL_BRAND_ICON_URL,
                     PANEL_BRAND_ICON_PATH,
-                    cache_headers=True,
+                    cache_headers=False,
                 ),
                 StaticPathConfig(
                     PANEL_SIDEBAR_BRAND_URL,
