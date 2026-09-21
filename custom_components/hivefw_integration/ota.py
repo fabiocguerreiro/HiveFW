@@ -194,30 +194,106 @@ async def _wait_for_web_ota_return(
     return False
 
 
-async def _refresh_after_reboot(hass: HomeAssistant, coordinator) -> None:
-    """Refresh until the post-reboot DEVICE_INFO has actually been read."""
-    await asyncio.sleep(8)
+def _apply_live_device_info(coordinator, payload: dict[str, Any]) -> str | None:
+    """Apply a freshly queried DEVICE_INFO payload to coordinator state."""
+    version = str(payload.get("ver") or "").strip() or None
+    model = str(payload.get("model") or "").strip() or None
 
-    # A TCP transport can report connected before the coordinator has queried
-    # the freshly rebooted radio. Force DEVICE_INFO invalidation once and do
-    # not declare success until that query has completed.
+    if version is not None:
+        coordinator._firmware_version = version
+        if hasattr(coordinator, "device_info"):
+            coordinator.device_info["sw_version"] = version
+
+    if model is not None:
+        coordinator._hardware_model = model
+        if hasattr(coordinator, "device_info"):
+            coordinator.device_info["model"] = model
+
+    max_channels = payload.get("max_channels")
+    if max_channels is not None:
+        try:
+            coordinator._max_channels = int(max_channels)
+        except (TypeError, ValueError):
+            pass
+
+    if hasattr(coordinator, "_device_info_initialized"):
+        coordinator._device_info_initialized = True
+
+    try:
+        coordinator.async_update_listeners()
+    except Exception:
+        pass
+
+    return version
+
+
+async def _read_live_firmware_version(coordinator) -> str | None:
+    """Read DEVICE_INFO directly from the radio and refresh cached metadata."""
+    mesh_core = getattr(coordinator.api, "mesh_core", None)
+    if mesh_core is None:
+        return None
+
+    result = await mesh_core.commands.send_device_query()
+    if result is None or getattr(result, "type", None) != EventType.DEVICE_INFO:
+        return None
+
+    payload = getattr(result, "payload", None)
+    if not isinstance(payload, dict):
+        return None
+
+    return _apply_live_device_info(coordinator, payload)
+
+
+async def _refresh_after_reboot(
+    hass: HomeAssistant,
+    coordinator,
+    expected_version: str | None = None,
+) -> str | None:
+    """Wait for the radio to return and verify the firmware it actually booted."""
+    await asyncio.sleep(5)
+
     if hasattr(coordinator, "_device_info_initialized"):
         coordinator._device_info_initialized = False
 
-    for _ in range(10):
-        try:
-            await coordinator.async_request_refresh()
-            if (
-                getattr(coordinator.api, "connected", False)
-                and getattr(coordinator, "_device_info_initialized", False)
-            ):
-                return
-        except Exception:  # reboot/reconnect is inherently transient
-            pass
-        await asyncio.sleep(4)
+    last_version: str | None = None
 
-    _LOGGER.warning(
-        "HiveFW returned after OTA but DEVICE_INFO was not refreshed in time"
+    for _ in range(15):
+        try:
+            # First let the coordinator repair/reconnect its transport if the
+            # OTA reboot invalidated the existing TCP session.
+            await coordinator.async_request_refresh()
+        except Exception:
+            pass
+
+        try:
+            last_version = await _read_live_firmware_version(coordinator)
+        except Exception:
+            last_version = None
+
+        if last_version:
+            if expected_version:
+                expected_tuple = _version_tuple(expected_version)
+                actual_tuple = _version_tuple(last_version)
+                if expected_tuple and actual_tuple and actual_tuple < expected_tuple:
+                    # The radio is online, but it booted the old application.
+                    # Keep trying briefly in case the TCP stack reconnected
+                    # during the reboot transition.
+                    await asyncio.sleep(3)
+                    continue
+            return last_version
+
+        await asyncio.sleep(3)
+
+    if expected_version and last_version:
+        raise HiveFWOtaError(
+            "OTA upload finished, but the radio rebooted with "
+            f"{last_version} instead of {expected_version}. "
+            "The firmware was not activated."
+        )
+
+    raise HiveFWOtaError(
+        "OTA upload finished, but the radio did not return a fresh DEVICE_INFO "
+        "response after reboot."
     )
 
 
@@ -227,6 +303,7 @@ async def async_upload_firmware_bytes(
     firmware: bytes,
     filename: str,
     progress: Callable[[int], None] | None = None,
+    expected_version: str | None = None,
 ) -> dict[str, Any]:
     """Upload one ESP32 application image through secure ephemeral Web OTA."""
     entry = coordinator.config_entry
@@ -303,7 +380,12 @@ async def async_upload_firmware_bytes(
     if progress:
         progress(90)
 
-    hass.async_create_task(_refresh_after_reboot(hass, coordinator))
+    installed_version = await _refresh_after_reboot(
+        hass,
+        coordinator,
+        expected_version=expected_version,
+    )
+
     if progress:
         progress(100)
 
@@ -312,7 +394,8 @@ async def async_upload_firmware_bytes(
         "host": host,
         "size": len(firmware),
         "md5": md5,
-        "rebooting": True,
+        "rebooting": False,
+        "installed_version": installed_version,
         "response_lost_during_reboot": response_lost_during_reboot,
     }
 
@@ -465,6 +548,7 @@ async def async_install_latest_release(
             if progress
             else None
         ),
+        expected_version=str(release.get("version") or "") or None,
     )
     result["version"] = release.get("version")
     return result
@@ -502,7 +586,19 @@ async def async_get_ota_status(
         raise HiveFWOtaError("No HiveFW coordinator found")
 
     entry = coordinator.config_entry
-    firmware = str(getattr(coordinator, "_firmware_version", "") or "")
+
+    # Firmware status must reflect the radio that is online now, not whatever
+    # DEVICE_INFO happened to be cached before an OTA reboot.
+    try:
+        live_firmware = await _read_live_firmware_version(coordinator)
+    except Exception:
+        live_firmware = None
+
+    firmware = str(
+        live_firmware
+        or getattr(coordinator, "_firmware_version", "")
+        or ""
+    )
     connection_type = entry.data.get(CONF_CONNECTION_TYPE)
     host = str(entry.data.get(CONF_TCP_HOST, "") or "")
     supported = connection_type == CONNECTION_TYPE_TCP and bool(host)
