@@ -95,7 +95,7 @@ MAX_MQTT_BROKERS = 4
 STEP_USER_DATA_SCHEMA = vol.Schema(
     {
         vol.Required(CONF_CONNECTION_TYPE): vol.In(
-            [CONNECTION_TYPE_USB, CONNECTION_TYPE_BLE, CONNECTION_TYPE_TCP]
+            [CONNECTION_TYPE_BLE, CONNECTION_TYPE_TCP]
         ),
     }
 )
