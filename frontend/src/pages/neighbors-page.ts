@@ -51,7 +51,7 @@ export class NeighborsPage extends LitElement {
     this._stopPolling();
   }
 
-  static styles = css\`
+  static styles = css`
     :host { display:block; width:100%; height:100%; min-height:0; overflow:hidden; color:var(--primary-text-color); }
     .page {
       width:100%; height:100%; min-height:0; box-sizing:border-box; padding:14px; overflow:hidden;
@@ -177,7 +177,7 @@ export class NeighborsPage extends LitElement {
       .panel { min-height:360px; }
       .map-panel { min-height:480px; }
     }
-  \`;
+  `;
 
   private async _loadAll() {
     if (!this.hass) return;
