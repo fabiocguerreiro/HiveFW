@@ -1306,6 +1306,31 @@ class HiveFWPanel extends BasePanel {
         line-height:1.4;
         margin-bottom:10px;
       }
+      .hive-discovery-list-head {
+        display:flex;
+        align-items:center;
+        justify-content:space-between;
+        gap:10px;
+        margin:0 0 8px;
+        color:var(--secondary-text-color);
+        font-size:9px;
+        font-weight:720;
+        letter-spacing:.07em;
+        text-transform:uppercase;
+      }
+      .hive-discovery-count {
+        display:inline-flex;
+        align-items:center;
+        justify-content:center;
+        min-width:24px;
+        padding:3px 7px;
+        border-radius:999px;
+        background:color-mix(in srgb,var(--primary-color) 10%,transparent);
+        color:var(--primary-color);
+        font-size:9px;
+        font-weight:780;
+        letter-spacing:0;
+      }
       .hive-discovery-item {
         display:grid;
         grid-template-columns:minmax(0,1fr) auto;
@@ -7214,8 +7239,27 @@ class HiveFWPanel extends BasePanel {
 
   async __startHiveNeighborDiscovery() {
     if (!this.hass || this.__hiveNeighborDiscoveryStarting) return;
+
+    // Cada clique inicia uma sessão nova. Limpa a lista e oculta o mapa
+    // imediatamente; o backend cancela a janela anterior antes do novo pedido.
     this.__hiveNeighborDiscoveryStarting = true;
+    this.__hiveNeighborMapFocusId = "";
+    this.__hiveNeighborMapElement = null;
+    this.__hiveNeighborMapMarkerElements.clear();
+    this.__hiveNeighborMapLeafletMarkers.clear();
+    this.__hiveNeighborDiscovery = {
+      supported: true,
+      active: true,
+      started_at: new Date().toISOString(),
+      ends_at: "",
+      remaining_seconds: 30,
+      count: 0,
+      results: [],
+      error: ""
+    };
+    this.__hiveNeighborDiscoverySignature = "";
     this.__rerenderHivePage();
+
     try {
       const msg = { type: "hivefw_integration/start_hive_neighbor_discovery" };
       const entryId = this.__entryId();
@@ -7225,12 +7269,16 @@ class HiveFWPanel extends BasePanel {
       this.__startHiveNeighborDiscoveryPolling();
     } catch (error) {
       this.__hiveNeighborDiscovery = {
-        supported: false,
+        supported: true,
         active: false,
+        started_at: "",
+        ends_at: "",
+        remaining_seconds: 0,
         count: 0,
         results: [],
         error: error?.message || "Não foi possível iniciar a descoberta."
       };
+      this.__stopHiveNeighborDiscoveryPolling();
       this.__rerenderHivePage();
     } finally {
       this.__hiveNeighborDiscoveryStarting = false;
@@ -7245,7 +7293,9 @@ class HiveFWPanel extends BasePanel {
     const results = Array.isArray(normalized.results) ? normalized.results : [];
     const signature = JSON.stringify({
       active:Boolean(normalized.active),
+      remaining_seconds:Number(normalized.remaining_seconds || 0),
       count:Number(normalized.count || results.length),
+      error:String(normalized.error || ""),
       results:results.map((item) => [
         item?.pubkey || item?.pubkey_prefix || "",
         item?.snr ?? null,
@@ -7307,10 +7357,9 @@ class HiveFWPanel extends BasePanel {
     const discover = document.createElement("button");
     discover.className = "mcr-btn primary";
     const active = Boolean(this.__hiveNeighborDiscovery?.active);
-    discover.disabled = this.__hiveNeighborDiscoveryStarting || active;
-    discover.textContent = this.__hiveNeighborDiscoveryStarting
-      ? "A iniciar…"
-      : active ? "A descobrir…" : "Descobrir";
+    // O botão fica sempre disponível. Um novo clique substitui a sessão atual.
+    discover.disabled = this.__hiveNeighborDiscoveryStarting;
+    discover.textContent = this.__hiveNeighborDiscoveryStarting ? "A iniciar…" : "Descobrir";
     discover.addEventListener("click", () => void this.__startHiveNeighborDiscovery());
     head.append(heading, discover);
     container.appendChild(head);
@@ -7322,24 +7371,39 @@ class HiveFWPanel extends BasePanel {
     const state = this.__hiveNeighborDiscovery;
     const status = document.createElement("div");
     status.className = "hive-discovery-status";
-    if (active) {
-      status.textContent = "Pesquisa zero-hop ativa · as respostas aparecem à medida que chegam.";
+    if (state?.error) {
+      status.textContent = "Erro: " + state.error;
+    } else if (active) {
+      status.textContent =
+        "À escuta de respostas · " +
+        String(Math.max(0, Number(state?.remaining_seconds || 0))) +
+        " s restantes.";
     } else if (state?.started_at) {
-      status.textContent = "Última pesquisa concluída · " + String(state.count || 0) + " Repeater(s) encontrado(s).";
-    } else if (state?.error) {
-      status.textContent = state.error;
+      status.textContent = "Pesquisa concluída.";
     } else {
-      status.textContent = "Carrega em Descobrir para emitir um único DISCOVER_REQ zero-hop.";
+      status.textContent = "Pronto para iniciar uma descoberta zero-hop.";
     }
     scroll.appendChild(status);
 
     const results = Array.isArray(state?.results) ? state.results : [];
+    const listHead = document.createElement("div");
+    listHead.className = "hive-discovery-list-head";
+    const listLabel = document.createElement("span");
+    listLabel.textContent = "Repetidores encontrados";
+    const listCount = document.createElement("span");
+    listCount.className = "hive-discovery-count";
+    listCount.textContent = String(Number(state?.count ?? results.length));
+    listHead.append(listLabel, listCount);
+    scroll.appendChild(listHead);
+
     if (!results.length) {
       const empty = document.createElement("div");
       empty.className = "hive-discovery-empty";
       empty.textContent = active
         ? "A aguardar respostas dos Repeaters em alcance…"
-        : "Ainda não existem resultados de descoberta ativa.";
+        : state?.started_at
+          ? "A pesquisa terminou sem encontrar Repeaters em alcance direto."
+          : "Ainda não existem resultados de descoberta ativa.";
       scroll.appendChild(empty);
       return;
     }
@@ -7519,6 +7583,18 @@ class HiveFWPanel extends BasePanel {
     const located = this.__hiveNeighborDiscoveryLocated();
     const total = Array.isArray(this.__hiveNeighborDiscovery?.results)
       ? this.__hiveNeighborDiscovery.results.length : 0;
+
+    // Durante a janela de descoberta o mapa fica deliberadamente oculto.
+    // Só é criado uma vez quando o timeout termina, evitando reconstruções
+    // contínuas à medida que a lista recebe novos resultados.
+    if (this.__hiveNeighborDiscovery?.active) {
+      const note = document.createElement("div");
+      note.className = "hive-neighbors-map-note";
+      note.textContent =
+        "Mapa oculto durante a descoberta. Será preenchido quando a pesquisa terminar.";
+      host.appendChild(note);
+      return;
+    }
 
     const ready = await this.__ensureMapLoaded();
     if (!container.isConnected) return;
