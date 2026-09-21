@@ -12,7 +12,7 @@
   if (window.__hivefwSidebarBrandLoaded) return;
   window.__hivefwSidebarBrandLoaded = true;
 
-  const ICON_URL = "/hivefw_integration_panel/hivefw-icon.png";
+  const ICON_URL = "/hivefw_integration_panel/hivefw-icon.png?v=orange-1";
   const observed = new WeakSet();
 
   const patchItem = (root) => {
