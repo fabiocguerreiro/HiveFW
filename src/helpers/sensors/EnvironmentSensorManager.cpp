@@ -152,64 +152,6 @@ static Adafruit_MLX90614 MLX90614;
 static Adafruit_VL53L0X VL53L0X;
 #endif
 
-#if ENV_INCLUDE_RAK12035
-#ifndef TELEM_RAK12035_ADDRESS
-#define TELEM_RAK12035_ADDRESS 0x20      // RAK12035 Soil Moisture sensor I2C address
-#endif
-#include "RAK12035_SoilMoisture.h"
-static RAK12035_SoilMoisture RAK12035;
-#endif
-
-#if ENV_INCLUDE_GPS && defined(RAK_BOARD) && !defined(RAK_WISMESH_TAG)
-#define RAK_WISBLOCK_GPS
-#endif
-
-#ifdef RAK_WISBLOCK_GPS
-static uint32_t gpsResetPin = 0;
-static bool i2cGPSFlag = false;
-static bool serialGPSFlag = false;
-#ifndef TELEM_RAK12500_ADDRESS
-#define TELEM_RAK12500_ADDRESS   0x42     //RAK12500 Ublox GPS via i2c
-#endif
-#include <SparkFun_u-blox_GNSS_Arduino_Library.h>
-static SFE_UBLOX_GNSS ublox_GNSS;
-
-class RAK12500LocationProvider : public LocationProvider {
-  long _lat = 0;
-  long _lng = 0;
-  long _alt = 0;
-  int _sats = 0;
-  long _epoch = 0;
-  bool _fix = false;
-public:
-  long getLatitude() override { return _lat; }
-  long getLongitude() override { return _lng; }
-  long getAltitude() override { return _alt; }
-  long satellitesCount() override { return _sats; }
-  bool isValid() override { return _fix; }
-  long getTimestamp() override { return _epoch; }
-  void sendSentence(const char * sentence) override { }
-  void reset() override { }
-  void begin() override { }
-  void stop() override { }
-  void loop() override {
-    if (ublox_GNSS.getGnssFixOk(8)) {
-      _fix = true;
-      _lat = ublox_GNSS.getLatitude(2) / 10;
-      _lng = ublox_GNSS.getLongitude(2) / 10;
-      _alt = ublox_GNSS.getAltitude(2);
-      _sats = ublox_GNSS.getSIV(2);
-    } else {
-      _fix = false;
-    }
-    _epoch = ublox_GNSS.getUnixEpoch(2);
-  }
-  bool isEnabled() override { return true; }
-};
-
-static RAK12500LocationProvider RAK12500_provider;
-#endif
-
 // ============================================================
 // I2C bus scanner
 // Probes every valid address and records which ones ACK.
@@ -231,8 +173,7 @@ static void scanI2CBus(TwoWire* wire, bool found[128]) {
 //   on the bus. Returns 0 on failure, or the number of
 //   telemetry channels the sensor will consume (1 for all
 //   single-output sensors; INA3221 returns one per enabled
-//   hardware channel; MLX90614 and RAK12035+calibration
-//   return 2).
+//   hardware channel; MLX90614 returns 2).
 //
 // query(channel, sub_channel, lpp) — called once per active
 //   sensor entry during querySensors(). sub_channel is always
@@ -445,36 +386,6 @@ static void query_bmp085(uint8_t ch, uint8_t, CayenneLPP& lpp) {
 }
 #endif
 
-#if ENV_INCLUDE_RAK12035
-static uint8_t init_rak12035(TwoWire* wire, uint8_t addr) {
-  // RAK12035 requires setup() before begin().
-  RAK12035.setup(*wire);
-  if (!RAK12035.begin(addr)) return 0;
-#ifdef ENABLE_RAK12035_CALIBRATION
-  return 2;  // moisture channel + calibration channel
-#else
-  return 1;
-#endif
-}
-static void query_rak12035(uint8_t ch, uint8_t sub_ch, CayenneLPP& lpp) {
-  if (sub_ch == 0) {
-    lpp.addTemperature(ch, RAK12035.get_sensor_temperature());
-    lpp.addPercentage(ch, RAK12035.get_sensor_moisture());
-  } else {
-#ifdef ENABLE_RAK12035_CALIBRATION
-    float cap = RAK12035.get_sensor_capacitance();
-    float wet = RAK12035.get_humidity_full();
-    float dry = RAK12035.get_humidity_zero();
-    lpp.addFrequency(ch, cap);
-    lpp.addTemperature(ch, wet);
-    lpp.addPower(ch, dry);
-    if (cap > dry) RAK12035.set_humidity_zero(cap);
-    if (cap < wet) RAK12035.set_humidity_full(cap);
-#endif
-  }
-}
-#endif
-
 #if ENV_INCLUDE_BME680_BSEC
 static void bsec_load_state() {
   using namespace Adafruit_LittleFS_Namespace;
@@ -597,9 +508,6 @@ static const SensorDef SENSOR_TABLE[] = {
 #ifdef ENV_INCLUDE_BMP085
   { 0x77,                  "BMP085",       init_bmp085,   query_bmp085   },
 #endif
-#if ENV_INCLUDE_RAK12035
-  { TELEM_RAK12035_ADDRESS,"RAK12035",     init_rak12035, query_rak12035 },
-#endif
   { 0, nullptr, nullptr, nullptr }  // sentinel — keeps the array non-empty
 };
 
@@ -614,11 +522,7 @@ static const size_t SENSOR_TABLE_SIZE = (sizeof(SENSOR_TABLE) / sizeof(SENSOR_TA
 
 bool EnvironmentSensorManager::begin() {
   #if ENV_INCLUDE_GPS
-  #ifdef RAK_WISBLOCK_GPS
-  rakGPSInit();
-  #else
   initBasicGPS();
-  #endif
   #endif
 
   #if ENV_PIN_SDA && ENV_PIN_SCL
@@ -771,103 +675,8 @@ void EnvironmentSensorManager::initBasicGPS() {
   gps_active = false; //Set GPS visibility off until setting is changed
 }
 
-// gps code for rak might be moved to MicroNMEALoactionProvider
-// or make a new location provider ...
-#ifdef RAK_WISBLOCK_GPS
-void EnvironmentSensorManager::rakGPSInit(){
-
-  Serial1.setPins(PIN_GPS_TX, PIN_GPS_RX);
-
-  #ifdef GPS_BAUD_RATE
-  Serial1.begin(GPS_BAUD_RATE);
-  #else
-  Serial1.begin(9600);
-  #endif
-
-  //search for the correct IO standby pin depending on socket used
-  if(gpsIsAwake(WB_IO2)){
-  }
-  else if(gpsIsAwake(WB_IO4)){
-  }
-  else if(gpsIsAwake(WB_IO5)){
-  }
-  else{
-    MESH_DEBUG_PRINTLN("No GPS found");
-    gps_active = false;
-    gps_detected = false;
-    Serial1.end();
-    return;
-  }
-
-  #ifndef FORCE_GPS_ALIVE // for use with repeaters, until GPS toggle is implimented
-  //Now that GPS is found and set up, set to sleep for initial state
-  stop_gps();
-  #endif
-}
-
-bool EnvironmentSensorManager::gpsIsAwake(uint8_t ioPin){
-
-  #if defined(ETHERNET_ENABLED) && defined(RAK_BOARD)
-    if (ioPin == WB_IO2) {
-      // WB_IO2 powers the Ethernet module on RAK baseboards.
-      return false;
-    }
-  #endif
-
-  //set initial waking state
-  pinMode(ioPin,OUTPUT);
-  digitalWrite(ioPin,LOW);
-  delay(500);
-  digitalWrite(ioPin,HIGH);
-  delay(500);
-
-  //Try to init RAK12500 on I2C
-  if (ublox_GNSS.begin(Wire) == true){
-    MESH_DEBUG_PRINTLN("RAK12500 GPS init correctly with pin %i",ioPin);
-    ublox_GNSS.setI2COutput(COM_TYPE_UBX);
-    ublox_GNSS.enableGNSS(true, SFE_UBLOX_GNSS_ID_GPS);
-    ublox_GNSS.enableGNSS(true, SFE_UBLOX_GNSS_ID_GALILEO);
-    ublox_GNSS.enableGNSS(true, SFE_UBLOX_GNSS_ID_GLONASS);
-    ublox_GNSS.enableGNSS(true, SFE_UBLOX_GNSS_ID_SBAS);
-    ublox_GNSS.enableGNSS(true, SFE_UBLOX_GNSS_ID_BEIDOU);
-    ublox_GNSS.enableGNSS(true, SFE_UBLOX_GNSS_ID_IMES);
-    ublox_GNSS.enableGNSS(true, SFE_UBLOX_GNSS_ID_QZSS);
-    ublox_GNSS.setMeasurementRate(1000);
-    ublox_GNSS.saveConfigSelective(VAL_CFG_SUBSEC_IOPORT);
-    gpsResetPin = ioPin;
-    i2cGPSFlag = true;
-    gps_active = true;
-    gps_detected = true;
-
-    _location = &RAK12500_provider;
-    return true;
-  } else if (Serial1.available()) {
-    MESH_DEBUG_PRINTLN("Serial GPS init correctly and is turned on");
-#ifdef PIN_GPS_EN
-    if(PIN_GPS_EN){
-      gpsResetPin = PIN_GPS_EN;
-    }
-#endif
-    serialGPSFlag = true;
-    gps_active = true;
-    gps_detected = true;
-    return true;
-  }
-
-  pinMode(ioPin, INPUT);
-  MESH_DEBUG_PRINTLN("GPS did not init with this IO pin... try the next");
-  return false;
-}
-#endif
-
 void EnvironmentSensorManager::start_gps() {
   gps_active = true;
-  #ifdef RAK_WISBLOCK_GPS
-    pinMode(gpsResetPin, OUTPUT);
-    digitalWrite(gpsResetPin, HIGH);
-    return;
-  #endif
-
   _location->begin();
   _location->reset();
 
@@ -878,12 +687,6 @@ void EnvironmentSensorManager::start_gps() {
 
 void EnvironmentSensorManager::stop_gps() {
   gps_active = false;
-  #ifdef RAK_WISBLOCK_GPS
-    pinMode(gpsResetPin, OUTPUT);
-    digitalWrite(gpsResetPin, LOW);
-    return;
-  #endif
-
   _location->stop();
 
   #ifndef PIN_GPS_EN
@@ -903,15 +706,7 @@ void EnvironmentSensorManager::loop() {
   if ((long)(millis() - next_gps_update) > 0) {
 
     if(gps_active){
-    #ifdef RAK_WISBLOCK_GPS
-    if ((i2cGPSFlag || serialGPSFlag) && _location->isValid()) {
-      node_lat = ((double)_location->getLatitude())/1000000.;
-      node_lon = ((double)_location->getLongitude())/1000000.;
-      MESH_DEBUG_PRINTLN("lat %f lon %f", node_lat, node_lon);
-      node_altitude = ((double)_location->getAltitude()) / 1000.0;
-      MESH_DEBUG_PRINTLN("lat %f lon %f alt %f", node_lat, node_lon, node_altitude);
-    }
-    #else
+
     if (_location->isValid()) {
       node_lat = ((double)_location->getLatitude())/1000000.;
       node_lon = ((double)_location->getLongitude())/1000000.;
@@ -919,7 +714,7 @@ void EnvironmentSensorManager::loop() {
       node_altitude = ((double)_location->getAltitude()) / 1000.0;
       MESH_DEBUG_PRINTLN("lat %f lon %f alt %f", node_lat, node_lon, node_altitude);
     }
-    #endif
+
     }
     next_gps_update = millis() + (gps_update_interval_sec * 1000);
   }
