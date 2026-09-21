@@ -1,0 +1,52 @@
+name: PR Build Check
+
+concurrency:
+  group: hivefw-pr-build-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'examples/**'
+      - 'variants/**'
+      - 'platformio.ini'
+      - 'VERSION'
+      - 'build.sh'
+      - 'version-from-file.py'
+      - 'arch/esp32/AsyncElegantOTA/**'
+      - '.github/workflows/pr-build-check.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'examples/**'
+      - 'variants/**'
+      - 'platformio.ini'
+      - 'VERSION'
+      - 'build.sh'
+      - 'version-from-file.py'
+      - 'arch/esp32/AsyncElegantOTA/**'
+      - '.github/workflows/pr-build-check.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        environment:
+          # HiveFW supported hardware only.
+          - Heltec_v3_companion_radio_wifi
+          - Heltec_t114_companion_radio_ble
+
+    steps:
+      - name: Clone Repo
+        uses: actions/checkout@v6
+
+      - name: Setup Build Environment
+        uses: ./.github/actions/setup-build-environment
+
+      - name: Build ${{ matrix.environment }}
+        run: pio run -e ${{ matrix.environment }}
