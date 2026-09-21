@@ -136,6 +136,10 @@ class HiveFWPanel extends BasePanel {
 
     this.__chatObservedRoot = null;
     this.__chatObserver = null;
+    this.__appsSosChannelSyncTimer = null;
+    this.__appsSosChannelSyncBusy = false;
+    this.__appsSosChannelLoadedEntry = null;
+    this.__appsSosChannelLast = null;
   }
 
   updated(changedProperties) {
@@ -273,10 +277,13 @@ class HiveFWPanel extends BasePanel {
 
     if (this._activeTab === "chat") {
       this.__enhanceChatUi();
-    } else if (this.__chatObserver) {
-      this.__chatObserver.disconnect();
-      this.__chatObserver = null;
-      this.__chatObservedRoot = null;
+    } else {
+      this.__stopAppsSosChannelSync();
+      if (this.__chatObserver) {
+        this.__chatObserver.disconnect();
+        this.__chatObserver = null;
+        this.__chatObservedRoot = null;
+      }
     }
 
     if (this._activeTab === "nodes") {
@@ -418,6 +425,143 @@ class HiveFWPanel extends BasePanel {
 
     this.__decorateShareActions(croot);
     window.setTimeout(()=>this.__decorateShareActions(croot),80);
+
+    const conversationList = croot.querySelector("meshcore-conversation-list");
+    if (conversationList) {
+      this.__bindAppsSosChannelSync(conversationList);
+    }
+  }
+
+  __bindAppsSosChannelSync(conversationList) {
+    if (!conversationList) return;
+
+    if (conversationList.__hivefwAppsSosOwner !== this) {
+      const originalSet =
+        typeof conversationList._setAppsChannel === "function"
+          ? conversationList._setAppsChannel.bind(conversationList)
+          : null;
+
+      conversationList.__hivefwAppsSosOwner = this;
+      conversationList.__hivefwOriginalSetAppsChannel = originalSet;
+
+      conversationList._setAppsChannel = (value) => {
+        if (originalSet) originalSet(value);
+        void this.__setAppsSosChannel(value);
+      };
+    }
+
+    const entryId = this.__entryId() || null;
+    if (this.__appsSosChannelLoadedEntry !== entryId) {
+      this.__appsSosChannelLoadedEntry = entryId;
+      this.__appsSosChannelLast = null;
+      void this.__loadAppsSosChannel(true);
+    }
+
+    this.__startAppsSosChannelSync();
+  }
+
+  __startAppsSosChannelSync() {
+    if (this.__appsSosChannelSyncTimer || this._activeTab !== "chat") return;
+
+    this.__appsSosChannelSyncTimer = window.setInterval(() => {
+      if (this._activeTab === "chat") {
+        void this.__loadAppsSosChannel(false);
+      }
+    }, 5000);
+  }
+
+  __stopAppsSosChannelSync() {
+    if (this.__appsSosChannelSyncTimer) {
+      window.clearInterval(this.__appsSosChannelSyncTimer);
+      this.__appsSosChannelSyncTimer = null;
+    }
+  }
+
+  __applyAppsSosChannelToChat(channelIdx) {
+    const chat = this.shadowRoot?.querySelector("hivefw-integration-page");
+    const croot = chat?.shadowRoot;
+    const list = croot?.querySelector("meshcore-conversation-list");
+    if (!list) return;
+
+    const value = channelIdx == null ? null : String(channelIdx);
+    if (list._appsChannelId === value) return;
+
+    list._appsChannelId = value;
+
+    // Keep the previous browser preference only as a fast cache/fallback.
+    // The radio custom var is the source of truth.
+    try {
+      const key =
+        typeof list._appsStorageKey === "function"
+          ? list._appsStorageKey()
+          : null;
+      if (key) {
+        if (value == null) window.localStorage.removeItem(key);
+        else window.localStorage.setItem(key, value);
+      }
+    } catch {}
+
+    list._updateFiltered?.();
+    list.requestUpdate?.();
+  }
+
+  async __loadAppsSosChannel(force = false) {
+    if (!this.hass || this.__appsSosChannelSyncBusy) return;
+    if (this._activeTab !== "chat" && !force) return;
+
+    this.__appsSosChannelSyncBusy = true;
+    try {
+      const msg = { type: "hivefw_integration/get_apps_sos_channel" };
+      const entryId = this.__entryId();
+      if (entryId) msg.entry_id = entryId;
+
+      const state = await this.hass.callWS(msg);
+      if (!state?.supported) return;
+
+      const next =
+        state.channel_idx == null
+          ? null
+          : Number(state.channel_idx);
+
+      if (next !== this.__appsSosChannelLast) {
+        this.__appsSosChannelLast = next;
+        this.__applyAppsSosChannelToChat(next);
+      }
+    } catch (error) {
+      console.debug("HiveFW APPS/SOS channel read unavailable:", error);
+    } finally {
+      this.__appsSosChannelSyncBusy = false;
+    }
+  }
+
+  async __setAppsSosChannel(value) {
+    if (!this.hass) return;
+
+    const channelIdx =
+      value == null || value === ""
+        ? null
+        : Number(value);
+
+    const msg = { type: "hivefw_integration/set_apps_sos_channel" };
+    const entryId = this.__entryId();
+    if (entryId) msg.entry_id = entryId;
+    if (Number.isInteger(channelIdx) && channelIdx >= 0) {
+      msg.channel_idx = channelIdx;
+    }
+
+    try {
+      const result = await this.hass.callWS(msg);
+      const confirmed =
+        result?.channel_idx == null
+          ? null
+          : Number(result.channel_idx);
+      this.__appsSosChannelLast = confirmed;
+      this.__applyAppsSosChannelToChat(confirmed);
+    } catch (error) {
+      console.debug("HiveFW APPS/SOS channel write failed:", error);
+      // Restore the physical Companion value if the write did not succeed.
+      await this.__loadAppsSosChannel(true);
+    }
   }
 
   __meshCoreContactShareUri(contact) {
