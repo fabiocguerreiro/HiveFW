@@ -1,15 +1,12 @@
-# Releasing Firmware
+# Releasing HiveFW firmware
 
-GitHub Actions is set up to automatically build and release firmware.
+HiveFW releases are built by GitHub Actions from `hivefw-V*` / `hivefw-v*` tags.
 
-It will automatically build firmware when one of the following tag formats are pushed.
+Each release must contain device-specific firmware for both supported targets:
 
-- `companion-v1.0.0`
-- `repeater-v1.0.0`
-- `room-server-v1.0.0`
+- **Heltec V3** — `Heltec_v3_companion_radio_wifi-<version>-<sha>.bin`
+- **Heltec T114** — `Heltec_t114_companion_radio_ble-<version>-<sha>.zip` for BLE DFU and the matching `.uf2`
 
-> NOTE: replace `v1.0.0` with the version you want to release as.
+The release workflow validates that the V3 BIN and both T114 files exist before publishing.
 
-- You can push one, or more tags on the same commit, and they will all build separately.
-- Once the firmware has been built, a new (draft) GitHub Release will be created.
-- You will need to update the release notes, and publish it.
+Only the current HiveFW GitHub Release is kept. When a new tagged HiveFW release is published, older HiveFW release entries are deleted automatically. Historical Git tags are preserved.
