@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "HiveFW",
-        "description": "Configura o HiveFW diretamente com o Companion/Repeater."
+        "description": "Configura o HiveFW com um dos dois alvos suportados: Heltec V3 por TCP/Wi-Fi ou Heltec T114 por BLE. Não é necessária uma integração MeshCore separada no Home Assistant."
       },
       "wifi_setup": {
         "title": "Preparar a ligação Wi-Fi do Heltec V3",
