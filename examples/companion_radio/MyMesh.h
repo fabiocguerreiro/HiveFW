@@ -509,9 +509,12 @@ private:
   AdvertPath advert_paths[ADVERT_PATH_TABLE_SIZE]; // circular table
 
   // HiveFW Companion advert counters.
-  // Reiniciados a cada boot.
+  // Reiniciados a cada boot. Auto Advert is counted separately so we can
+  // prove whether repeated map sightings came from this radio or from flood
+  // propagation through multiple collectors.
   uint32_t companion_advert_tx_count = 0;
   uint32_t companion_advert_rx_count = 0;
+  uint32_t companion_auto_advert_tx_count = 0;
 
   struct RepeaterNeighbour {
     mesh::Identity id;

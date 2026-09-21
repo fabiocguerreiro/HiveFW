@@ -8,7 +8,7 @@
 
 O projeto foca-se em **Heltec V3 por Wi-Fi/TCP** e **Heltec T114 por BLE**, integração direta com **Home Assistant**, configuração local, Web OTA no ESP32, descoberta de nós/vizinhos e diagnóstico do rádio.
 
-O **Auto Advert** do Repeater segue uma cadência mínima de **24 horas entre anúncios automáticos**. Anúncios manuais continuam independentes e não reiniciam essa cadência. No ESP32, o último Auto Advert é também espelhado em NVS para sobreviver a reboot e OTA.
+O **Auto Advert** do Repeater segue uma cadência mínima de **24 horas entre anúncios automáticos**. Anúncios manuais continuam independentes e não reiniciam essa cadência. No ESP32, o último Auto Advert é também espelhado em NVS para sobreviver a reboot e OTA. Existe ainda uma proteção independente `at-most-once`: mesmo que o temporizador seja rearmado indevidamente, o rádio não origina um segundo Auto Advert dentro das mesmas 24 horas.
 
 > **Companion primeiro. Repeater quando ativado. Uma versão para todas as plataformas HiveFW suportadas.**
 

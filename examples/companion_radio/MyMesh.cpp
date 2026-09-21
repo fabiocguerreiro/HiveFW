@@ -3343,6 +3343,16 @@ void MyMesh::handleCmdFrame(size_t len) {
     );
     appendCustomVar("apps_channel", apps_channel_value);
 
+    char auto_adv_diag_value[32];
+    snprintf(
+      auto_adv_diag_value,
+      sizeof(auto_adv_diag_value),
+      "%lu/%lu",
+      (unsigned long)companion_auto_advert_tx_count,
+      (unsigned long)loadPersistedAutoAdvertEpoch()
+    );
+    appendCustomVar("auto_adv_diag", auto_adv_diag_value);
+
     // Compact CAD diagnostics:
     // timeouts/recoveries/forced_tx/last_busy_ms/max_busy_ms/age_s
     char cad_diag_value[80];
@@ -5331,33 +5341,52 @@ void MyMesh::loop() {
     } else if (millisHasNowPassed(next_smart_advert)) {
       next_smart_advert = 0;
 
-      mesh::Packet* pkt;
-      if (_prefs.advert_loc_policy == ADVERT_LOC_NONE) {
-        pkt = createSelfAdvert(_prefs.node_name);
+      const uint32_t AUTO_ADVERT_INTERVAL_SECONDS = 24UL * 60UL * 60UL;
+      const uint32_t VALID_EPOCH_MIN = 1577836800UL;
+      const uint32_t now_epoch = getRTCClock()->getCurrentTime();
+      const uint32_t last_epoch = loadPersistedAutoAdvertEpoch();
+
+      // Independent at-most-once guard. Even if the millis timer is
+      // accidentally re-armed, corrupted, or evaluated twice around a reboot,
+      // never originate a second automatic advert inside the 24 h window.
+      if (
+        now_epoch >= VALID_EPOCH_MIN &&
+        last_epoch >= VALID_EPOCH_MIN &&
+        last_epoch <= now_epoch &&
+        (now_epoch - last_epoch) < AUTO_ADVERT_INTERVAL_SECONDS
+      ) {
+        updateSmartAdvertTimer();
       } else {
-        pkt = createSelfAdvert(
-            _prefs.node_name,
-            sensors.node_lat,
-            sensors.node_lon);
-      }
-
-      if (pkt) {
-        TransportKey default_scope;
-        memcpy(
-            &default_scope.key,
-            _prefs.default_scope_key,
-            sizeof(default_scope.key));
-
-        sendFloodScoped(default_scope, pkt, 0);
-        companion_advert_tx_count++;
-
-        const uint32_t sent_epoch = getRTCClock()->getCurrentTime();
-        if (sent_epoch >= 1577836800UL) {
-          persistAutoAdvertEpoch(sent_epoch);
+        mesh::Packet* pkt;
+        if (_prefs.advert_loc_policy == ADVERT_LOC_NONE) {
+          pkt = createSelfAdvert(_prefs.node_name);
+        } else {
+          pkt = createSelfAdvert(
+              _prefs.node_name,
+              sensors.node_lat,
+              sensors.node_lon);
         }
-      }
 
-      updateSmartAdvertTimer();
+        if (pkt) {
+          TransportKey default_scope;
+          memcpy(
+              &default_scope.key,
+              _prefs.default_scope_key,
+              sizeof(default_scope.key));
+
+          // Persist first. If power is lost immediately afterwards we prefer
+          // skipping one automatic advert over originating duplicates.
+          if (now_epoch >= VALID_EPOCH_MIN) {
+            persistAutoAdvertEpoch(now_epoch);
+          }
+
+          sendFloodScoped(default_scope, pkt, 0);
+          companion_advert_tx_count++;
+          companion_auto_advert_tx_count++;
+        }
+
+        updateSmartAdvertTimer();
+      }
     }
   } else {
     next_smart_advert = 0;
