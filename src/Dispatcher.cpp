@@ -307,8 +307,6 @@ void Dispatcher::checkSend() {
 
     if (cad_now - cad_busy_start > getCADFailMaxDuration()) {
       _err_flags |= ERR_EVENT_CAD_TIMEOUT;
-      cad_timeout_count++;
-      cad_last_timeout_millis = cad_now;
 
       uint32_t episode_busy_ms = (uint32_t)(cad_now - cad_episode_start);
       cad_last_busy_ms = episode_busy_ms;
@@ -317,6 +315,10 @@ void Dispatcher::checkSend() {
       }
 
       if (!cad_recovery_attempted) {
+        // Count one timeout per continuous busy episode. A later force-TX
+        // after recovery is tracked separately in cad_forced_tx_count.
+        cad_timeout_count++;
+        cad_last_timeout_millis = cad_now;
         cad_recovery_attempted = true;
         cad_recovery_count++;
 
