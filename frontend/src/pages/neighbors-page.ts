@@ -222,15 +222,30 @@ export class NeighborsPage extends LitElement {
     if (!this.hass || this._discovering) return;
     this._discovering = true;
     this._error = null;
+    this._mapFocusId = '';
+    this._discovery = {
+      supported: true,
+      active: true,
+      started_at: new Date().toISOString(),
+      ends_at: '',
+      remaining_seconds: 30,
+      count: 0,
+      results: [],
+      error: '',
+    };
     try {
       this._discovery = await startHiveNeighborDiscovery(
         this.hass,
         this.config?.entry_id,
       );
-      this._mapFocusId = '';
       this._startPolling();
     } catch (err) {
       this._error = this._errorText(err, 'Não foi possível iniciar a descoberta.');
+      this._discovery = {
+        supported: true, active: false, started_at: '', ends_at: '',
+        remaining_seconds: 0, count: 0, results: [], error: this._error,
+      };
+      this._stopPolling();
     } finally {
       this._discovering = false;
     }
@@ -462,49 +477,34 @@ export class NeighborsPage extends LitElement {
           </div>
           <button
             class="primary"
-            ?disabled=${this._discovering || Boolean(discovery?.active)}
+            ?disabled=${this._discovering}
             @click=${() => this._startDiscovery()}>
-            ${this._discovering
-              ? 'A iniciar…'
-              : discovery?.active
-                ? String(discovery.remaining_seconds) + 's'
-                : 'Descobrir'}
+            ${this._discovering ? 'A iniciar…' : 'Descobrir'}
           </button>
         </div>
 
-        ${discovery?.active
-          ? html`
-              <div class="discovery-status">
-                <div class="status-line">
-                  <span style="display:flex;align-items:center;gap:8px;">
-                    <span class="pulse"></span>
-                    <strong>À escuta de respostas</strong>
-                  </span>
-                  <span>${discovery.count} encontrados</span>
-                </div>
-                <div style="margin-top:5px;color:var(--secondary-text-color);">
-                  Janela zero-hop ativa por mais ${discovery.remaining_seconds}s.
-                  A lista e o mapa atualizam à medida que chegam respostas.
-                </div>
-              </div>
-            `
-          : discovery?.started_at
+        ${discovery?.error
+          ? html`<div class="discovery-status">Erro: ${discovery.error}</div>`
+          : discovery?.active
             ? html`
                 <div class="discovery-status">
-                  Pesquisa concluída · <strong>${discovery.count}</strong>
-                  Repeater${discovery.count === 1 ? '' : 's'}
-                  encontrado${discovery.count === 1 ? '' : 's'}.
+                  <div class="status-line">
+                    <span style="display:flex;align-items:center;gap:8px;">
+                      <span class="pulse"></span>
+                      <strong>À escuta de respostas</strong>
+                    </span>
+                    <span>${discovery.remaining_seconds}s restantes</span>
+                  </div>
                 </div>
               `
-            : html`
-                <div class="discovery-status">
-                  Carrega em <strong>Descobrir</strong> para emitir
-                  um único DISCOVER_REQ zero-hop.
-                </div>
-              `}
+            : discovery?.started_at
+              ? html`<div class="discovery-status">Pesquisa concluída.</div>`
+              : html`<div class="discovery-status">Pronto para iniciar uma descoberta zero-hop.</div>`}
 
         <div class="list">
-          <div class="list-title">Resultados em tempo real</div>
+          <div class="list-title">
+            Repetidores encontrados · ${discovery?.count ?? results.length}
+          </div>
           ${results.length === 0
             ? this._empty(
                 discovery?.active
@@ -520,6 +520,7 @@ export class NeighborsPage extends LitElement {
   private _renderMap() {
     const located = this._discoveredWithLocation();
     const total = this._discovery?.results.length || 0;
+    const active = Boolean(this._discovery?.active);
 
     return html`
       <section class="panel column map-panel">
@@ -534,7 +535,9 @@ export class NeighborsPage extends LitElement {
         </div>
 
         <div class="map-wrap">
-          ${!this._mapReady
+          ${active
+            ? html`<div class="map-note">Mapa oculto durante a descoberta. Será preenchido quando a pesquisa terminar.</div>`
+            : !this._mapReady
             ? html`<div class="map-note">A carregar o mapa do Home Assistant…</div>`
             : located.length === 0
               ? html`
