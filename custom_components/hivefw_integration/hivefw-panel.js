@@ -379,6 +379,34 @@ class HiveFWPanel extends BasePanel {
     }
   }
 
+  __otaErrorMessage(error) {
+    if (!error) return "Erro desconhecido";
+    if (typeof error === "string") return error;
+
+    const candidates = [
+      error.message,
+      error.error?.message,
+      error.body?.message,
+      error.data?.message,
+      error.error,
+      error.body?.error,
+      error.code,
+    ];
+
+    for (const value of candidates) {
+      if (typeof value === "string" && value.trim() && value !== "Unknown error") {
+        return value.trim();
+      }
+    }
+
+    try {
+      const json = JSON.stringify(error);
+      if (json && json !== "{}") return json;
+    } catch {}
+
+    return error?.constructor?.name || "Erro desconhecido";
+  }
+
   async __loadOtaProgress() {
     if (!this.hass || this.__otaProgressBusy) return;
     this.__otaProgressBusy = true;
@@ -523,7 +551,7 @@ class HiveFWPanel extends BasePanel {
       );
     } catch (error) {
       await this.__loadOtaProgress();
-      const message = error?.message || String(error);
+      const message = this.__otaErrorMessage(error);
       this._showStatusMessage("Firmware OTA: " + message, "error");
     } finally {
       this.__stopOtaProgressPolling();
@@ -609,7 +637,7 @@ class HiveFWPanel extends BasePanel {
     } catch (error) {
       await this.__loadOtaProgress();
       this._showStatusMessage(
-        "Firmware OTA: " + (error?.message || String(error)),
+        "Firmware OTA: " + this.__otaErrorMessage(error),
         "error"
       );
     } finally {
@@ -821,7 +849,7 @@ class HiveFWPanel extends BasePanel {
 
       this.__manualOtaSession = session;
     } catch (error) {
-      const message = error?.message || String(error);
+      const message = this.__otaErrorMessage(error);
       this._showStatusMessage?.("OTA manual: " + message, "error");
     } finally {
       this.__manualOtaBusy = false;
