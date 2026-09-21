@@ -674,6 +674,8 @@ def async_register_ws_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_console_clear)
     websocket_api.async_register_command(hass, ws_set_channel)
     websocket_api.async_register_command(hass, ws_remove_channel)
+    websocket_api.async_register_command(hass, ws_export_backup)
+    websocket_api.async_register_command(hass, ws_restore_backup)
 
     # Neighbor management commands
     websocket_api.async_register_command(hass, ws_get_hive_neighbors)
@@ -3481,6 +3483,509 @@ async def ws_remove_channel(hass, connection, msg):
             ex,
             handler=f"ws_remove_channel(idx={channel_idx})",
         )
+
+
+
+# ─── HiveFW full MeshCore-compatible backup / restore ───────────────────
+#
+# The JSON shape intentionally mirrors the MeshCore companion-app backup
+# format. Do not add HiveFW-only top-level keys here: files produced by this
+# endpoint are intended to remain portable back to the original app.
+
+
+def _meshcore_backup_coord(value) -> str:
+    """Format coordinates like the official companion backup JSON."""
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        number = 0.0
+    rendered = f"{number:.6f}".rstrip("0").rstrip(".")
+    if "." not in rendered:
+        rendered += ".0"
+    return rendered
+
+
+def _backup_event_failed(event, event_type) -> bool:
+    """Return True for a missing/error SDK event."""
+    if event is None:
+        return True
+    return getattr(event, "type", None) == event_type.ERROR or bool(
+        getattr(event, "is_error", lambda: False)()
+    )
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hivefw_integration/export_backup",
+        vol.Optional("entry_id"): str,
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_export_backup(hass, connection, msg):
+    """Export the connected radio in the original MeshCore backup shape."""
+    from meshcore.events import EventType
+
+    coordinator = _get_coordinator(hass, msg.get("entry_id"))
+    if not coordinator or not coordinator.api.mesh_core:
+        connection.send_error(msg["id"], "not_found", "No active HiveFW radio coordinator")
+        return
+
+    commands = coordinator.api.mesh_core.commands
+
+    try:
+        self_event = await commands.send_appstart()
+        if _backup_event_failed(self_event, EventType):
+            connection.send_error(msg["id"], "read_failed", "Unable to read device settings")
+            return
+        self_info = dict(getattr(self_event, "payload", None) or {})
+
+        key_event = await commands.export_private_key()
+        if key_event is None or getattr(key_event, "type", None) == EventType.DISABLED:
+            connection.send_error(
+                msg["id"],
+                "private_key_export_disabled",
+                "Private-key export is disabled by the firmware",
+            )
+            return
+        if _backup_event_failed(key_event, EventType):
+            connection.send_error(msg["id"], "read_failed", "Unable to export the device identity")
+            return
+
+        private_raw = (getattr(key_event, "payload", None) or {}).get("private_key", b"")
+        if not isinstance(private_raw, (bytes, bytearray)) or len(private_raw) not in (32, 64):
+            connection.send_error(msg["id"], "read_failed", "Firmware returned an invalid private key")
+            return
+        private_key = bytes(private_raw).hex()
+
+        auto_event = await commands.get_autoadd_config()
+        if _backup_event_failed(auto_event, EventType):
+            auto_payload = {}
+        else:
+            auto_payload = dict(getattr(auto_event, "payload", None) or {})
+        auto_mask = int(auto_payload.get("config", 0) or 0)
+        auto_hops = auto_payload.get("max_hops", 0)
+        try:
+            auto_hops = int(auto_hops or 0)
+        except (TypeError, ValueError):
+            auto_hops = 0
+
+        # Refresh the device-side channel slots before serialising them so the
+        # backup contains the actual 16-byte secrets, not display-only state.
+        await coordinator.fetch_all_channel_info()
+        scope_store = _get_channel_scopes(hass)
+        entry_id = coordinator.config_entry.entry_id
+
+        channels = []
+        for idx in range(int(getattr(coordinator, "max_channels", 0) or 0)):
+            info = dict(getattr(coordinator, "_channel_info", {}).get(idx, {}) or {})
+            name = str(info.get("channel_name") or "")
+            if not name or name == "(unused)":
+                continue
+
+            secret = info.get("channel_secret", b"")
+            if isinstance(secret, (bytes, bytearray)):
+                secret_hex = bytes(secret).hex()
+            else:
+                secret_hex = str(secret or "").strip().lower()
+            if len(secret_hex) != 32:
+                continue
+
+            scope_name = scope_store.get(entry_id, idx) if scope_store else None
+            channels.append(
+                {
+                    "name": name,
+                    "secret": secret_hex,
+                    "region_scope_name": scope_name or None,
+                    # The Companion protocol stores a scope name per send; it
+                    # does not expose the app's cached scope key separately.
+                    "region_scope_key": None,
+                }
+            )
+
+        contacts_event = await commands.get_contacts(timeout=30)
+        if _backup_event_failed(contacts_event, EventType):
+            connection.send_error(msg["id"], "read_failed", "Unable to read device contacts")
+            return
+
+        raw_contacts = getattr(contacts_event, "payload", None) or {}
+        if isinstance(raw_contacts, dict):
+            contact_rows = list(raw_contacts.values())
+        elif isinstance(raw_contacts, list):
+            contact_rows = raw_contacts
+        else:
+            contact_rows = []
+
+        contacts = []
+        for raw in contact_rows:
+            if not isinstance(raw, dict):
+                continue
+            public_key = str(raw.get("public_key") or "").strip().lower()
+            if len(public_key) != 64:
+                continue
+            contacts.append(
+                {
+                    "type": int(raw.get("type", 0) or 0),
+                    "name": str(raw.get("adv_name") or raw.get("name") or ""),
+                    "custom_name": None,
+                    "public_key": public_key,
+                    "flags": int(raw.get("flags", 0) or 0),
+                    "latitude": _meshcore_backup_coord(raw.get("adv_lat", 0)),
+                    "longitude": _meshcore_backup_coord(raw.get("adv_lon", 0)),
+                    "last_advert": int(raw.get("last_advert", 0) or 0),
+                    "last_modified": int(raw.get("lastmod", 0) or 0),
+                    # This field is part of the official file shape. The
+                    # Companion backup treats cached paths as non-essential.
+                    "out_path_list": None,
+                }
+            )
+
+        backup = {
+            "name": str(self_info.get("name") or coordinator.name or ""),
+            "public_key": str(self_info.get("public_key") or coordinator.pubkey or "").lower(),
+            "private_key": private_key,
+            "radio_settings": {
+                "frequency": int(round(float(self_info.get("radio_freq", 0) or 0) * 1000)),
+                "bandwidth": int(round(float(self_info.get("radio_bw", 0) or 0) * 1000)),
+                "spreading_factor": int(self_info.get("radio_sf", 0) or 0),
+                "coding_rate": int(self_info.get("radio_cr", 0) or 0),
+                "tx_power": int(self_info.get("tx_power", 0) or 0),
+            },
+            "position_settings": {
+                "latitude": _meshcore_backup_coord(self_info.get("adv_lat", 0)),
+                "longitude": _meshcore_backup_coord(self_info.get("adv_lon", 0)),
+            },
+            "other_settings": {
+                "manual_add_contacts": 1 if bool(self_info.get("manual_add_contacts")) else 0,
+                "advert_location_policy": int(self_info.get("adv_loc_policy", 0) or 0),
+            },
+            "auto_add_settings": {
+                "auto_add_chat": bool(auto_mask & 0x02),
+                "auto_add_repeater": bool(auto_mask & 0x04),
+                "auto_add_room_server": bool(auto_mask & 0x08),
+                "auto_add_sensor": bool(auto_mask & 0x10),
+                "overwrite_oldest": bool(auto_mask & 0x01),
+                "auto_add_max_hops": auto_hops,
+            },
+            "channels": channels,
+            "contacts": contacts,
+        }
+
+        connection.send_result(
+            msg["id"],
+            {
+                "success": True,
+                "backup": backup,
+                "channel_count": len(channels),
+                "contact_count": len(contacts),
+            },
+        )
+    except Exception as ex:
+        _ws_send_error_safe(connection, msg["id"], ex, handler="ws_export_backup")
+
+
+def _restore_contact_from_backup(raw: dict) -> dict | None:
+    """Translate one official-backup contact into the meshcore SDK shape."""
+    if not isinstance(raw, dict):
+        return None
+    public_key = str(raw.get("public_key") or "").strip().lower()
+    if len(public_key) != 64:
+        return None
+    try:
+        bytes.fromhex(public_key)
+        latitude = float(raw.get("latitude", 0) or 0)
+        longitude = float(raw.get("longitude", 0) or 0)
+    except (TypeError, ValueError):
+        return None
+
+    return {
+        "public_key": public_key,
+        "type": int(raw.get("type", 0) or 0),
+        "flags": int(raw.get("flags", 0) or 0),
+        "out_path_hash_mode": -1,
+        "out_path_len": -1,
+        "out_path": "",
+        "adv_name": str(raw.get("name") or raw.get("custom_name") or "")[:32],
+        "last_advert": int(raw.get("last_advert", 0) or 0),
+        "adv_lat": latitude,
+        "adv_lon": longitude,
+        "lastmod": int(raw.get("last_modified", 0) or 0),
+    }
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hivefw_integration/restore_backup",
+        vol.Required("backup"): dict,
+        vol.Optional("entry_id"): str,
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_restore_backup(hass, connection, msg):
+    """Restore a MeshCore companion-app backup onto the connected radio."""
+    from meshcore.events import EventType
+
+    coordinator = _get_coordinator(hass, msg.get("entry_id"))
+    if not coordinator or not coordinator.api.mesh_core:
+        connection.send_error(msg["id"], "not_found", "No active HiveFW radio coordinator")
+        return
+
+    backup = msg.get("backup")
+    if not isinstance(backup, dict):
+        connection.send_error(msg["id"], "invalid_backup", "Backup must be a JSON object")
+        return
+
+    required = {
+        "name",
+        "public_key",
+        "private_key",
+        "radio_settings",
+        "position_settings",
+        "other_settings",
+        "auto_add_settings",
+        "channels",
+        "contacts",
+    }
+    missing = sorted(required.difference(backup))
+    if missing:
+        connection.send_error(
+            msg["id"],
+            "invalid_backup",
+            "Missing backup sections: " + ", ".join(missing),
+        )
+        return
+
+    channels_raw = backup.get("channels")
+    contacts_raw = backup.get("contacts")
+    if not isinstance(channels_raw, list) or not isinstance(contacts_raw, list):
+        connection.send_error(
+            msg["id"],
+            "invalid_backup",
+            "channels and contacts must be arrays",
+        )
+        return
+
+    commands = coordinator.api.mesh_core.commands
+    meshcore_entry_id = coordinator.config_entry.entry_id
+
+    try:
+        self_event = await commands.send_appstart()
+        if _backup_event_failed(self_event, EventType):
+            connection.send_error(msg["id"], "read_failed", "Unable to read current device settings")
+            return
+        current_self = dict(getattr(self_event, "payload", None) or {})
+
+        device_event = await commands.send_device_query()
+        device_payload = (
+            dict(getattr(device_event, "payload", None) or {})
+            if not _backup_event_failed(device_event, EventType)
+            else {}
+        )
+        current_repeat = bool(device_payload.get("repeat", False))
+
+        # General identity-independent settings.
+        await commands.set_name(str(backup.get("name") or "")[:31])
+
+        pos = backup.get("position_settings") or {}
+        await commands.set_coords(
+            float(pos.get("latitude", 0) or 0),
+            float(pos.get("longitude", 0) or 0),
+        )
+
+        radio = backup.get("radio_settings") or {}
+        frequency = float(radio.get("frequency", 0) or 0)
+        bandwidth = float(radio.get("bandwidth", 0) or 0)
+        if frequency > 3000:
+            frequency /= 1000.0
+        if bandwidth > 1000:
+            bandwidth /= 1000.0
+        radio_result = await commands.set_radio(
+            frequency,
+            bandwidth,
+            int(radio.get("spreading_factor", 0) or 0),
+            int(radio.get("coding_rate", 0) or 0),
+            repeat=current_repeat,
+        )
+        if _backup_event_failed(radio_result, EventType):
+            raise ValueError("radio settings rejected by firmware")
+
+        tx_result = await commands.set_tx_power(int(radio.get("tx_power", 0) or 0))
+        if _backup_event_failed(tx_result, EventType):
+            raise ValueError("TX power rejected by firmware")
+
+        other = backup.get("other_settings") or {}
+        other_infos = dict(current_self)
+        other_infos["manual_add_contacts"] = bool(
+            int(other.get("manual_add_contacts", 0) or 0)
+        )
+        other_infos["adv_loc_policy"] = int(other.get("advert_location_policy", 0) or 0)
+        other_result = await commands.set_other_params_from_infos(other_infos)
+        if _backup_event_failed(other_result, EventType):
+            raise ValueError("other settings rejected by firmware")
+
+        auto = backup.get("auto_add_settings") or {}
+        auto_mask = 0
+        if bool(auto.get("overwrite_oldest")):
+            auto_mask |= 0x01
+        if bool(auto.get("auto_add_chat")):
+            auto_mask |= 0x02
+        if bool(auto.get("auto_add_repeater")):
+            auto_mask |= 0x04
+        if bool(auto.get("auto_add_room_server")):
+            auto_mask |= 0x08
+        if bool(auto.get("auto_add_sensor")):
+            auto_mask |= 0x10
+        auto_hops = max(0, min(64, int(auto.get("auto_add_max_hops", 0) or 0)))
+        auto_result = await commands.send(
+            bytes((0x3A, auto_mask & 0xFF, auto_hops & 0xFF)),
+            [EventType.OK, EventType.ERROR],
+        )
+        if _backup_event_failed(auto_result, EventType):
+            raise ValueError("auto-add settings rejected by firmware")
+
+        # Restore the channel table exactly in backup order. Official backup
+        # files do not carry an index, so slot 0..N is canonical.
+        scope_store = _get_channel_scopes(hass)
+        max_channels = int(getattr(coordinator, "max_channels", 0) or 0)
+        for idx in range(max_channels):
+            await commands.set_channel(idx, "", None)
+            if scope_store:
+                await scope_store.async_set(meshcore_entry_id, idx, None)
+
+        restored_channels = 0
+        for idx, raw in enumerate(channels_raw[:max_channels]):
+            if not isinstance(raw, dict):
+                continue
+            name = str(raw.get("name") or "")[:32]
+            secret_hex = str(raw.get("secret") or "").strip().lower()
+            if not name or len(secret_hex) != 32:
+                continue
+            try:
+                secret = bytes.fromhex(secret_hex)
+            except ValueError:
+                continue
+
+            result = await commands.set_channel(idx, name, secret)
+            if _backup_event_failed(result, EventType):
+                raise ValueError(f"channel {idx} rejected by firmware")
+            scope_name = raw.get("region_scope_name")
+            if scope_store:
+                await scope_store.async_set(
+                    meshcore_entry_id,
+                    idx,
+                    str(scope_name).strip() if scope_name else None,
+                )
+            restored_channels += 1
+
+        # Exact contact restore: remove the radio's current saved contacts,
+        # then recreate the contacts present in the backup. This intentionally
+        # does not import HA-only discovered contacts.
+        current_contacts_event = await commands.get_contacts(timeout=30)
+        if _backup_event_failed(current_contacts_event, EventType):
+            raise ValueError("unable to enumerate existing contacts")
+        existing_payload = getattr(current_contacts_event, "payload", None) or {}
+        existing_rows = (
+            list(existing_payload.values())
+            if isinstance(existing_payload, dict)
+            else list(existing_payload)
+            if isinstance(existing_payload, list)
+            else []
+        )
+        for contact in existing_rows:
+            if not isinstance(contact, dict):
+                continue
+            public_key = str(contact.get("public_key") or "").strip().lower()
+            if len(public_key) != 64:
+                continue
+            result = await commands.remove_contact(public_key)
+            if _backup_event_failed(result, EventType):
+                _LOGGER.warning("Backup restore could not remove contact %s", public_key[:12])
+
+        restored_contacts = 0
+        invalid_contacts = 0
+        for raw in contacts_raw:
+            contact = _restore_contact_from_backup(raw)
+            if contact is None:
+                invalid_contacts += 1
+                continue
+            result = await commands.add_contact(contact)
+            if _backup_event_failed(result, EventType):
+                raise ValueError(
+                    f"firmware rejected contact {contact['public_key'][:12]}"
+                )
+            restored_contacts += 1
+
+        # Refresh coordinator-side channel/contact caches before any optional
+        # identity reboot.
+        await coordinator.fetch_all_channel_info()
+        try:
+            await commands.get_contacts(timeout=30)
+        except Exception:
+            pass
+
+        # Restore the cryptographic identity last. If it differs, reboot and
+        # reload the same HA config entry so entity identity follows the radio.
+        expected_public = str(backup.get("public_key") or "").strip().lower()
+        private_hex = str(backup.get("private_key") or "").strip().lower()
+        current_public = str(current_self.get("public_key") or coordinator.pubkey or "").lower()
+        identity_changed = False
+
+        if expected_public and expected_public != current_public:
+            if len(expected_public) != 64:
+                raise ValueError("backup public_key has an invalid length")
+            try:
+                bytes.fromhex(expected_public)
+            except ValueError as ex:
+                raise ValueError("backup public_key is not valid hex") from ex
+
+            if len(private_hex) not in (64, 128):
+                raise ValueError("backup private_key has an invalid length")
+            try:
+                private_raw = bytes.fromhex(private_hex)
+            except ValueError as ex:
+                raise ValueError("backup private_key is not valid hex") from ex
+            if len(private_raw) == 32:
+                private_raw = _seed_to_meshcore_priv(private_raw)
+
+            key_result = await commands.import_private_key(private_raw)
+            if _backup_event_failed(key_result, EventType):
+                raise ValueError("firmware rejected the backup private key")
+
+            await commands.reboot()
+            await asyncio.sleep(3.0)
+            await hass.config_entries.async_reload(meshcore_entry_id)
+
+            new_coordinator = _get_coordinator(hass, meshcore_entry_id)
+            new_public = str(new_coordinator.pubkey or "").lower() if new_coordinator else ""
+            if not new_public or new_public != expected_public:
+                raise ValueError(
+                    "identity restore completed but the device public key does not match the backup"
+                )
+            identity_changed = True
+
+        hass.bus.async_fire(
+            "hivefw_backup_restored",
+            {
+                "entry_id": meshcore_entry_id,
+                "channels": restored_channels,
+                "contacts": restored_contacts,
+                "identity_changed": identity_changed,
+            },
+        )
+
+        connection.send_result(
+            msg["id"],
+            {
+                "success": True,
+                "channels": restored_channels,
+                "contacts": restored_contacts,
+                "invalid_contacts": invalid_contacts,
+                "identity_changed": identity_changed,
+            },
+        )
+    except Exception as ex:
+        _ws_send_error_safe(connection, msg["id"], ex, handler="ws_restore_backup")
 
 
 # ─── HiveFW APPS/SOS channel sync ───────────────────────────────────────
