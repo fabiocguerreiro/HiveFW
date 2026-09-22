@@ -84,6 +84,11 @@
 #define REQ_TYPE_GET_TELEMETRY_DATA     0x03
 #define REQ_TYPE_GET_ACCESS_LIST        0x05
 #define REQ_TYPE_GET_NEIGHBOURS         0x06
+#define REQ_TYPE_GET_OWNER_INFO         0x07
+
+#define ANON_REQ_TYPE_REGIONS           0x01
+#define ANON_REQ_TYPE_OWNER             0x02
+#define ANON_REQ_TYPE_BASIC             0x03
 
 struct RepeaterStats {
   uint16_t batt_milli_volts;
@@ -298,6 +303,12 @@ protected:
     uint8_t* reply
   );
   ContactInfo* ensureRepeaterLoginContact(const mesh::Identity& sender);
+  bool handleRepeaterRemoteCommand(
+    uint32_t sender_timestamp,
+    char* command,
+    char* reply,
+    size_t reply_size
+  );
   void sendFloodScoped(const ContactInfo& recipient, mesh::Packet* pkt, uint32_t delay_millis=0) override;
   void sendFloodScoped(const mesh::GroupChannel& channel, mesh::Packet* pkt, uint32_t delay_millis=0) override;
 
@@ -473,6 +484,7 @@ private:
   uint32_t pending_status;
   uint32_t pending_telemetry, pending_discovery;   // pending _TELEMETRY_REQ
   RateLimiter discover_limiter;
+  RateLimiter anon_limiter;
   uint32_t pending_discover_tag;
   unsigned long pending_discover_until;
 
@@ -511,6 +523,7 @@ private:
   uint8_t *sign_data;
   uint32_t sign_data_len;
   unsigned long dirty_contacts_expiry;
+  unsigned long remote_reboot_at;
 
   TransportKey send_scope;
 
