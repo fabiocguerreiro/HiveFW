@@ -308,7 +308,11 @@ export function formatTimestamp(date: Date, format: 'relative' | 'time' | 'datet
     case 'relative':
       return formatRelativeTime(date);
     case 'time':
-      return date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+      return date.toLocaleTimeString(undefined, {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+      });
     case 'datetime':
       return date.toLocaleString(undefined, {
         month: 'short',

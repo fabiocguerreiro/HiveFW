@@ -36,8 +36,9 @@ export class StatusPage extends LitElement {
     .section-title{display:flex;align-items:flex-start;gap:10px;min-width:0}
     .section-icon{width:36px;height:36px;display:grid;place-items:center;border-radius:10px;background:color-mix(in srgb,var(--primary-color) 12%,transparent);color:var(--primary-color);flex:0 0 auto}
     .device-name{font-size:16px;font-weight:700;color:var(--primary-text-color)}
-    .device-meta{display:flex;flex-wrap:wrap;gap:5px 12px;margin-top:4px;font-size:10px;color:var(--secondary-text-color)}
+    .device-meta{display:flex;flex-wrap:wrap;align-items:center;gap:7px 10px;margin-top:5px;font-size:11px;color:var(--secondary-text-color)}
     .device-meta span{overflow-wrap:anywhere;word-break:break-word}
+    .pubkey-copy{min-height:26px;padding:3px 8px;border:1px solid var(--divider-color);border-radius:6px;background:var(--secondary-background-color);color:var(--primary-text-color);font-size:10px;font-weight:600}
     .actions-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
     button{font:inherit;cursor:pointer}
     .action,.danger,.minor{min-height:38px;padding:8px 12px;border-radius:8px}
@@ -156,6 +157,23 @@ export class StatusPage extends LitElement {
     this.dispatchEvent(new CustomEvent('companion-trace-requested',{detail:{entryId:this.selectedDevice?.entry_id},bubbles:true,composed:true}));
   };
 
+  private async _copyPublicKey(value:string){
+    if(!value)return;
+    try{
+      await navigator.clipboard.writeText(value);
+    }catch{
+      const textarea=document.createElement('textarea');
+      textarea.value=value;
+      textarea.style.position='fixed';
+      textarea.style.opacity='0';
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      textarea.remove();
+    }
+    this._showStatus('Public Key copiada','success');
+  }
+
   private _showStatus(text:string,type:'success'|'error'){
     this._statusMessage={text,type};
     if(this._statusMessageTimeout!==null)window.clearTimeout(this._statusMessageTimeout);
@@ -177,6 +195,7 @@ export class StatusPage extends LitElement {
                 <div class="device-name">${d.name}</div>
                 <div class="device-meta">
                   <span>Public Key: ${this._deviceConfig?.pubkey || d.pubkey || d.pubkey_prefix}</span>
+                  <button class="pubkey-copy" @click=${()=>void this._copyPublicKey(this._deviceConfig?.pubkey || d.pubkey || d.pubkey_prefix)}>Copiar</button>
                 </div>
               </div>
             </div>

@@ -35,7 +35,7 @@ export const DEFAULT_PANEL_CONFIG: Omit<PanelConfig, 'node_name'> = {
   show_date_separators: true,
   group_messages: true,
   group_timeout: 300,
-  timestamp_format: 'relative',
+  timestamp_format: 'time',
   update_mode: 'auto',
   refresh_interval: 30,
   enable_cache: true,

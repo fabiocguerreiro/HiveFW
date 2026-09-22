@@ -3765,20 +3765,20 @@ class HiveFWPanel extends BasePanel {
     };
 
     const active=!!status.repeat;
-    hero.appendChild(makeTile("Repeater mode",active?"Active":"Off","· Companion always on",active?100:0,0,100,active?"good":"info","state",clickEntity("repeater_mode")));
+    hero.appendChild(makeTile("Modo Repeater",active?"Active":"Off","· Companion always on",active?100:0,0,100,active?"good":"info","state",clickEntity("repeater_mode")));
 
     const uptimeSecs=Number(status.stats?.core?.uptime_secs);
     if(Number.isFinite(uptimeSecs)){
       const h=Math.max(0,uptimeSecs/3600);
       const d=h>=48?`${Math.floor(h/24)}d ${Math.floor(h%24)}h`:h>=1?`${Math.floor(h)}h ${Math.floor((h%1)*60)}m`:`${Math.floor(h*60)}m`;
-      hero.appendChild(makeTile("Uptime",d,"",Math.min(h,168),0,168,h<1?"bad":h<24?"warn":"good","uptime",clickEntity("uptime"),"compact"));
+      hero.appendChild(makeTile("Tempo ligado",d,"",Math.min(h,168),0,168,h<1?"bad":h<24?"warn":"good","uptime",clickEntity("uptime"),"compact"));
     }
 
     const clock=Number(status.clock?.timestamp);
     if(Number.isFinite(clock)&&clock>0){
       const drift=Number(status.clock?.drift_seconds||0), abs=Math.abs(drift);
       const t=new Date(clock*1000).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit",second:"2-digit"});
-      hero.appendChild(makeTile("Device clock",t,abs<=2?"· synchronized":`· drift ${drift>0?"+":""}${drift}s`,Math.min(abs,120),0,120,abs<=2?"good":abs<=30?"warn":"bad","clock",clickEntity("device_clock","clock")));
+      hero.appendChild(makeTile("Relógio do dispositivo",t,abs<=2?"· synchronized":`· drift ${drift>0?"+":""}${drift}s`,Math.min(abs,120),0,120,abs<=2?"good":abs<=30?"warn":"bad","clock",clickEntity("device_clock","clock")));
     }
 
     const smartAdvert=status.smart_advert||{};
@@ -3802,14 +3802,14 @@ class HiveFWPanel extends BasePanel {
     }
 
     const queue=Number(status.stats?.core?.queue_len);
-    if(Number.isFinite(queue)) hero.appendChild(makeTile("TX queue",String(Math.round(queue)),"queued",Math.min(Math.max(queue,0),30),0,30,queue>10?"bad":queue>5?"warn":"good","queue",clickEntity("tx_queue_len"),"compact"));
+    if(Number.isFinite(queue)) hero.appendChild(makeTile("Fila TX",String(Math.round(queue)),"queued",Math.min(Math.max(queue,0),30),0,30,queue>10?"bad":queue>5?"warn":"good","queue",clickEntity("tx_queue_len"),"compact"));
 
     const tempInfo=findEntity("temperature");
     const temp=num(tempInfo);
     if(Number.isFinite(temp)){
       const unit=stateFor(tempInfo)?.attributes?.unit_of_measurement||"°C";
       const c=String(unit).includes("F")?(temp-32)*5/9:temp;
-      hero.appendChild(makeTile("Temperature",`${c.toFixed(1)} °C`,"",c,-20,60,bandForTemp(c),"temperature",()=>summary._fireMoreInfo?.(tempInfo.entity_id),"compact"));
+      hero.appendChild(makeTile("Temperatura",`${c.toFixed(1)} °C`,"",c,-20,60,bandForTemp(c),"temperature",()=>summary._fireMoreInfo?.(tempInfo.entity_id),"compact"));
     }
 
     let tokensInfo=findEntity("request_rate_limiter");
@@ -3818,11 +3818,11 @@ class HiveFWPanel extends BasePanel {
       if(key) tokensInfo={entity_id:key,label:"Request Tokens"};
     }
     const tokens=num(tokensInfo);
-    if(Number.isFinite(tokens)) hero.appendChild(makeTile("Request tokens",tokens.toFixed(1),"available",tokens,0,20,tokens<5?"bad":tokens<10?"warn":"good","request-tokens",()=>summary._fireMoreInfo?.(tokensInfo.entity_id),"compact"));
+    if(Number.isFinite(tokens)) hero.appendChild(makeTile("Tokens de pedidos",tokens.toFixed(1),"available",tokens,0,20,tokens<5?"bad":tokens<10?"warn":"good","request-tokens",()=>summary._fireMoreInfo?.(tokensInfo.entity_id),"compact"));
 
     const dcInfo=findEntity("discovered_contacts");
     const discovered=num(dcInfo);
-    if(Number.isFinite(discovered)) hero.appendChild(makeTile("Discovered contacts",String(Math.round(discovered)),"seen",Math.min(discovered,1000),0,1000,"info","contacts",()=>summary._fireMoreInfo?.(dcInfo.entity_id),"compact"));
+    if(Number.isFinite(discovered)) hero.appendChild(makeTile("Contactos descobertos",String(Math.round(discovered)),"seen",Math.min(discovered,1000),0,1000,"info","contacts",()=>summary._fireMoreInfo?.(dcInfo.entity_id),"compact"));
 
     const used=Number(status.battery?.used_kb), total=Number(status.battery?.total_kb);
     if(Number.isFinite(used)&&Number.isFinite(total)&&total>0){
@@ -8682,11 +8682,11 @@ class HiveFWPanel extends BasePanel {
     eyebrow.textContent = "◉  REPEATER · ZERO-HOP";
     const title = document.createElement("h1");
     title.className = "mcr-title";
-    title.textContent = "Vizinhos";
+    title.textContent = "Vizinhos 24H";
     const subtitle = document.createElement("p");
     subtitle.className = "mcr-subtitle";
     subtitle.textContent =
-      "Repeaters realmente ouvidos diretamente pelo rádio. A lista usa a tabela de vizinhos do Repeater, acumula vários nós zero-hop e exclui adverts recebidos por Share Contact. Atualizar não gera tráfego LoRa.";
+      "Repeaters cujos adverts foram ouvidos diretamente (zero-hop) pelo HiveFW nas últimas 24 horas. A consulta é local e não gera tráfego LoRa.";
     heading.append(eyebrow, title, subtitle);
 
     const refresh = document.createElement("button");

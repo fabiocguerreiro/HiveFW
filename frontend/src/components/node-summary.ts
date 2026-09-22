@@ -152,7 +152,7 @@ export class NodeSummary extends LitElement {
       align-items: center;
       justify-content: space-between;
       gap: 8px;
-      font-size: 8px;
+      font-size: 10px;
       text-transform: uppercase;
       letter-spacing: 0.4px;
       color: var(--secondary-text-color);
@@ -170,7 +170,7 @@ export class NodeSummary extends LitElement {
       line-height: 1;
     }
     .hero-tile-value .secondary {
-      font-size: 8px;
+      font-size: 10px;
       color: var(--secondary-text-color);
     }
     .hero-tile-value .compact {
@@ -657,8 +657,8 @@ export class NodeSummary extends LitElement {
           <span class="status-dot ${this.device.connected ? 'good' : 'bad'}"></span>
         </div>
         <div class="hero-tile-value">
-          <span class="primary compact">${type || '—'}</span>
-          ${address ? html`<span class="secondary">${address}</span>` : nothing}
+          <span class="primary compact">${address || type || '—'}</span>
+          ${type && address ? html`<span class="secondary">${type}</span>` : nothing}
         </div>
         <meshcore-stat-bar .value=${this.device.connected ? 100 : 0} .min=${0} .max=${100} .band=${this.device.connected ? 'good' : 'bad'}></meshcore-stat-bar>
       </div>
@@ -692,7 +692,7 @@ export class NodeSummary extends LitElement {
     return html`
       <div class="hero-tile" data-repeater-extra="protocol">
         <div class="hero-tile-head">
-          <span>Protocol / Path</span>
+          <span>Protocolo / Caminho</span>
           <span class="status-dot info"></span>
         </div>
         <div class="hero-tile-value">
@@ -710,7 +710,7 @@ export class NodeSummary extends LitElement {
     return html`
       <div class="hero-tile" data-repeater-extra="capacity">
         <div class="hero-tile-head">
-          <span>Capacity</span>
+          <span>Capacidade</span>
           <span class="status-dot info"></span>
         </div>
         <div class="hero-tile-value">
@@ -735,7 +735,7 @@ export class NodeSummary extends LitElement {
     return html`
       <div class="hero-tile" data-repeater-extra="repeat-frequencies">
         <div class="hero-tile-head">
-          <span>Repeater frequencies</span>
+          <span>Frequências Repeater</span>
           <span class="status-dot info"></span>
         </div>
         <div class="hero-tile-value">
@@ -762,7 +762,7 @@ export class NodeSummary extends LitElement {
       <div class="hero-tile" data-repeater-extra="temperature"
            @click=${() => this._fireMoreInfo(info.entity_id)}>
         <div class="hero-tile-head">
-          <span>Temperature${this._renderInfoTip(ev)}</span>
+          <span>Temperatura${this._renderInfoTip(ev)}</span>
           <span class="status-dot ${ev.band}"></span>
         </div>
         <div class="hero-tile-value">
@@ -786,7 +786,7 @@ export class NodeSummary extends LitElement {
     return html`
       <div class="hero-tile" data-repeater-extra="clock">
         <div class="hero-tile-head">
-          <span>Device clock</span>
+          <span>Relógio do dispositivo</span>
           <span class="status-dot ${band}"></span>
         </div>
         <div class="hero-tile-value">
@@ -809,7 +809,7 @@ export class NodeSummary extends LitElement {
       <div class="hero-tile" data-repeater-extra="request-tokens"
            @click=${() => this._fireMoreInfo(info.entity_id)}>
         <div class="hero-tile-head">
-          <span>Request tokens</span>
+          <span>Tokens de pedidos</span>
           <span class="status-dot ${band}"></span>
         </div>
         <div class="hero-tile-value">
@@ -831,7 +831,7 @@ export class NodeSummary extends LitElement {
       <div class="hero-tile" data-repeater-extra="contacts"
            @click=${() => this._fireMoreInfo(info.entity_id)}>
         <div class="hero-tile-head">
-          <span>Discovered contacts</span>
+          <span>Contactos descobertos</span>
           <span class="status-dot info"></span>
         </div>
         <div class="hero-tile-value">
@@ -852,7 +852,7 @@ export class NodeSummary extends LitElement {
     return html`
       <div class="hero-tile" data-repeater-extra="storage">
         <div class="hero-tile-head">
-          <span>Storage</span>
+          <span>Armazenamento</span>
           <span class="status-dot ${band}"></span>
         </div>
         <div class="hero-tile-value">
@@ -871,7 +871,7 @@ export class NodeSummary extends LitElement {
     return html`
       <div class="hero-tile" data-repeater-extra="state">
         <div class="hero-tile-head">
-          <span>Repeater mode</span>
+          <span>Modo Repeater</span>
           <span class="status-dot ${active ? 'good' : 'info'}"></span>
         </div>
         <div class="hero-tile-value">
@@ -905,7 +905,7 @@ export class NodeSummary extends LitElement {
     return html`
       <div class="hero-tile" data-repeater-extra="uptime" @click=${() => info && this._fireMoreInfo(info.entity_id)}>
         <div class="hero-tile-head">
-          <span>Uptime${this._renderInfoTip(ev)}</span>
+          <span>Tempo ligado${this._renderInfoTip(ev)}</span>
           <span class="status-dot ${ev.band}"></span>
         </div>
         <div class="hero-tile-value"><span class="primary">${display}</span></div>
@@ -927,7 +927,7 @@ export class NodeSummary extends LitElement {
     return html`
       <div class="hero-tile" data-repeater-extra="noise" @click=${() => info && this._fireMoreInfo(info.entity_id)}>
         <div class="hero-tile-head">
-          <span>Noise floor${this._renderInfoTip(ev)}</span>
+          <span>Ruído de fundo${this._renderInfoTip(ev)}</span>
           <span class="status-dot ${ev.band}"></span>
         </div>
         <div class="hero-tile-value"><span class="primary">${this._formatNumber(value, 0)}<span class="unit">dBm</span></span></div>
@@ -949,7 +949,7 @@ export class NodeSummary extends LitElement {
     return html`
       <div class="hero-tile" data-repeater-extra="queue" @click=${() => info && this._fireMoreInfo(info.entity_id)}>
         <div class="hero-tile-head">
-          <span>TX queue${this._renderInfoTip(ev)}</span>
+          <span>Fila TX${this._renderInfoTip(ev)}</span>
           <span class="status-dot ${ev.band}"></span>
         </div>
         <div class="hero-tile-value">
@@ -972,7 +972,7 @@ export class NodeSummary extends LitElement {
     return html`
       <div class="hero-tile" @click=${() => this._fireMoreInfo(battery.entity_id)}>
         <div class="hero-tile-head">
-          <span>Battery${this._renderInfoTip(ev)}</span>
+          <span>Bateria${this._renderInfoTip(ev)}</span>
           <span class="status-dot ${ev.band}"></span>
         </div>
         <div class="hero-tile-value">
@@ -1004,7 +1004,7 @@ export class NodeSummary extends LitElement {
     return html`
       <div class="hero-tile" @click=${() => this._fireMoreInfo(rssi.entity_id)}>
         <div class="hero-tile-head">
-          <span>Last message strength${this._renderInfoTip(ev)}</span>
+          <span>Sinal da última mensagem${this._renderInfoTip(ev)}</span>
           <span class="status-dot ${ev.band}"></span>
         </div>
         <div class="hero-tile-value">
@@ -1065,7 +1065,7 @@ export class NodeSummary extends LitElement {
       <div class="hero-tile"
            @click=${() => tx && this._fireMoreInfo(tx.entity_id)}>
         <div class="hero-tile-head">
-          <span>Radio activity${this._renderInfoTip({
+          <span>Atividade de rádio${this._renderInfoTip({
             band: dotBand,
             fillPct: 0,
             tooltip: 'Half-duplex composition over the last reporting interval. ' +
@@ -1128,7 +1128,7 @@ export class NodeSummary extends LitElement {
     return html`
       <div class="hero-tile" @click=${() => this._fireMoreInfo(nbSent.entity_id)}>
         <div class="hero-tile-head">
-          <span>Messages Sent${this._renderInfoTip({
+          <span>Mensagens enviadas${this._renderInfoTip({
             band: 'info',
             fillPct: 0,
             tooltip:
@@ -1198,7 +1198,7 @@ export class NodeSummary extends LitElement {
     return html`
       <div class="hero-tile" @click=${() => this._fireMoreInfo(nbRecv.entity_id)}>
         <div class="hero-tile-head">
-          <span>Messages Received${this._renderInfoTip({
+          <span>Mensagens recebidas${this._renderInfoTip({
             band: 'info',
             fillPct: 0,
             tooltip:
@@ -1281,7 +1281,7 @@ export class NodeSummary extends LitElement {
     return html`
       <div class="hero-tile" @click=${() => this._fireMoreInfo(successes.entity_id)}>
         <div class="hero-tile-head">
-          <span>Requests${this._renderInfoTip({ ...ev, tooltip })}</span>
+          <span>Pedidos${this._renderInfoTip({ ...ev, tooltip })}</span>
           <span class="status-dot ${ev.band}"></span>
         </div>
         <div class="hero-tile-value">
@@ -1355,7 +1355,7 @@ export class NodeSummary extends LitElement {
     return html`
       <div class="hero-tile" @click=${onClick}>
         <div class="hero-tile-head">
-          <span>Location${source === 'fallback'
+          <span>Localização${source === 'fallback'
             ? html`<span style="opacity:0.55;text-transform:none;letter-spacing:0;font-size:10px;margin-left:4px;">via contact</span>`
             : nothing}</span>
         </div>
@@ -1444,7 +1444,7 @@ export class NodeSummary extends LitElement {
       <div class="hero-tile"
            @click=${() => txAir && this._fireMoreInfo(txAir.entity_id)}>
         <div class="hero-tile-head">
-          <span>Radio activity${this._renderInfoTip({
+          <span>Atividade de rádio${this._renderInfoTip({
             band: dotBand,
             fillPct: 0,
             tooltip: 'Lifetime-average half-duplex composition: cumulative TX / RX ' +
