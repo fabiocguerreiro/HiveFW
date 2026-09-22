@@ -2442,17 +2442,17 @@ export class SettingsPage extends LitElement {
             </div>
           </div>
           <div style="font-size:11px;color:var(--secondary-text-color);white-space:nowrap;">
-            ACL: \${status.server_auth?.acl_count ?? '—'}
+            ACL: ${status.server_auth?.acl_count ?? '—'}
           </div>
         </div>
 
-        \${status.server_auth?.supported ? html\`
+        ${status.server_auth?.supported ? html`
           <div style="display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 10px;align-items:end;">
             <div>
               <label class="form-label">
                 Admin password
-                <span style="margin-left:6px;font-size:10px;color:\${status.server_auth.admin_password_set ? 'var(--success-color, #2e7d32)' : 'var(--secondary-text-color)'};">
-                  \${status.server_auth.admin_password_set ? 'configurada' : 'não configurada'}
+                <span style="margin-left:6px;font-size:10px;color:${status.server_auth.admin_password_set ? 'var(--success-color, #2e7d32)' : 'var(--secondary-text-color)'};">
+                  ${status.server_auth.admin_password_set ? 'configurada' : 'não configurada'}
                 </span>
               </label>
               <input
@@ -2460,10 +2460,10 @@ export class SettingsPage extends LitElement {
                 type="password"
                 maxlength="15"
                 autocomplete="new-password"
-                placeholder=\${status.server_auth.admin_password_set ? '••••••••' : 'Definir password'}
-                .value=\${this._adminPasswordDraft}
-                ?disabled=\${this._repeaterAccessBusy !== null}
-                @input=\${(e: Event) => {
+                placeholder=${status.server_auth.admin_password_set ? '••••••••' : 'Definir password'}
+                .value=${this._adminPasswordDraft}
+                ?disabled=${this._repeaterAccessBusy !== null}
+                @input=${(e: Event) => {
                   this._adminPasswordDraft = (e.target as HTMLInputElement).value;
                 }}
               />
@@ -2472,15 +2472,15 @@ export class SettingsPage extends LitElement {
               <button
                 class="apply-button"
                 style="width:auto;min-width:76px;padding:7px 12px;margin:0;"
-                ?disabled=\${this._repeaterAccessBusy !== null || !this._adminPasswordDraft}
-                @click=\${() => this._saveRepeaterPassword('admin')}>
-                \${this._repeaterAccessBusy === 'admin' ? 'A guardar...' : 'Guardar'}
+                ?disabled=${this._repeaterAccessBusy !== null || !this._adminPasswordDraft}
+                @click=${() => this._saveRepeaterPassword('admin')}>
+                ${this._repeaterAccessBusy === 'admin' ? 'A guardar...' : 'Guardar'}
               </button>
               <button
                 class="action-btn"
                 style="min-width:66px;"
-                ?disabled=\${this._repeaterAccessBusy !== null || !status.server_auth.admin_password_set}
-                @click=\${() => this._clearRepeaterPassword('admin')}>
+                ?disabled=${this._repeaterAccessBusy !== null || !status.server_auth.admin_password_set}
+                @click=${() => this._clearRepeaterPassword('admin')}>
                 Limpar
               </button>
             </div>
@@ -2488,8 +2488,8 @@ export class SettingsPage extends LitElement {
             <div>
               <label class="form-label">
                 Guest password
-                <span style="margin-left:6px;font-size:10px;color:\${status.server_auth.guest_password_set ? 'var(--success-color, #2e7d32)' : 'var(--secondary-text-color)'};">
-                  \${status.server_auth.guest_password_set ? 'configurada' : 'não configurada'}
+                <span style="margin-left:6px;font-size:10px;color:${status.server_auth.guest_password_set ? 'var(--success-color, #2e7d32)' : 'var(--secondary-text-color)'};">
+                  ${status.server_auth.guest_password_set ? 'configurada' : 'não configurada'}
                 </span>
               </label>
               <input
@@ -2497,10 +2497,10 @@ export class SettingsPage extends LitElement {
                 type="password"
                 maxlength="15"
                 autocomplete="new-password"
-                placeholder=\${status.server_auth.guest_password_set ? '••••••••' : 'Definir password'}
-                .value=\${this._guestPasswordDraft}
-                ?disabled=\${this._repeaterAccessBusy !== null}
-                @input=\${(e: Event) => {
+                placeholder=${status.server_auth.guest_password_set ? '••••••••' : 'Definir password'}
+                .value=${this._guestPasswordDraft}
+                ?disabled=${this._repeaterAccessBusy !== null}
+                @input=${(e: Event) => {
                   this._guestPasswordDraft = (e.target as HTMLInputElement).value;
                 }}
               />
@@ -2509,15 +2509,15 @@ export class SettingsPage extends LitElement {
               <button
                 class="apply-button"
                 style="width:auto;min-width:76px;padding:7px 12px;margin:0;"
-                ?disabled=\${this._repeaterAccessBusy !== null || !this._guestPasswordDraft}
-                @click=\${() => this._saveRepeaterPassword('guest')}>
-                \${this._repeaterAccessBusy === 'guest' ? 'A guardar...' : 'Guardar'}
+                ?disabled=${this._repeaterAccessBusy !== null || !this._guestPasswordDraft}
+                @click=${() => this._saveRepeaterPassword('guest')}>
+                ${this._repeaterAccessBusy === 'guest' ? 'A guardar...' : 'Guardar'}
               </button>
               <button
                 class="action-btn"
                 style="min-width:66px;"
-                ?disabled=\${this._repeaterAccessBusy !== null || !status.server_auth.guest_password_set}
-                @click=\${() => this._clearRepeaterPassword('guest')}>
+                ?disabled=${this._repeaterAccessBusy !== null || !status.server_auth.guest_password_set}
+                @click=${() => this._clearRepeaterPassword('guest')}>
                 Limpar
               </button>
             </div>
@@ -2530,12 +2530,12 @@ export class SettingsPage extends LitElement {
             <button
               class="danger-button"
               style="white-space:nowrap;"
-              ?disabled=\${this._repeaterAccessBusy !== null || !(status.server_auth.acl_count ?? 0)}
-              @click=\${this._confirmClearRepeaterAcl}>
-              \${this._repeaterAccessBusy === 'acl' ? 'A limpar...' : 'Limpar ACL'}
+              ?disabled=${this._repeaterAccessBusy !== null || !(status.server_auth.acl_count ?? 0)}
+              @click=${this._confirmClearRepeaterAcl}>
+              ${this._repeaterAccessBusy === 'acl' ? 'A limpar...' : 'Limpar ACL'}
             </button>
           </div>
-        \` : html\`
+        \` : html`
           <div style="font-size:11px;color:var(--secondary-text-color);line-height:1.45;">
             Este firmware não expõe a configuração local do servidor Repeater.
           </div>
