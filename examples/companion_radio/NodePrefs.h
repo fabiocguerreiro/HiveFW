@@ -162,6 +162,11 @@ private:
     uint8_t flood_max_unscoped = 64;
     uint8_t flood_max_advert = 8;
     uint8_t loop_detect = LOOP_DETECT_OFF;
+
+    // Repeater remote-login credentials. Empty means that password path is
+    // disabled. Values are never exposed through the Companion read API.
+    char admin_password[16] = {0};
+    char guest_password[16] = {0};
   protected:
     void structure() override {
       def("disable", disable_fwd);
@@ -173,6 +178,8 @@ private:
       def("f_max_uns", flood_max_unscoped);
       def("f_max_adv", flood_max_advert);
       def("loop", loop_detect);
+      def("adm_pw", admin_password, sizeof(admin_password));
+      def("gst_pw", guest_password, sizeof(guest_password));
     }
   };
   RepeatPrefs repeat;
@@ -265,4 +272,23 @@ public:
 
   uint8_t getLoopDetect() const { return repeat.loop_detect; }
   void setLoopDetect(uint8_t value) { repeat.loop_detect = value; }
+
+  const char* getRepeaterAdminPassword() const { return repeat.admin_password; }
+  const char* getRepeaterGuestPassword() const { return repeat.guest_password; }
+
+  void setRepeaterAdminPassword(const char* value) {
+    StrHelper::strncpy(
+      repeat.admin_password,
+      value ? value : "",
+      sizeof(repeat.admin_password)
+    );
+  }
+
+  void setRepeaterGuestPassword(const char* value) {
+    StrHelper::strncpy(
+      repeat.guest_password,
+      value ? value : "",
+      sizeof(repeat.guest_password)
+    );
+  }
 };
