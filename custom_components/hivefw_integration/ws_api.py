@@ -2199,6 +2199,16 @@ async def ws_get_local_repeater_status(hass, connection, msg):
                 "flood_tx_delay": None,
                 "direct_tx_delay": None,
             }
+
+        server_auth, _server_auth_error = await _read_repeater_auth_config(commands)
+        if server_auth is None:
+            server_auth = {
+                "supported": False,
+                "admin_password_set": False,
+                "guest_password_set": False,
+                "acl_count": None,
+            }
+
         core = await _payload(commands.get_stats_core) or {}
         radio = await _payload(commands.get_stats_radio) or {}
         packets = await _payload(commands.get_stats_packets) or {}
@@ -2373,6 +2383,7 @@ async def ws_get_local_repeater_status(hass, connection, msg):
                 "tuning": tuning_view,
                 "routing": routing,
                 "radio_guard": rf_config,
+                "server_auth": server_auth,
                 "clock": {
                     "timestamp": device_clock.get("time"),
                     "drift_seconds": (
@@ -2713,6 +2724,84 @@ def _migrate_entity_ids_name_suffix(
         len(migrated), old_suffix, new_suffix,
     )
     return migrated
+
+
+class _RepeaterSecretFilter(logging.Filter):
+    """Prevent Repeater passwords from reaching debug logs.
+
+    meshcore_py can log both custom-var values and raw command frames.
+    Check the plaintext and its wire hex representation while the secret is
+    being sent.
+    """
+
+    def __init__(self, secret: str) -> None:
+        super().__init__()
+        self._plain = secret
+        self._wire_hex = secret.encode("utf-8").hex()
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if not self._plain:
+            return True
+        try:
+            message = record.getMessage()
+        except Exception:
+            return True
+        return self._plain not in message and self._wire_hex not in message
+
+
+async def _set_repeater_secret(commands, key: str, value: str):
+    """Write a Repeater password without exposing it to meshcore debug logs."""
+    secret_filter = _RepeaterSecretFilter(value)
+    mesh_logger = logging.getLogger("meshcore")
+    root_logger = logging.getLogger()
+    handlers: list[logging.Handler] = []
+
+    mesh_logger.addFilter(secret_filter)
+    for logger in (mesh_logger, root_logger):
+        for handler in logger.handlers:
+            if handler not in handlers:
+                handlers.append(handler)
+                handler.addFilter(secret_filter)
+
+    try:
+        return await commands.set_custom_var(key, value)
+    finally:
+        mesh_logger.removeFilter(secret_filter)
+        for handler in handlers:
+            handler.removeFilter(secret_filter)
+
+
+async def _read_repeater_auth_config(commands):
+    """Read write-only Repeater auth state and ACL count over local transport."""
+    from meshcore.events import EventType
+
+    try:
+        result = await commands.send(
+            bytes((0x2E,)),
+            [EventType.CUSTOM_VARS, EventType.ERROR],
+        )
+    except Exception as ex:
+        return None, str(ex)
+
+    reason = _device_config_failure_reason(result)
+    if reason is not None:
+        return None, reason
+
+    payload = getattr(result, "payload", {}) or {}
+    try:
+        config = {
+            "supported": True,
+            "admin_password_set": int(payload.get("adm", -1)) == 1,
+            "guest_password_set": int(payload.get("gst", -1)) == 1,
+            "acl_count": int(payload.get("acl", -1)),
+        }
+    except (TypeError, ValueError):
+        return None, "invalid Repeater auth response"
+
+    if config["acl_count"] < 0:
+        return None, "invalid Repeater ACL count"
+
+    return config, None
 
 
 async def _read_repeater_rf_config(commands):
@@ -3221,6 +3310,116 @@ async def ws_set_device_config(hass, connection, msg):
             changed.extend(
                 key for key in routing_keys if key in settings
             )
+
+        # Repeater server credentials are write-only. Empty strings clear a
+        # password; no password value is ever read back from the radio.
+        auth_keys = {"admin_password", "guest_password", "clear_acl"}
+        if auth_keys & set(settings.keys()):
+            current_auth, reason = await _read_repeater_auth_config(
+                coordinator.api.mesh_core.commands
+            )
+            if current_auth is None:
+                _send_device_config_failure(
+                    connection,
+                    msg["id"],
+                    "Repeater server access",
+                    reason or "unsupported",
+                    changed,
+                )
+                return
+
+            for field, wire_key, state_key in (
+                ("admin_password", "admin_pw", "admin_password_set"),
+                ("guest_password", "guest_pw", "guest_password_set"),
+            ):
+                if field not in settings:
+                    continue
+
+                value = str(settings.get(field) or "")
+                if len(value) > 15 or any(
+                    ord(ch) < 0x20 or ord(ch) > 0x7E for ch in value
+                ):
+                    _send_device_config_failure(
+                        connection,
+                        msg["id"],
+                        field,
+                        "password must contain at most 15 printable ASCII characters",
+                        changed,
+                    )
+                    return
+
+                result = await _set_repeater_secret(
+                    coordinator.api.mesh_core.commands,
+                    wire_key,
+                    value,
+                )
+                reason = _device_config_failure_reason(result)
+                if reason is not None:
+                    _send_device_config_failure(
+                        connection, msg["id"], field, reason, changed
+                    )
+                    return
+                changed.append(field)
+
+            if settings.get("clear_acl") is True:
+                result = await coordinator.api.mesh_core.commands.set_custom_var(
+                    "acl_clear",
+                    "1",
+                )
+                reason = _device_config_failure_reason(result)
+                if reason is not None:
+                    _send_device_config_failure(
+                        connection, msg["id"], "clear_acl", reason, changed
+                    )
+                    return
+                changed.append("clear_acl")
+
+            verified_auth, reason = await _read_repeater_auth_config(
+                coordinator.api.mesh_core.commands
+            )
+            if verified_auth is None:
+                _send_device_config_failure(
+                    connection,
+                    msg["id"],
+                    "Repeater server access verification",
+                    reason or "no response",
+                    changed,
+                )
+                return
+
+            if "admin_password" in settings:
+                expected = bool(str(settings.get("admin_password") or ""))
+                if verified_auth["admin_password_set"] != expected:
+                    _send_device_config_failure(
+                        connection,
+                        msg["id"],
+                        "admin_password verification",
+                        "configured-state mismatch",
+                        changed,
+                    )
+                    return
+
+            if "guest_password" in settings:
+                expected = bool(str(settings.get("guest_password") or ""))
+                if verified_auth["guest_password_set"] != expected:
+                    _send_device_config_failure(
+                        connection,
+                        msg["id"],
+                        "guest_password verification",
+                        "configured-state mismatch",
+                        changed,
+                    )
+                    return
+
+            if settings.get("clear_acl") is True and verified_auth["acl_count"] != 0:
+                _send_device_config_failure(
+                    connection,
+                    msg["id"],
+                    "clear_acl verification",
+                    f'expected 0 ACL entries, read {verified_auth["acl_count"]}',
+                    changed,
+                )
+                return
 
         # Repeater CAD / interference / AGC / timing controls. These map
         # directly to the current simple_repeater radio policy and are applied
