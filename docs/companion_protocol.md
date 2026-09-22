@@ -988,3 +988,20 @@ def on_notification_received(data):
 - **Messages not received**: Poll `GET_MESSAGE` command periodically
 - **Duplicate messages**: Implement message deduplication using timestamp/content as a unique id
 - **Message truncation**: Send long messages as separate shorter messages
+
+
+## Repeater authenticated binary requests
+
+With Repeater mode enabled, authenticated Repeater clients support the
+MeshCore `simple_repeater` binary request family:
+
+| Request | ID | Access | Behaviour |
+| --- | ---: | --- | --- |
+| `GET_STATUS` | `0x01` | authenticated | Standard `RepeaterStats` payload after the echoed 4-byte request timestamp. |
+| `GET_TELEMETRY_DATA` | `0x03` | authenticated | Guests receive base telemetry only; higher ACL roles may request additional sensor classes with the normal inverse permission mask. |
+| `GET_ACCESS_LIST` | `0x05` | admin | Repeated 6-byte public-key prefixes plus the ACL permission byte. |
+| `GET_NEIGHBOURS` | `0x06` | authenticated | Cumulative zero-hop Repeater neighbour table with paging, ordering and selectable public-key prefix length. |
+
+`GET_NEIGHBOURS` reads the same `repeater_neighbours` table already used by
+the HiveFW Home Assistant **Vizinhos** page. It does not launch Discovery and
+does not maintain a second neighbour cache.
