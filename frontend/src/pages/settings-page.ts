@@ -1241,12 +1241,6 @@ export class SettingsPage extends LitElement {
 
           <!-- Two-column grid for the remaining device settings cards -->
           <div class="settings-grid">
-            <!-- Companion Information -->
-            <div class="device-section">
-              <div class="card-title">General</div>
-              ${this._renderDeviceInfo()}
-            </div>
-
             <!-- Radio & RF Settings -->
             <div class="device-section">
               <div class="card-title">Radio</div>
@@ -1613,60 +1607,6 @@ export class SettingsPage extends LitElement {
   }
 
   // _renderSection removed — replaced with always-visible card layout
-
-  private _renderDeviceInfo() {
-    if (!this._deviceConfig) return;
-
-    return html`
-      <div class="info-row">
-        <span class="info-label">Hardware Model</span>
-        <span class="info-value">${this._deviceConfig.hardware_model}</span>
-      </div>
-
-      <div class="info-row">
-        <span class="info-label">Public Key</span>
-        <span class="info-value" style="display: flex; align-items: center; gap: 6px;">
-          ${this._deviceConfig.pubkey}
-          <button
-            style="border: none; background: none; cursor: pointer; padding: 2px; color: var(--secondary-text-color); display: flex; align-items: center;"
-            title="Copy public key"
-            @click=${() => this._copyToClipboard(this._deviceConfig!.pubkey)}>
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>
-          </button>
-        </span>
-      </div>
-
-      ${this._deviceConfig.connection_type ? html`
-        <div class="info-row">
-          <span class="info-label">Connection</span>
-          <span class="info-value">${this._deviceConfig.connection_type.toUpperCase()}${this._deviceConfig.connection_address ? html` — ${this._deviceConfig.connection_address}` : ''}</span>
-        </div>
-      ` : ''}
-
-      <div class="danger-zone" style="margin-top: 16px;">
-        <div class="danger-zone-title">Rename Device</div>
-        <div style="font-size: 12px; color: var(--secondary-text-color); margin-bottom: 8px;">
-          Changing the device name will change all entity IDs. Automations, scripts, and dashboards using current entity IDs will need to be updated.
-        </div>
-        <div style="display: flex; gap: 8px;">
-          <input
-            type="text"
-            class="form-input"
-            style="flex: 1;"
-            .value=${this._editValues['name'] ?? this._deviceConfig.name}
-            @input=${(e: Event) => {
-              this._editValues['name'] = (e.target as HTMLInputElement).value;
-            }}
-          />
-          <button class="danger-button"
-            ?disabled=${!this._editValues['name'] || this._editValues['name'] === this._deviceConfig.name}
-            @click=${this._handleNameSave}>
-            Rename
-          </button>
-        </div>
-      </div>
-    `;
-  }
 
   private _renderRadioSettings() {
     if (!this._deviceConfig) return;
@@ -2878,8 +2818,32 @@ export class SettingsPage extends LitElement {
   }
 
   private _renderIdentityManagement() {
+    if (!this._deviceConfig) return nothing;
+
     return html`
       <div style="display: flex; flex-direction: column; gap: 16px;">
+        <div class="danger-zone" style="margin-top: 0;">
+          <div class="danger-zone-title">Rename Device</div>
+          <div style="font-size: 12px; color: var(--secondary-text-color); margin-bottom: 8px;">
+            Changing the device name will change all entity IDs. Automations, scripts, and dashboards using current entity IDs will need to be updated.
+          </div>
+          <div style="display: flex; gap: 8px;">
+            <input
+              type="text"
+              class="form-input"
+              style="flex: 1;"
+              .value=${this._editValues['name'] ?? this._deviceConfig.name}
+              @input=${(e: Event) => {
+                this._editValues['name'] = (e.target as HTMLInputElement).value;
+              }}
+            />
+            <button class="danger-button"
+              ?disabled=${!this._editValues['name'] || this._editValues['name'] === this._deviceConfig.name}
+              @click=${this._handleNameSave}>
+              Rename
+            </button>
+          </div>
+        </div>
         <div class="danger-zone" style="margin-top: 0;">
           <div class="danger-zone-title">Regenerate Identity</div>
           <div style="font-size: 12px; color: var(--secondary-text-color); margin-bottom: 8px;">
