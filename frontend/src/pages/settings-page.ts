@@ -201,8 +201,11 @@ export class SettingsPage extends LitElement {
 
       .settings-container {
         flex: 1;
+        min-height: 0;
         overflow-y: auto;
         overflow-x: hidden;
+        -webkit-overflow-scrolling: touch;
+        overscroll-behavior-y: contain;
       }
 
       .settings-container::-webkit-scrollbar {

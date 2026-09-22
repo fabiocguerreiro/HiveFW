@@ -85,6 +85,7 @@ export class ChatPage extends LitElement {
       display: flex;
       width: 100%;
       height: 100%;
+      min-height: 0;
       overflow: hidden;
     }
 
@@ -119,6 +120,8 @@ export class ChatPage extends LitElement {
        * at the new buffer tail. That misfires mark-read on channel
        * re-entry. See 2026-05-15 unread-clearing investigation. */
       overflow-anchor: none;
+      -webkit-overflow-scrolling: touch;
+      overscroll-behavior-y: contain;
     }
 
     .chat-container::-webkit-scrollbar {

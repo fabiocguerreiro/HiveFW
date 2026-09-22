@@ -77,6 +77,7 @@ export class NodesPage extends LitElement {
       flex-direction: column;
       width: 100%;
       height: 100%;
+      min-height: 0;
       overflow: hidden;
     }
 
@@ -497,6 +498,9 @@ export class NodesPage extends LitElement {
       grid-template-columns: 1fr;
       grid-template-rows: auto minmax(280px, 34%) minmax(320px, 42%) minmax(260px, 24%);
       overflow-y: auto;
+      overflow-x: hidden;
+      -webkit-overflow-scrolling: touch;
+      overscroll-behavior-y: contain;
     }
     :host([narrow]) .nodes-header {
       grid-column: 1;

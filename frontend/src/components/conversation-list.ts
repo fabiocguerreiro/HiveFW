@@ -34,6 +34,7 @@ export class ConversationList extends LitElement {
       display: flex;
       flex-direction: column;
       height: 100%;
+      min-height: 0;
       width: 280px;
       border-right: 1px solid var(--divider-color, #e0e0e0);
       background: var(--card-background-color, #fff);
@@ -217,6 +218,8 @@ export class ConversationList extends LitElement {
       min-height: 0;
       overflow-y: auto;
       overflow-x: hidden;
+      -webkit-overflow-scrolling: touch;
+      overscroll-behavior-y: contain;
     }
 
     .conversation-list::-webkit-scrollbar {

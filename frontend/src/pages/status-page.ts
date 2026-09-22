@@ -28,7 +28,7 @@ export class StatusPage extends LitElement {
   private _statusMessageTimeout: number | null = null;
 
   static styles = css`
-    :host{display:block;width:100%;height:100%;overflow:auto;background:var(--primary-background-color)}
+    :host{display:block;width:100%;height:100%;min-height:0;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;overscroll-behavior-y:contain;background:var(--primary-background-color)}
     .page{box-sizing:border-box;width:100%;padding:20px}
     .wrap{width:100%;max-width:none;margin:0}
     .device-section{box-sizing:border-box;width:100%;padding:16px;border:1px solid var(--divider-color);border-radius:12px;background:var(--card-background-color)}

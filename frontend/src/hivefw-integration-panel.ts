@@ -479,6 +479,15 @@ export class MeshCorePanel extends LitElement {
         background: var(--card-background-color, #fff);
         border-bottom: 1px solid var(--divider-color, #e0e0e0);
         flex-shrink: 0;
+        overflow-x: auto;
+        overflow-y: hidden;
+        scrollbar-width: none;
+        -webkit-overflow-scrolling: touch;
+        overscroll-behavior-x: contain;
+      }
+
+      .tab-bar::-webkit-scrollbar {
+        display: none;
       }
 
       .tab-bar button {
@@ -507,13 +516,32 @@ export class MeshCorePanel extends LitElement {
 
       .page-container {
         flex: 1;
+        min-width: 0;
+        min-height: 0;
         overflow: hidden;
         display: flex;
       }
 
+      /* Let each page own its scrolling model. Forcing overflow:hidden on
+         every custom-element host prevented mobile pages whose :host uses
+         overflow:auto from ever receiving a usable scroll container. */
       .page-container > * {
         flex: 1;
-        overflow: hidden;
+        min-width: 0;
+        min-height: 0;
+      }
+
+      @media (max-width: 870px) {
+        .tab-bar {
+          justify-content: flex-start;
+        }
+
+        .tab-bar button {
+          flex: 0 0 auto;
+          min-width: 96px;
+          padding-left: 12px;
+          padding-right: 12px;
+        }
       }
 
       .error-banner {

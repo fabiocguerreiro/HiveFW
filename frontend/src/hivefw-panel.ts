@@ -1295,7 +1295,7 @@ class HiveFWPanel extends BasePanel {
     }
     if (settings) {
       settings.textContent = "Definições";
-      settings.style.order = "5";
+      settings.style.order = "6";
     }
 
     // The committed production bundle still contains the old Devices tab.
@@ -1350,7 +1350,7 @@ class HiveFWPanel extends BasePanel {
       tabBar.appendChild(consoleTab);
     }
     consoleTab.textContent = "Consola";
-    consoleTab.style.order = "6";
+    consoleTab.style.order = "5";
     consoleTab.classList.toggle("active", this._activeTab === "console");
 
     const iconize = (button, iconName) => {
@@ -1417,7 +1417,10 @@ class HiveFWPanel extends BasePanel {
 
       .tab-bar {
         overflow-x: auto !important;
+        overflow-y: hidden !important;
         scrollbar-width: none;
+        -webkit-overflow-scrolling: touch;
+        overscroll-behavior-x: contain;
       }
       .tab-bar::-webkit-scrollbar { display: none; }
       :host([narrow]) .tab-bar button {
@@ -1466,7 +1469,10 @@ class HiveFWPanel extends BasePanel {
       .hivefw-console-page {
         width:100%;
         height:100%;
+        min-height:0;
         overflow:auto;
+        -webkit-overflow-scrolling:touch;
+        overscroll-behavior-y:contain;
         box-sizing:border-box;
         padding:18px;
         color:var(--primary-text-color);
@@ -1572,7 +1578,10 @@ class HiveFWPanel extends BasePanel {
 
       .mcr-page {
         height: 100%;
+        min-height: 0;
         overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+        overscroll-behavior-y: contain;
         box-sizing: border-box;
         padding: 18px;
         color: var(--primary-text-color);

@@ -171,7 +171,12 @@ export class NeighborsPage extends LitElement {
       color:var(--error-color,#db4437); font-size:10px;
     }
     @media (max-width:1050px) {
-      :host { overflow:auto; }
+      :host {
+        overflow-y:auto;
+        overflow-x:hidden;
+        -webkit-overflow-scrolling:touch;
+        overscroll-behavior-y:contain;
+      }
       .page { height:auto; min-height:100%; overflow:visible; }
       .layout { grid-template-columns:1fr; height:auto; }
       .panel { min-height:360px; }
