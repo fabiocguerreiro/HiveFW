@@ -122,6 +122,8 @@ Funcionalidades comuns:
 - Regions / Flood Scopes;
 - descoberta de Repeaters;
 - Node Discovery com rate limiting equivalente ao simple_repeater: máximo de 4 respostas por janela de 120 segundos;
+- servidor de login Repeater com ACL persistente e perfis Admin/Guest;
+- passwords Repeater write-only na integração, sem leitura de segredos a partir do rádio;
 - contadores de adverts TX/RX;
 - telemetria e informação do Companion;
 - UI HiveFW nos equipamentos com display.
@@ -150,6 +152,22 @@ A tabela de Vizinhos segue a semântica do Repeater oficial MeshCore:
 - adverts provenientes de **Share Contact** não contam como prova de vizinhança RF;
 - tabela acumulada de vários Repeaters, em vez de depender apenas do último Advert Path observado;
 - consulta local pela integração, sem gerar tráfego LoRa.
+
+### ACL e login Repeater
+
+Quando o modo Repeater está ativo, o HiveFW pode funcionar também como servidor autenticado compatível com o fluxo de login do `simple_repeater`.
+
+- password **Admin** e password **Guest** são independentes e opcionais;
+- por defeito ambas estão vazias, portanto não é aceite um primeiro login remoto até ser configurada uma password;
+- um login Admin válido cria/atualiza uma entrada persistente na ACL do rádio;
+- sessões Guest não são persistidas na ACL;
+- clientes já persistidos na ACL podem voltar a autenticar-se pela sua identidade com o fluxo de re-login do MeshCore;
+- a integração mostra apenas se cada password está configurada e o número de entradas ACL;
+- os valores das passwords são **write-only** e nunca são devolvidos pelo firmware;
+- a integração permite limpar a ACL sem alterar as passwords configuradas;
+- a configuração local pela integração usa BLE/TCP/USB e não gera tráfego LoRa; o login remoto propriamente dito é tráfego MeshCore.
+
+Os serviços remotos autenticados `GET_STATUS`, `TELEMETRY`, `NEIGHBOURS`, `ACCESS_LIST` e a remote CLI são fases separadas da paridade Repeater e são implementados nos pontos seguintes do roadmap.
 
 ### Diagnóstico CAD
 
