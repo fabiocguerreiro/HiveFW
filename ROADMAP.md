@@ -128,8 +128,8 @@ Implementar pela ordem definida para o Repeater HiveFW:
 - [x] 2. CAD / interference / AGC + delays configuráveis;
 - [x] 3. Discovery rate limiting;
 - [x] 4. ACL + servidor de login Repeater;
-- [ ] 5. GET_STATUS / TELEMETRY / NEIGHBOURS / ACCESS_LIST;
-- [ ] 6. OWNER / REGIONS / CLOCK anónimos + remote CLI.
+- [x] 5. GET_STATUS / TELEMETRY / NEIGHBOURS / ACCESS_LIST;
+- [x] 6. OWNER / REGIONS / CLOCK anónimos + remote CLI.
 
 ### Observabilidade RF
 

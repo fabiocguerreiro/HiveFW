@@ -38,6 +38,7 @@ public:
   uint8_t cad_enabled = 0;
   uint32_t ble_pin = 0;
   uint8_t  advert_loc_policy = 0;
+  char owner_info[120];
   uint8_t  buzzer_quiet = 0;
   uint8_t  vibe_quiet = 0;
   uint8_t  gps_enabled = 0;      // GPS enabled flag (0=disabled, 1=enabled)
@@ -217,6 +218,7 @@ private:
 protected:
   void structure() override {
     def("name", node_name, sizeof(node_name));
+    def("owner", owner_info, sizeof(owner_info));
     //def("adv_int", advert_interval);
     //def("f_adv_int", flood_advert_interval);
     def("lat", node_lat);
@@ -229,6 +231,7 @@ protected:
 public:
   NodePrefs() : radio(this), gps(this), companion(this) {
     node_name[0] = 0;
+    owner_info[0] = 0;
     default_scope_name[0] = 0;
     memset(default_scope_key, 0, sizeof(default_scope_key));
     memset(apps_channel_hash, 0, sizeof(apps_channel_hash));

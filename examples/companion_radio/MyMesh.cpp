@@ -127,10 +127,6 @@ extern bool hivefw_set_ota_token(const char* token);
 #define CTL_TYPE_NODE_DISCOVER_RESP  0x90
 #endif
 
-#ifndef ANON_REQ_TYPE_OWNER
-#define ANON_REQ_TYPE_OWNER 0x02
-#endif
-
 #define PUBLIC_GROUP_PSK                "izOH6cXN6mrJ5e26oRXNcg=="
 
 // these are _pushed_ to client app at any time
@@ -1138,6 +1134,1139 @@ void MyMesh::sendFloodScoped(const mesh::GroupChannel& channel, mesh::Packet* pk
   }
 }
 
+bool MyMesh::handleRepeaterRemoteCommand(
+  uint32_t sender_timestamp,
+  char* command,
+  char* reply,
+  size_t reply_size
+) {
+  if (
+    command == NULL ||
+    reply == NULL ||
+    reply_size == 0
+  ) {
+    return false;
+  }
+
+  reply[0] = '\0';
+
+  while (*command == ' ' || *command == '\t') {
+    command++;
+  }
+
+  size_t command_len = strlen(command);
+  while (
+    command_len > 0 &&
+    (
+      command[command_len - 1] == ' ' ||
+      command[command_len - 1] == '\t'
+    )
+  ) {
+    command[--command_len] = '\0';
+  }
+
+  if (command_len == 0) {
+    snprintf(reply, reply_size, "Err - empty command");
+    return true;
+  }
+
+  auto save_ok = [&]() {
+    savePrefs();
+    snprintf(reply, reply_size, "OK");
+  };
+
+  if (strcmp(command, "ver") == 0) {
+    snprintf(
+      reply,
+      reply_size,
+      "%s (Build: %s)",
+      FIRMWARE_VERSION,
+      FIRMWARE_BUILD_DATE
+    );
+    return true;
+  }
+
+  if (strcmp(command, "board") == 0) {
+    snprintf(reply, reply_size, "HiveFW");
+    return true;
+  }
+
+  if (strcmp(command, "get name") == 0) {
+    snprintf(reply, reply_size, "%s", _prefs.node_name);
+    return true;
+  }
+
+  if (strcmp(command, "get radio") == 0) {
+    snprintf(
+      reply,
+      reply_size,
+      "%.3f,%.3f,%u,%u",
+      _prefs.freq,
+      _prefs.bw,
+      (unsigned)_prefs.sf,
+      (unsigned)_prefs.cr
+    );
+    return true;
+  }
+
+  if (strcmp(command, "get freq") == 0) {
+    snprintf(reply, reply_size, "%.3f", _prefs.freq);
+    return true;
+  }
+
+  if (strcmp(command, "get tx") == 0) {
+    snprintf(reply, reply_size, "%d", (int)_prefs.tx_power_dbm);
+    return true;
+  }
+
+  if (strcmp(command, "get af") == 0) {
+    snprintf(reply, reply_size, "%.3f", _prefs.airtime_factor);
+    return true;
+  }
+
+  if (strcmp(command, "get dutycycle") == 0) {
+    const float pct =
+      100.0f / (_prefs.airtime_factor + 1.0f);
+
+    snprintf(reply, reply_size, "%.1f%%", pct);
+    return true;
+  }
+
+  if (strcmp(command, "get lat") == 0) {
+    snprintf(reply, reply_size, "%.6f", _prefs.node_lat);
+    return true;
+  }
+
+  if (strcmp(command, "get lon") == 0) {
+    snprintf(reply, reply_size, "%.6f", _prefs.node_lon);
+    return true;
+  }
+
+  if (strcmp(command, "get repeat") == 0) {
+    snprintf(
+      reply,
+      reply_size,
+      "%s",
+      _prefs.isRepeatEn() ? "on" : "off"
+    );
+    return true;
+  }
+
+  if (strcmp(command, "get rxdelay") == 0) {
+    snprintf(reply, reply_size, "%.3f", _prefs.rx_delay_base);
+    return true;
+  }
+
+  if (strcmp(command, "get txdelay") == 0) {
+    snprintf(reply, reply_size, "%.3f", _prefs.tx_delay_factor);
+    return true;
+  }
+
+  if (strcmp(command, "get direct.txdelay") == 0) {
+    snprintf(reply, reply_size, "%.3f", _prefs.direct_tx_delay_factor);
+    return true;
+  }
+
+  if (strcmp(command, "get flood.max") == 0) {
+    snprintf(reply, reply_size, "%u", (unsigned)_prefs.getFloodMax());
+    return true;
+  }
+
+  if (strcmp(command, "get flood.max.unscoped") == 0) {
+    snprintf(
+      reply,
+      reply_size,
+      "%u",
+      (unsigned)_prefs.getFloodMaxUnscoped()
+    );
+    return true;
+  }
+
+  if (strcmp(command, "get flood.max.advert") == 0) {
+    snprintf(
+      reply,
+      reply_size,
+      "%u",
+      (unsigned)_prefs.getFloodMaxAdvert()
+    );
+    return true;
+  }
+
+  if (strcmp(command, "get int.thresh") == 0) {
+    snprintf(
+      reply,
+      reply_size,
+      "%u",
+      (unsigned)_prefs.interference_threshold
+    );
+    return true;
+  }
+
+  if (strcmp(command, "get agc.reset.interval") == 0) {
+    snprintf(
+      reply,
+      reply_size,
+      "%u",
+      (unsigned)_prefs.agc_reset_interval
+    );
+    return true;
+  }
+
+  if (strcmp(command, "get multi.acks") == 0) {
+    snprintf(reply, reply_size, "%u", (unsigned)_prefs.multi_acks);
+    return true;
+  }
+
+  if (strcmp(command, "get public.key") == 0) {
+    char hex[PUB_KEY_SIZE * 2 + 1];
+    mesh::Utils::toHex(hex, self_id.pub_key, PUB_KEY_SIZE);
+    snprintf(reply, reply_size, "%s", hex);
+    return true;
+  }
+
+  if (strcmp(command, "get role") == 0) {
+    snprintf(reply, reply_size, "repeater");
+    return true;
+  }
+
+  if (strcmp(command, "get guest.password") == 0) {
+    snprintf(
+      reply,
+      reply_size,
+      "%s",
+      _prefs.getRepeaterGuestPassword()
+    );
+    return true;
+  }
+
+  if (strcmp(command, "get owner.info") == 0) {
+    size_t out = 0;
+    for (
+      const char* sp = _prefs.owner_info;
+      *sp && out + 1 < reply_size;
+      sp++
+    ) {
+      reply[out++] = *sp == '\n' ? '|' : *sp;
+    }
+    reply[out] = '\0';
+    return true;
+  }
+
+  if (strcmp(command, "get path.hash.mode") == 0) {
+    snprintf(reply, reply_size, "%u", (unsigned)_prefs.path_hash_mode);
+    return true;
+  }
+
+  if (strcmp(command, "get loop.detect") == 0) {
+    static const char* names[] = {
+      "off",
+      "minimal",
+      "moderate",
+      "strict"
+    };
+
+    const uint8_t mode =
+      constrain(_prefs.getLoopDetect(), 0, 3);
+
+    snprintf(reply, reply_size, "%s", names[mode]);
+    return true;
+  }
+
+  if (strcmp(command, "get radio.rxgain") == 0) {
+    snprintf(
+      reply,
+      reply_size,
+      "%s",
+      _prefs.rx_boosted_gain ? "on" : "off"
+    );
+    return true;
+  }
+
+  if (strncmp(command, "set name ", 9) == 0) {
+    const char* value = command + 9;
+
+    if (*value == '\0') {
+      snprintf(reply, reply_size, "Err - empty name");
+      return true;
+    }
+
+    StrHelper::strncpy(
+      _prefs.node_name,
+      value,
+      sizeof(_prefs.node_name)
+    );
+    savePrefs();
+    snprintf(reply, reply_size, "OK - name changed");
+    return true;
+  }
+
+  if (strncmp(command, "set af ", 7) == 0) {
+    const float value = atof(command + 7);
+
+    if (value < 0.0f || value > 9.0f) {
+      snprintf(reply, reply_size, "Err - invalid airtime factor");
+      return true;
+    }
+
+    _prefs.airtime_factor = value;
+    savePrefs();
+    snprintf(reply, reply_size, "OK - airtime factor set");
+    return true;
+  }
+
+  if (strncmp(command, "set dutycycle ", 14) == 0) {
+    const float pct = atof(command + 14);
+
+    if (pct < 1.0f || pct > 100.0f) {
+      snprintf(reply, reply_size, "Err - invalid duty cycle");
+      return true;
+    }
+
+    _prefs.airtime_factor =
+      (100.0f / pct) - 1.0f;
+
+    savePrefs();
+    snprintf(reply, reply_size, "OK - %.1f%%", pct);
+    return true;
+  }
+
+  if (strncmp(command, "set repeat ", 11) == 0) {
+    const char* value = command + 11;
+
+    if (
+      strcmp(value, "on") != 0 &&
+      strcmp(value, "off") != 0
+    ) {
+      snprintf(reply, reply_size, "Err - use on or off");
+      return true;
+    }
+
+    _prefs.setRepeatEn(strcmp(value, "on") == 0);
+    savePrefs();
+    snprintf(
+      reply,
+      reply_size,
+      "OK - forwarding %s",
+      _prefs.isRepeatEn() ? "enabled" : "disabled"
+    );
+    return true;
+  }
+
+  if (strncmp(command, "set radio ", 10) == 0) {
+    float freq = 0;
+    float bw = 0;
+    unsigned sf = 0;
+    unsigned cr = 0;
+
+    if (
+      sscanf(
+        command + 10,
+        "%f,%f,%u,%u",
+        &freq,
+        &bw,
+        &sf,
+        &cr
+      ) != 4 ||
+      freq < 150.0f ||
+      freq > 2500.0f ||
+      bw < 7.8f ||
+      bw > 500.0f ||
+      sf < 5 ||
+      sf > 12 ||
+      cr < 5 ||
+      cr > 8
+    ) {
+      snprintf(reply, reply_size, "Err - invalid radio params");
+      return true;
+    }
+
+    _prefs.freq = freq;
+    _prefs.bw = bw;
+    _prefs.sf = (uint8_t)sf;
+    _prefs.cr = (uint8_t)cr;
+    savePrefs();
+
+    snprintf(
+      reply,
+      reply_size,
+      "OK - radio parameters set (reboot required)"
+    );
+    return true;
+  }
+
+  if (strncmp(command, "set lat ", 8) == 0) {
+    const double value = atof(command + 8);
+
+    if (value < -90.0 || value > 90.0) {
+      snprintf(reply, reply_size, "Err - invalid latitude");
+      return true;
+    }
+
+    _prefs.node_lat = value;
+    sensors.node_lat = value;
+    save_ok();
+    return true;
+  }
+
+  if (strncmp(command, "set lon ", 8) == 0) {
+    const double value = atof(command + 8);
+
+    if (value < -180.0 || value > 180.0) {
+      snprintf(reply, reply_size, "Err - invalid longitude");
+      return true;
+    }
+
+    _prefs.node_lon = value;
+    sensors.node_lon = value;
+    save_ok();
+    return true;
+  }
+
+  if (strncmp(command, "set tx ", 7) == 0) {
+    const int value = atoi(command + 7);
+
+    if (value < -9 || value > MAX_LORA_TX_POWER) {
+      snprintf(reply, reply_size, "Err - invalid TX power");
+      return true;
+    }
+
+    _prefs.tx_power_dbm = (int8_t)value;
+    radio_driver.setTxPower(_prefs.tx_power_dbm);
+    savePrefs();
+    snprintf(reply, reply_size, "OK - TX power set");
+    return true;
+  }
+
+  if (strncmp(command, "set rxdelay ", 12) == 0) {
+    const float value = atof(command + 12);
+
+    if (value < 0.0f || value > 20.0f) {
+      snprintf(reply, reply_size, "Err - invalid RX delay");
+      return true;
+    }
+
+    _prefs.rx_delay_base = value;
+    save_ok();
+    return true;
+  }
+
+  if (strncmp(command, "set txdelay ", 12) == 0) {
+    const float value = atof(command + 12);
+
+    if (value < 0.0f || value > 2.0f) {
+      snprintf(reply, reply_size, "Err - invalid TX delay");
+      return true;
+    }
+
+    _prefs.tx_delay_factor = value;
+    save_ok();
+    return true;
+  }
+
+  if (strncmp(command, "set direct.txdelay ", 19) == 0) {
+    const float value = atof(command + 19);
+
+    if (value < 0.0f || value > 2.0f) {
+      snprintf(reply, reply_size, "Err - invalid direct TX delay");
+      return true;
+    }
+
+    _prefs.direct_tx_delay_factor = value;
+    save_ok();
+    return true;
+  }
+
+  if (strncmp(command, "set flood.max.unscoped ", 23) == 0) {
+    const int value = atoi(command + 23);
+
+    if (value < 0 || value > 64) {
+      snprintf(reply, reply_size, "Err - invalid flood max");
+      return true;
+    }
+
+    _prefs.setFloodMaxUnscoped((uint8_t)value);
+    save_ok();
+    return true;
+  }
+
+  if (strncmp(command, "set flood.max.advert ", 21) == 0) {
+    const int value = atoi(command + 21);
+
+    if (value < 0 || value > 64) {
+      snprintf(reply, reply_size, "Err - invalid flood max");
+      return true;
+    }
+
+    _prefs.setFloodMaxAdvert((uint8_t)value);
+    save_ok();
+    return true;
+  }
+
+  if (strncmp(command, "set flood.max ", 14) == 0) {
+    const int value = atoi(command + 14);
+
+    if (value < 0 || value > 64) {
+      snprintf(reply, reply_size, "Err - invalid flood max");
+      return true;
+    }
+
+    _prefs.setFloodMax((uint8_t)value);
+    save_ok();
+    return true;
+  }
+
+  if (strncmp(command, "set int.thresh ", 15) == 0) {
+    const int value = atoi(command + 15);
+
+    if (value < 0 || value > 255) {
+      snprintf(reply, reply_size, "Err - invalid threshold");
+      return true;
+    }
+
+    _prefs.interference_threshold = (uint8_t)value;
+    save_ok();
+    return true;
+  }
+
+  if (strncmp(command, "set agc.reset.interval ", 23) == 0) {
+    const int value = atoi(command + 23);
+
+    if (value < 0 || value > 255) {
+      snprintf(reply, reply_size, "Err - invalid AGC interval");
+      return true;
+    }
+
+    _prefs.agc_reset_interval = (uint8_t)value;
+    save_ok();
+    return true;
+  }
+
+  if (strncmp(command, "set multi.acks ", 15) == 0) {
+    const int value = atoi(command + 15);
+
+    if (value != 0 && value != 1) {
+      snprintf(reply, reply_size, "Err - use 0 or 1");
+      return true;
+    }
+
+    _prefs.multi_acks = (uint8_t)value;
+    save_ok();
+    return true;
+  }
+
+  if (strncmp(command, "set guest.password ", 19) == 0) {
+    _prefs.setRepeaterGuestPassword(command + 19);
+    savePrefs();
+    snprintf(reply, reply_size, "OK - guest password set");
+    return true;
+  }
+
+  if (strncmp(command, "set owner.info ", 15) == 0) {
+    const char* source = command + 15;
+    size_t out = 0;
+
+    while (
+      *source &&
+      out + 1 < sizeof(_prefs.owner_info)
+    ) {
+      _prefs.owner_info[out++] =
+        *source == '|' ? '\n' : *source;
+      source++;
+    }
+
+    _prefs.owner_info[out] = '\0';
+    savePrefs();
+    snprintf(reply, reply_size, "OK - owner info set");
+    return true;
+  }
+
+  if (strncmp(command, "set path.hash.mode ", 19) == 0) {
+    const int value = atoi(command + 19);
+
+    if (value < 0 || value > 2) {
+      snprintf(reply, reply_size, "Err - invalid hash mode");
+      return true;
+    }
+
+    _prefs.path_hash_mode = (uint8_t)value;
+    save_ok();
+    return true;
+  }
+
+  if (strncmp(command, "set loop.detect ", 16) == 0) {
+    const char* value = command + 16;
+    uint8_t mode = LOOP_DETECT_OFF;
+
+    if (strcmp(value, "off") == 0) {
+      mode = LOOP_DETECT_OFF;
+    } else if (strcmp(value, "minimal") == 0) {
+      mode = LOOP_DETECT_MINIMAL;
+    } else if (strcmp(value, "moderate") == 0) {
+      mode = LOOP_DETECT_MODERATE;
+    } else if (strcmp(value, "strict") == 0) {
+      mode = LOOP_DETECT_STRICT;
+    } else {
+      snprintf(reply, reply_size, "Err - invalid loop mode");
+      return true;
+    }
+
+    _prefs.setLoopDetect(mode);
+    save_ok();
+    return true;
+  }
+
+  if (strncmp(command, "set radio.rxgain ", 17) == 0) {
+    const char* value = command + 17;
+
+    if (
+      strcmp(value, "on") != 0 &&
+      strcmp(value, "off") != 0
+    ) {
+      snprintf(reply, reply_size, "Err - use on or off");
+      return true;
+    }
+
+    _prefs.rx_boosted_gain =
+      strcmp(value, "on") == 0 ? 1 : 0;
+
+    radio_driver.setRxBoostedGainMode(
+      _prefs.rx_boosted_gain
+    );
+
+    save_ok();
+    return true;
+  }
+
+  if (strncmp(command, "password ", 9) == 0) {
+    _prefs.setRepeaterAdminPassword(command + 9);
+    savePrefs();
+    snprintf(reply, reply_size, "password updated");
+    return true;
+  }
+
+  if (strcmp(command, "clock") == 0) {
+    DateTime dt(getRTCClock()->getCurrentTime());
+
+    snprintf(
+      reply,
+      reply_size,
+      "%02u:%02u - %u/%u/%u UTC",
+      (unsigned)dt.hour(),
+      (unsigned)dt.minute(),
+      (unsigned)dt.day(),
+      (unsigned)dt.month(),
+      (unsigned)dt.year()
+    );
+    return true;
+  }
+
+  if (strcmp(command, "clock sync") == 0) {
+    getRTCClock()->setCurrentTimeFromSource(
+      sender_timestamp,
+      mesh::RTCClock::SyncSource::Companion
+    );
+
+    next_smart_advert = 0;
+    snprintf(reply, reply_size, "OK - clock set");
+    return true;
+  }
+
+  if (strncmp(command, "time ", 5) == 0) {
+    const uint32_t epoch =
+      (uint32_t)strtoul(command + 5, NULL, 10);
+
+    if (epoch == 0) {
+      snprintf(reply, reply_size, "Err - invalid time");
+      return true;
+    }
+
+    getRTCClock()->setCurrentTimeFromSource(
+      epoch,
+      mesh::RTCClock::SyncSource::Companion
+    );
+
+    next_smart_advert = 0;
+    snprintf(reply, reply_size, "OK - clock set");
+    return true;
+  }
+
+  if (strcmp(command, "neighbors") == 0) {
+    size_t used = 0;
+    const int count = getRepeaterNeighbourCount();
+
+    if (count == 0) {
+      snprintf(reply, reply_size, "-none-");
+      return true;
+    }
+
+    for (
+      int i = 0;
+      i < count && used + 2 < reply_size;
+      i++
+    ) {
+      const mesh::Identity* id =
+        getRepeaterNeighbour(i);
+
+      if (id == NULL) {
+        continue;
+      }
+
+      char key[9];
+      mesh::Utils::toHex(key, id->pub_key, 4);
+
+      const int written =
+        snprintf(
+          reply + used,
+          reply_size - used,
+          "%s%s:%lu:%d",
+          used ? "\n" : "",
+          key,
+          (unsigned long)getRepeaterNeighbourHeardAgo(i),
+          (int)getRepeaterNeighbourSNR(i)
+        );
+
+      if (written <= 0) {
+        break;
+      }
+
+      used += min(
+        (size_t)written,
+        reply_size - used - 1
+      );
+    }
+
+    return true;
+  }
+
+  if (strncmp(command, "neighbor.remove ", 16) == 0) {
+    const char* hex = command + 16;
+    const size_t hex_len = strlen(hex);
+
+    if (
+      hex_len < 2 ||
+      hex_len > PUB_KEY_SIZE * 2 ||
+      (hex_len & 1)
+    ) {
+      snprintf(reply, reply_size, "Err - bad pubkey");
+      return true;
+    }
+
+    uint8_t key[PUB_KEY_SIZE];
+    const int key_len = hex_len / 2;
+
+    if (!mesh::Utils::fromHex(key, key_len, hex)) {
+      snprintf(reply, reply_size, "Err - bad pubkey");
+      return true;
+    }
+
+    bool removed = false;
+
+    for (int i = 0; i < MAX_REPEATER_NEIGHBOURS; i++) {
+      if (
+        repeater_neighbours[i].heard_timestamp > 0 &&
+        memcmp(
+          repeater_neighbours[i].id.pub_key,
+          key,
+          key_len
+        ) == 0
+      ) {
+        memset(
+          &repeater_neighbours[i],
+          0,
+          sizeof(repeater_neighbours[i])
+        );
+        removed = true;
+      }
+    }
+
+    snprintf(
+      reply,
+      reply_size,
+      removed ? "OK - neighbor removed" : "Err - not found"
+    );
+    return true;
+  }
+
+  if (strncmp(command, "setperm ", 8) == 0) {
+    char* hex = command + 8;
+    char* space = strchr(hex, ' ');
+
+    if (space == NULL) {
+      snprintf(reply, reply_size, "Err - bad params");
+      return true;
+    }
+
+    *space++ = '\0';
+
+    const size_t hex_len = strlen(hex);
+
+    if (
+      hex_len < 2 ||
+      hex_len > PUB_KEY_SIZE * 2 ||
+      (hex_len & 1)
+    ) {
+      snprintf(reply, reply_size, "Err - bad pubkey");
+      return true;
+    }
+
+    uint8_t key[PUB_KEY_SIZE];
+    const int key_len = hex_len / 2;
+
+    if (
+      !mesh::Utils::fromHex(key, key_len, hex) ||
+      !repeater_acl.applyPermissions(
+        self_id,
+        key,
+        key_len,
+        (uint8_t)atoi(space)
+      )
+    ) {
+      snprintf(reply, reply_size, "Err - invalid params");
+      return true;
+    }
+
+    repeater_acl.save(_store->getPrimaryFS());
+    snprintf(reply, reply_size, "OK");
+    return true;
+  }
+
+  if (strcmp(command, "region") == 0) {
+    exportRepeaterRegions(reply, reply_size);
+    return true;
+  }
+
+  if (strncmp(command, "region def ", 11) == 0) {
+    char* payload = command + 11;
+
+    while (*payload == ' ' || *payload == '\t') {
+      payload++;
+    }
+
+    if (*payload == '\0') {
+      snprintf(reply, reply_size, "Err - empty def");
+      return true;
+    }
+
+    RegionEntry* cursor =
+      &region_map.getWildcard();
+
+    char* saveptr = NULL;
+    char* token =
+      strtok_r(payload, " \t", &saveptr);
+
+    while (token != NULL) {
+      char* pipe = strchr(token, '|');
+      char* comma = strchr(token, ',');
+      char* split = NULL;
+
+      if (pipe != NULL && comma != NULL) {
+        split = pipe < comma ? pipe : comma;
+      } else {
+        split = pipe != NULL ? pipe : comma;
+      }
+
+      char* jump = NULL;
+
+      if (split != NULL) {
+        *split = '\0';
+        jump = split + 1;
+      }
+
+      if (token[0] == '\0') {
+        snprintf(reply, reply_size, "Err - empty region name");
+        return true;
+      }
+
+      RegionEntry* region =
+        region_map.putRegion(
+          token,
+          cursor->id
+        );
+
+      if (region == NULL) {
+        snprintf(
+          reply,
+          reply_size,
+          "Err - put failed: %s",
+          token
+        );
+        return true;
+      }
+
+      region->flags = 0;
+      cursor = region;
+
+      if (jump != NULL) {
+        if (jump[0] == '\0') {
+          snprintf(reply, reply_size, "Err - empty jump");
+          return true;
+        }
+
+        RegionEntry* target =
+          region_map.findByNamePrefix(jump);
+
+        if (target == NULL) {
+          snprintf(
+            reply,
+            reply_size,
+            "Err - unknown jump: %s",
+            jump
+          );
+          return true;
+        }
+
+        cursor = target;
+      }
+
+      token =
+        strtok_r(NULL, " \t", &saveptr);
+    }
+
+    region_policy_configured = true;
+    exportRepeaterRegions(reply, reply_size);
+    return true;
+  }
+
+  if (strcmp(command, "region load") == 0) {
+    region_policy_configured =
+      region_map.load(_store->getPrimaryFS());
+
+    if (region_policy_configured) {
+      syncDefaultScopeFromRegionMap(false);
+      exportRepeaterRegions(reply, reply_size);
+    } else {
+      snprintf(reply, reply_size, "Err - load failed");
+    }
+
+    return true;
+  }
+
+  if (strcmp(command, "region save") == 0) {
+    snprintf(
+      reply,
+      reply_size,
+      saveRepeaterRegions() ? "OK" : "Err - save failed"
+    );
+    return true;
+  }
+
+  if (strncmp(command, "region get ", 11) == 0) {
+    RegionEntry* region =
+      findRepeaterRegion(command + 11);
+
+    if (region == NULL) {
+      snprintf(reply, reply_size, "Err - unknown region");
+      return true;
+    }
+
+    RegionEntry* parent =
+      region_map.findById(region->parent);
+
+    snprintf(
+      reply,
+      reply_size,
+      " %s%s%s%s",
+      region->name,
+      parent != NULL && parent->id != 0 ? " (" : "",
+      parent != NULL && parent->id != 0 ? parent->name : "",
+      parent != NULL && parent->id != 0 ? ")" : ""
+    );
+
+    if (
+      (region->flags & REGION_DENY_FLOOD) == 0 &&
+      strlen(reply) + 2 < reply_size
+    ) {
+      strcat(reply, " F");
+    }
+
+    return true;
+  }
+
+  if (strncmp(command, "region list ", 12) == 0) {
+    const char* filter = command + 12;
+    bool invert = false;
+
+    if (strcmp(filter, "allowed") == 0) {
+      invert = false;
+    } else if (strcmp(filter, "denied") == 0) {
+      invert = true;
+    } else {
+      snprintf(reply, reply_size, "Err - use allowed or denied");
+      return true;
+    }
+
+    const int length =
+      region_map.exportNamesTo(
+        reply,
+        reply_size,
+        REGION_DENY_FLOOD,
+        invert
+      );
+
+    if (length == 0) {
+      snprintf(reply, reply_size, "-none-");
+    }
+
+    return true;
+  }
+
+  if (strncmp(command, "region put ", 11) == 0) {
+    char* name = command + 11;
+    char* parent = strchr(name, ' ');
+
+    if (parent != NULL) {
+      *parent++ = '\0';
+      while (*parent == ' ') parent++;
+    }
+
+    snprintf(
+      reply,
+      reply_size,
+      putRepeaterRegion(
+        name,
+        parent != NULL && *parent ? parent : "*"
+      )
+        ? "OK - (flood allowed)"
+        : "Err - unable to put"
+    );
+    return true;
+  }
+
+  if (strncmp(command, "region remove ", 14) == 0) {
+    snprintf(
+      reply,
+      reply_size,
+      removeRepeaterRegion(command + 14)
+        ? "OK"
+        : "Err - not found or not empty"
+    );
+    return true;
+  }
+
+  if (strcmp(command, "region home") == 0) {
+    RegionEntry* home = getRepeaterHomeRegion();
+
+    snprintf(
+      reply,
+      reply_size,
+      " home is %s",
+      home != NULL ? home->name : "*"
+    );
+    return true;
+  }
+
+  if (strncmp(command, "region home ", 12) == 0) {
+    if (!setRepeaterHomeRegion(command + 12)) {
+      snprintf(reply, reply_size, "Err - unknown region");
+      return true;
+    }
+
+    RegionEntry* home = getRepeaterHomeRegion();
+    snprintf(
+      reply,
+      reply_size,
+      " home is now %s",
+      home != NULL ? home->name : "*"
+    );
+    return true;
+  }
+
+  if (strcmp(command, "region default") == 0) {
+    RegionEntry* def = getRepeaterDefaultRegion();
+
+    snprintf(
+      reply,
+      reply_size,
+      " default scope is %s",
+      def != NULL ? def->name : "<null>"
+    );
+    return true;
+  }
+
+  if (strncmp(command, "region default ", 15) == 0) {
+    const char* value = command + 15;
+    bool ok = false;
+
+    if (strcmp(value, "<null>") == 0) {
+      ok = clearRepeaterDefaultRegion();
+    } else {
+      ok = setRepeaterDefaultRegion(value);
+    }
+
+    if (!ok) {
+      snprintf(reply, reply_size, "Err - save failed");
+      return true;
+    }
+
+    RegionEntry* def = getRepeaterDefaultRegion();
+    snprintf(
+      reply,
+      reply_size,
+      " default scope is now %s",
+      def != NULL ? def->name : "<null>"
+    );
+    return true;
+  }
+
+  if (strncmp(command, "region allowf ", 14) == 0) {
+    snprintf(
+      reply,
+      reply_size,
+      setRepeaterRegionFloodAllowed(command + 14, true)
+        ? "OK"
+        : "Err - unknown region"
+    );
+    return true;
+  }
+
+  if (strncmp(command, "region denyf ", 13) == 0) {
+    snprintf(
+      reply,
+      reply_size,
+      setRepeaterRegionFloodAllowed(command + 13, false)
+        ? "OK"
+        : "Err - unknown region"
+    );
+    return true;
+  }
+
+  if (strcmp(command, "advert") == 0) {
+    snprintf(
+      reply,
+      reply_size,
+      advert(true) ? "OK - Advert sent" : "Err - advert failed"
+    );
+    return true;
+  }
+
+  if (strcmp(command, "advert.zerohop") == 0) {
+    snprintf(
+      reply,
+      reply_size,
+      advert(false) ? "OK - zerohop advert sent" : "Err - advert failed"
+    );
+    return true;
+  }
+
+  if (strcmp(command, "clear stats") == 0) {
+    radio_driver.resetStats();
+    resetStats();
+    ((SimpleMeshTables*)getTables())->resetStats();
+    snprintf(reply, reply_size, "OK - stats reset");
+    return true;
+  }
+
+  if (strcmp(command, "reboot") == 0) {
+    remote_reboot_at = futureMillis(1000);
+    snprintf(reply, reply_size, "OK - rebooting");
+    return true;
+  }
+
+  snprintf(reply, reply_size, "Err - unsupported command");
+  return true;
+}
+
+
 void MyMesh::onMessageRecv(const ContactInfo &from, mesh::Packet *pkt, uint32_t sender_timestamp,
                            const char *text) {
   markConnectionActive(from); // in case this is from a server, and we have a connection
@@ -1146,8 +2275,78 @@ void MyMesh::onMessageRecv(const ContactInfo &from, mesh::Packet *pkt, uint32_t 
 
 void MyMesh::onCommandDataRecv(const ContactInfo &from, mesh::Packet *pkt, uint32_t sender_timestamp,
                                const char *text) {
-  markConnectionActive(from); // in case this is from a server, and we have a connection
-  queueMessage(from, TXT_TYPE_CLI_DATA, pkt, sender_timestamp, NULL, 0, text);
+  // Reserved transient contacts are authenticated Repeater sessions. For
+  // those only, CLI_DATA is an inbound admin command. Normal Companion
+  // contacts keep the existing meaning: CLI_DATA is a reply to queue for UI.
+  if (from.type == ADV_TYPE_NONE && _prefs.isRepeatEn()) {
+    ClientInfo* client =
+      repeater_acl.getClient(from.id.pub_key, PUB_KEY_SIZE);
+
+    if (client == NULL || !client->isAdmin()) {
+      return;
+    }
+
+    if (sender_timestamp < client->last_timestamp) {
+      MESH_DEBUG_PRINTLN(
+        "Remote CLI: replay detected"
+      );
+      return;
+    }
+
+    const bool is_retry =
+      sender_timestamp == client->last_timestamp;
+
+    client->last_timestamp = sender_timestamp;
+    client->last_activity =
+      getRTCClock()->getCurrentTime();
+
+    if (is_retry) {
+      return;
+    }
+
+    char command[161];
+    StrHelper::strncpy(
+      command,
+      text != NULL ? text : "",
+      sizeof(command)
+    );
+
+    char reply[MAX_TEXT_LEN + 1];
+
+    handleRepeaterRemoteCommand(
+      sender_timestamp,
+      command,
+      reply,
+      sizeof(reply)
+    );
+
+    if (reply[0] != '\0') {
+      uint32_t est_timeout = 0;
+      const uint32_t reply_timestamp =
+        getRTCClock()->getCurrentTimeUnique();
+
+      sendCommandData(
+        from,
+        reply_timestamp,
+        0,
+        reply,
+        est_timeout
+      );
+    }
+
+    return;
+  }
+
+  markConnectionActive(from);
+  queueMessage(
+    from,
+    TXT_TYPE_CLI_DATA,
+    pkt,
+    sender_timestamp,
+    NULL,
+    0,
+    text
+  );
 }
 
 void MyMesh::onSignedMessageRecv(const ContactInfo &from, mesh::Packet *pkt, uint32_t sender_timestamp,
@@ -1242,22 +2441,287 @@ void MyMesh::onChannelDataRecv(const mesh::GroupChannel &channel, mesh::Packet *
 
 uint8_t MyMesh::onContactRequest(const ContactInfo &contact, uint32_t sender_timestamp, const uint8_t *data,
                                  uint8_t len, uint8_t *reply) {
-  // Reserved/transient contacts created by the Repeater login server must
-  // still exist in the ACL. This makes "Limpar ACL" revoke those sessions
-  // immediately without changing normal Companion contact behaviour.
-  if (
-    contact.type == ADV_TYPE_NONE &&
-    (
-      !_prefs.isRepeatEn() ||
-      repeater_acl.getClient(contact.id.pub_key, PUB_KEY_SIZE) == NULL
-    )
-  ) {
+  if (data == NULL || reply == NULL || len == 0) {
     return 0;
   }
 
+  ClientInfo* repeater_client = NULL;
+  const bool is_repeater_session = contact.type == ADV_TYPE_NONE;
+
+  // Repeater login sessions use reserved transient Companion contacts. Keep
+  // them tied to the point-4 ACL so clearing the ACL revokes access at once.
+  if (is_repeater_session) {
+    if (!_prefs.isRepeatEn()) {
+      return 0;
+    }
+
+    repeater_client =
+      repeater_acl.getClient(contact.id.pub_key, PUB_KEY_SIZE);
+
+    if (repeater_client == NULL) {
+      return 0;
+    }
+
+    repeater_client->last_activity =
+      getRTCClock()->getCurrentTime();
+  }
+
+  // MeshCore simple_repeater compatible status request.
+  if (is_repeater_session && data[0] == REQ_TYPE_GET_STATUS) {
+    RepeaterStats stats;
+    memset(&stats, 0, sizeof(stats));
+
+    stats.batt_milli_volts = board.getBattMilliVolts();
+    stats.curr_tx_queue_len = (uint16_t)_mgr->getOutboundTotal();
+    stats.noise_floor = (int16_t)_radio->getNoiseFloor();
+    stats.last_rssi = (int16_t)radio_driver.getLastRSSI();
+    stats.n_packets_recv = radio_driver.getPacketsRecv();
+    stats.n_packets_sent = radio_driver.getPacketsSent();
+    stats.total_air_time_secs = getTotalAirTime() / 1000;
+    stats.total_up_time_secs = _ms->getMillis() / 1000;
+    stats.n_sent_flood = getNumSentFlood();
+    stats.n_sent_direct = getNumSentDirect();
+    stats.n_recv_flood = getNumRecvFlood();
+    stats.n_recv_direct = getNumRecvDirect();
+    stats.err_events = _err_flags;
+    stats.last_snr = (int16_t)(radio_driver.getLastSNR() * 4);
+
+    SimpleMeshTables* mesh_tables =
+      (SimpleMeshTables*)getTables();
+
+    if (mesh_tables != NULL) {
+      stats.n_direct_dups = mesh_tables->getNumDirectDups();
+      stats.n_flood_dups = mesh_tables->getNumFloodDups();
+    }
+
+    stats.total_rx_air_time_secs = getReceiveAirTime() / 1000;
+    stats.n_recv_errors = radio_driver.getPacketsRecvErrors();
+
+    memcpy(reply, &sender_timestamp, 4);
+    memcpy(&reply[4], &stats, sizeof(stats));
+    return 4 + sizeof(stats);
+  }
+
+  // Admin-only ACL enumeration. Response is:
+  // tag(4) + repeated pubkey-prefix(6) + permissions(1).
+  if (is_repeater_session && data[0] == REQ_TYPE_GET_ACCESS_LIST) {
+    if (
+      repeater_client == NULL ||
+      !repeater_client->isAdmin() ||
+      len < 3 ||
+      data[1] != 0 ||
+      data[2] != 0
+    ) {
+      return 0;
+    }
+
+    int ofs = 4;
+    memcpy(reply, &sender_timestamp, 4);
+
+    for (
+      int i = 0;
+      i < repeater_acl.getNumClients() &&
+      ofs + 7 <= MAX_PACKET_PAYLOAD;
+      i++
+    ) {
+      ClientInfo* client =
+        repeater_acl.getClientByIdx(i);
+
+      if (client == NULL || client->permissions == 0) {
+        continue;
+      }
+
+      memcpy(&reply[ofs], client->id.pub_key, 6);
+      ofs += 6;
+      reply[ofs++] = client->permissions;
+    }
+
+    return ofs;
+  }
+
+  // Authenticated remote NEIGHBOURS uses the same cumulative zero-hop table
+  // already exposed locally to the Home Assistant Vizinhos page. It does not
+  // run Discovery and does not maintain a second cache.
+  if (is_repeater_session && data[0] == REQ_TYPE_GET_NEIGHBOURS) {
+    if (len < 11 || data[1] != 0) {
+      return 0;
+    }
+
+    const uint8_t requested_count = data[2];
+    uint16_t offset = 0;
+    memcpy(&offset, &data[3], 2);
+
+    const uint8_t order_by = data[5];
+    uint8_t pubkey_prefix_length = data[6];
+
+    if (pubkey_prefix_length > PUB_KEY_SIZE) {
+      pubkey_prefix_length = PUB_KEY_SIZE;
+    }
+
+    const RepeaterNeighbour* sorted[MAX_REPEATER_NEIGHBOURS];
+    uint16_t neighbours_count = 0;
+
+    for (int i = 0; i < MAX_REPEATER_NEIGHBOURS; i++) {
+      if (repeater_neighbours[i].heard_timestamp > 0) {
+        sorted[neighbours_count++] =
+          &repeater_neighbours[i];
+      }
+    }
+
+    if (order_by <= 3) {
+      for (uint16_t i = 0; i < neighbours_count; i++) {
+        for (uint16_t j = i + 1; j < neighbours_count; j++) {
+          bool swap_entries;
+
+          if (order_by == 0) {
+            swap_entries =
+              sorted[j]->heard_timestamp >
+              sorted[i]->heard_timestamp;
+          } else if (order_by == 1) {
+            swap_entries =
+              sorted[j]->heard_timestamp <
+              sorted[i]->heard_timestamp;
+          } else if (order_by == 2) {
+            swap_entries =
+              sorted[j]->snr > sorted[i]->snr;
+          } else {
+            swap_entries =
+              sorted[j]->snr < sorted[i]->snr;
+          }
+
+          if (swap_entries) {
+            const RepeaterNeighbour* tmp = sorted[i];
+            sorted[i] = sorted[j];
+            sorted[j] = tmp;
+          }
+        }
+      }
+    }
+
+    memcpy(reply, &sender_timestamp, 4);
+
+    int reply_offset = 8;
+    uint16_t results_count = 0;
+    const uint32_t now = getRTCClock()->getCurrentTime();
+    const int entry_size = pubkey_prefix_length + 5;
+
+    for (
+      uint16_t index = 0;
+      index < requested_count &&
+      (uint32_t)index + offset < neighbours_count;
+      index++
+    ) {
+      if (reply_offset + entry_size > MAX_PACKET_PAYLOAD) {
+        break;
+      }
+
+      const RepeaterNeighbour* neighbour =
+        sorted[index + offset];
+
+      const uint32_t heard_seconds_ago =
+        now >= neighbour->heard_timestamp
+          ? now - neighbour->heard_timestamp
+          : 0;
+
+      memcpy(
+        &reply[reply_offset],
+        neighbour->id.pub_key,
+        pubkey_prefix_length
+      );
+      reply_offset += pubkey_prefix_length;
+
+      memcpy(
+        &reply[reply_offset],
+        &heard_seconds_ago,
+        4
+      );
+      reply_offset += 4;
+
+      reply[reply_offset++] = (uint8_t)neighbour->snr;
+      results_count++;
+    }
+
+    memcpy(&reply[4], &neighbours_count, 2);
+    memcpy(&reply[6], &results_count, 2);
+
+    return reply_offset;
+  }
+
+  if (
+    is_repeater_session &&
+    data[0] == REQ_TYPE_GET_OWNER_INFO
+  ) {
+    memcpy(reply, &sender_timestamp, 4);
+
+    const int written =
+      snprintf(
+        (char*)&reply[4],
+        MAX_PACKET_PAYLOAD - 4,
+        "%s\n%s\n%s",
+        FIRMWARE_VERSION,
+        _prefs.node_name,
+        _prefs.owner_info
+      );
+
+    if (written < 0) {
+      return 0;
+    }
+
+    return (uint8_t)(
+      4 +
+      min(
+        (size_t)written,
+        (size_t)MAX_PACKET_PAYLOAD - 5
+      )
+    );
+  }
+
   if (data[0] == REQ_TYPE_GET_TELEMETRY_DATA) {
+    if (len < 2) {
+      return 0;
+    }
+
+    // Repeater sessions follow simple_repeater semantics. Guests get only
+    // base telemetry; higher roles may query additional sensor classes.
+    if (is_repeater_session) {
+      uint8_t perm_mask = ~(data[1]);
+
+      if (
+        repeater_client == NULL ||
+        (
+          repeater_client->permissions &
+          PERM_ACL_ROLE_MASK
+        ) == PERM_ACL_GUEST
+      ) {
+        perm_mask = 0x00;
+      }
+
+      telemetry.reset();
+      telemetry.addVoltage(
+        TELEM_CHANNEL_SELF,
+        (float)board.getBattMilliVolts() / 1000.0f
+      );
+
+      sensors.querySensors(perm_mask, telemetry);
+
+      float temperature = board.getMCUTemperature();
+      if (!isnan(temperature)) {
+        telemetry.addTemperature(
+          TELEM_CHANNEL_SELF,
+          temperature
+        );
+      }
+
+      memcpy(reply, &sender_timestamp, 4);
+
+      uint8_t tlen = telemetry.getSize();
+      memcpy(&reply[4], telemetry.getBuffer(), tlen);
+      return 4 + tlen;
+    }
+
+    // Existing Companion telemetry behaviour stays unchanged.
     uint8_t permissions = 0;
-    uint8_t cp = contact.flags >> 1; // LSB used as 'favourite' bit (so only use upper bits)
+    uint8_t cp = contact.flags >> 1;
 
     if (_prefs.telemetry_mode_base == TELEM_MODE_ALLOW_ALL) {
       permissions = TELEM_PERM_BASE;
@@ -1277,29 +2741,35 @@ uint8_t MyMesh::onContactRequest(const ContactInfo &contact, uint32_t sender_tim
       permissions |= cp & TELEM_PERM_ENVIRONMENT;
     }
 
-    uint8_t perm_mask = ~(data[1]);    // NEW: first reserved byte (of 4), is now inverse mask to apply to permissions
+    uint8_t perm_mask = ~(data[1]);
     permissions &= perm_mask;
 
-    if (permissions & TELEM_PERM_BASE) { // only respond if base permission bit is set
+    if (permissions & TELEM_PERM_BASE) {
       telemetry.reset();
-      telemetry.addVoltage(TELEM_CHANNEL_SELF, (float)board.getBattMilliVolts() / 1000.0f);
-      // query other sensors -- target specific
+      telemetry.addVoltage(
+        TELEM_CHANNEL_SELF,
+        (float)board.getBattMilliVolts() / 1000.0f
+      );
+
       sensors.querySensors(permissions, telemetry);
 
       float temperature = board.getMCUTemperature();
-      if(!isnan(temperature)) { // Supported boards with built-in temperature sensor. ESP32-C3 may return NAN
-        telemetry.addTemperature(TELEM_CHANNEL_SELF, temperature); // Built-in MCU Temperature
+      if (!isnan(temperature)) {
+        telemetry.addTemperature(
+          TELEM_CHANNEL_SELF,
+          temperature
+        );
       }
 
-      memcpy(reply, &sender_timestamp,
-             4); // reflect sender_timestamp back in response packet (kind of like a 'tag')
+      memcpy(reply, &sender_timestamp, 4);
 
       uint8_t tlen = telemetry.getSize();
       memcpy(&reply[4], telemetry.getBuffer(), tlen);
       return 4 + tlen;
     }
   }
-  return 0; // unknown
+
+  return 0;
 }
 
 void MyMesh::onContactResponse(const ContactInfo &contact, const uint8_t *data, uint8_t len) {
@@ -1663,6 +3133,7 @@ void MyMesh::onAnonDataRecv(
   if (
     !_prefs.isRepeatEn() ||
     packet->getPayloadType() != PAYLOAD_TYPE_ANON_REQ ||
+    data == NULL ||
     len < 5
   ) {
     return;
@@ -1670,43 +3141,136 @@ void MyMesh::onAnonDataRecv(
 
   uint32_t sender_timestamp = 0;
   memcpy(&sender_timestamp, data, 4);
-
-  // Point 4 implements the Repeater login server. Binary anonymous OWNER /
-  // REGIONS / CLOCK requests are intentionally left for roadmap point 6.
-  if (!(data[4] == 0 || data[4] >= ' ')) {
-    return;
-  }
-
   data[len] = 0;
 
-  uint8_t reply_data[16];
-  const uint8_t reply_len =
-    handleRepeaterLoginReq(
-      sender,
-      secret,
-      sender_timestamp,
-      &data[4],
-      packet->isRouteFlood(),
-      reply_data
-    );
+  uint8_t reply_data[MAX_PACKET_PAYLOAD];
+  uint8_t reply_len = 0;
+  uint8_t reply_path[MAX_PATH_SIZE];
+  uint8_t reply_path_len = 0xFF;
+
+  const uint8_t request_type = data[4];
+
+  if (request_type == 0 || request_type >= ' ') {
+    // Login remains available over DIRECT or FLOOD and is handled by the
+    // point-4 ACL server.
+    reply_len =
+      handleRepeaterLoginReq(
+        sender,
+        secret,
+        sender_timestamp,
+        &data[4],
+        packet->isRouteFlood(),
+        reply_data
+      );
+  } else {
+    // OWNER / REGIONS / BASIC-CLOCK are intentionally DIRECT-only, matching
+    // simple_repeater. Their request body is {type}{reply_path_len}{reply_path}.
+    if (
+      packet->isRouteFlood() ||
+      len < 6 ||
+      !anon_limiter.allow(getRTCClock()->getCurrentTime())
+    ) {
+      return;
+    }
+
+    reply_path_len = data[5];
+
+    if (!mesh::Packet::isValidPathLen(reply_path_len)) {
+      return;
+    }
+
+    const uint8_t hash_size =
+      (reply_path_len >> 6) + 1;
+    const uint8_t hop_count =
+      reply_path_len & 0x3F;
+    const size_t raw_path_len =
+      (size_t)hash_size * hop_count;
+
+    if (len < 6 + raw_path_len) {
+      return;
+    }
+
+    if (raw_path_len > 0) {
+      memcpy(
+        reply_path,
+        &data[6],
+        raw_path_len
+      );
+    }
+
+    memcpy(reply_data, &sender_timestamp, 4);
+
+    const uint32_t now =
+      getRTCClock()->getCurrentTime();
+
+    memcpy(&reply_data[4], &now, 4);
+
+    if (request_type == ANON_REQ_TYPE_REGIONS) {
+      const int names_len =
+        region_map.exportNamesTo(
+          (char*)&reply_data[8],
+          sizeof(reply_data) - 12,
+          REGION_DENY_FLOOD
+        );
+
+      reply_len =
+        8 + (names_len > 0 ? names_len : 0);
+    } else if (request_type == ANON_REQ_TYPE_OWNER) {
+      const int written =
+        snprintf(
+          (char*)&reply_data[8],
+          sizeof(reply_data) - 8,
+          "%s\n%s",
+          _prefs.node_name,
+          _prefs.owner_info
+        );
+
+      if (written < 0) {
+        return;
+      }
+
+      const size_t owner_len =
+        min(
+          (size_t)written,
+          sizeof(reply_data) - 9
+        );
+
+      reply_len =
+        (uint8_t)(8 + owner_len);
+    } else if (request_type == ANON_REQ_TYPE_BASIC) {
+      reply_data[8] = 0;
+
+      if (!_prefs.isRepeatEn()) {
+        reply_data[8] |= 0x80;
+      }
+
+      reply_len = 9;
+    } else {
+      return;
+    }
+  }
 
   if (reply_len == 0) {
     return;
   }
 
   ContactInfo* contact =
-    lookupContactByPubKey(sender.pub_key, PUB_KEY_SIZE);
+    lookupContactByPubKey(
+      sender.pub_key,
+      PUB_KEY_SIZE
+    );
 
   if (packet->isRouteFlood()) {
-    mesh::Packet* path = createPathReturn(
-      sender,
-      secret,
-      packet->path,
-      packet->path_len,
-      PAYLOAD_TYPE_RESPONSE,
-      reply_data,
-      reply_len
-    );
+    mesh::Packet* path =
+      createPathReturn(
+        sender,
+        secret,
+        packet->path,
+        packet->path_len,
+        PAYLOAD_TYPE_RESPONSE,
+        reply_data,
+        reply_len
+      );
 
     if (path != NULL) {
       sendRepeaterFloodReply(
@@ -1715,22 +3279,31 @@ void MyMesh::onAnonDataRecv(
         packet->getPathHashSize()
       );
     }
+
     return;
   }
 
-  mesh::Packet* reply = createDatagram(
-    PAYLOAD_TYPE_RESPONSE,
-    sender,
-    secret,
-    reply_data,
-    reply_len
-  );
+  mesh::Packet* reply =
+    createDatagram(
+      PAYLOAD_TYPE_RESPONSE,
+      sender,
+      secret,
+      reply_data,
+      reply_len
+    );
 
   if (reply == NULL) {
     return;
   }
 
-  if (
+  if (reply_path_len != 0xFF) {
+    sendDirect(
+      reply,
+      reply_path,
+      reply_path_len,
+      HIVEFW_REPEATER_RESPONSE_DELAY
+    );
+  } else if (
     contact != NULL &&
     contact->out_path_len != OUT_PATH_UNKNOWN
   ) {
@@ -2578,6 +4151,7 @@ MyMesh::MyMesh(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMe
     : BaseChatMesh(radio, *new ArduinoMillis(), rng, rtc, *new StaticPoolPacketManager(16), tables),
       region_map(region_key_store),
       discover_limiter(4, 120),  // simple_repeater: max 4 replies per 120 s
+      anon_limiter(4, 180),      // simple_repeater: max 4 anonymous replies per 180 s
       _serial(NULL), telemetry(MAX_PACKET_PAYLOAD - 4), _store(&store), _ui(ui), _iter(0) {
   _iter_started = false;
   _cli_rescue = false;
@@ -2592,6 +4166,7 @@ MyMesh::MyMesh(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMe
   next_ack_idx = 0;
   sign_data = NULL;
   dirty_contacts_expiry = 0;
+  remote_reboot_at = 0;
   next_smart_advert = 0;
   memset(advert_paths, 0, sizeof(advert_paths));
   memset(repeater_neighbours, 0, sizeof(repeater_neighbours));
@@ -5901,6 +7476,15 @@ void MyMesh::checkSerialInterface() {
 }
 
 void MyMesh::loop() {
+  if (
+    remote_reboot_at &&
+    millisHasNowPassed(remote_reboot_at)
+  ) {
+    remote_reboot_at = 0;
+    board.reboot();
+    return;
+  }
+
   BaseChatMesh::loop();
 
   if (_cli_rescue) {
