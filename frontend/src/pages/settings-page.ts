@@ -105,7 +105,6 @@ export class SettingsPage extends LitElement {
   @property({ type: Object }) selectedDevice?: MeshCoreDevice;
   @property({ type: Number }) contactCount = 0;
   @property({ type: Number }) channelCount = 0;
-  @property({ type: String }) viewMode: 'state' | 'settings' = 'settings';
 
   @state() private _deviceConfig: DeviceConfig | null = null;
   @state() private _repeaterStatus: LocalRepeaterStatus | null = null;
@@ -1273,10 +1272,6 @@ export class SettingsPage extends LitElement {
     return html`
       <div class="settings-page">
         <div class="settings-container" data-hive-native-layout="device-v2">
-          ${this.viewMode === 'state' ? html`
-            <!-- Estado owns only the Companion status card. -->
-            ${this.selectedDevice ? this._renderCompanionCard() : nothing}
-          ` : html`
           <!-- Definições owns all configuration/maintenance cards. -->
           <!-- Full-width Repeater setup. -->
           ${this.selectedDevice ? html`
@@ -1309,6 +1304,12 @@ export class SettingsPage extends LitElement {
               ${this._renderRadioSettings()}
             </div>
 
+            <!-- Device identity belongs to Definições, not Estado. -->
+            <div class="device-section">
+              <div class="card-title">Identidade</div>
+              ${this._renderIdentityManagement()}
+            </div>
+
             <!-- Local observability/RX hosts are part of the native layout so
                  HiveFW can populate them without inserting cards after first paint. -->
             <div id="hive-rxlog-card" class="device-section" data-hive-native-host="rx-log">
@@ -1326,7 +1327,6 @@ export class SettingsPage extends LitElement {
             </div>
 
           </div>
-          `}
 
         </div>
       </div>
