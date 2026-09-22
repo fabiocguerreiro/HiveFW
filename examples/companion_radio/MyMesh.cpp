@@ -3811,13 +3811,13 @@ void MyMesh::handleCmdFrame(size_t len) {
     int written = snprintf(
       (char*)&out_frame[1],
       sizeof(out_frame) - 1,
-      "cad:%u,int_thr:%u,agc_s:%u,rxdelay:%.3f,f_txdelay:%.3f,d_txdelay:%.3f",
+      "cad:%u,int_thr:%u,agc_s:%u,rx_m:%ld,f_tx_m:%ld,d_tx_m:%ld",
       (unsigned)_prefs.cad_enabled,
       (unsigned)_prefs.interference_threshold,
       (unsigned)(_prefs.agc_reset_interval * 4U),
-      (double)_prefs.rx_delay_base,
-      (double)_prefs.tx_delay_factor,
-      (double)_prefs.direct_tx_delay_factor
+      (long)(_prefs.rx_delay_base * 1000.0f + 0.5f),
+      (long)(_prefs.tx_delay_factor * 1000.0f + 0.5f),
+      (long)(_prefs.direct_tx_delay_factor * 1000.0f + 0.5f)
     );
 
     if (

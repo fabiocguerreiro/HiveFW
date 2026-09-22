@@ -2724,10 +2724,14 @@ async def _read_repeater_rf_config(commands):
     """
     from meshcore.events import EventType
 
-    result = await commands.send(
-        bytes((0x2D,)),
-        [EventType.CUSTOM_VARS, EventType.ERROR],
-    )
+    try:
+        result = await commands.send(
+            bytes((0x2D,)),
+            [EventType.CUSTOM_VARS, EventType.ERROR],
+        )
+    except Exception as ex:
+        return None, str(ex)
+
     reason = _device_config_failure_reason(result)
     if reason is not None:
         return None, reason
@@ -2739,9 +2743,9 @@ async def _read_repeater_rf_config(commands):
             "cad_enabled": int(payload.get("cad", -1)) == 1,
             "interference_threshold": int(payload.get("int_thr", -1)),
             "agc_reset_interval": int(payload.get("agc_s", -1)),
-            "rx_delay": float(payload.get("rxdelay", "nan")),
-            "flood_tx_delay": float(payload.get("f_txdelay", "nan")),
-            "direct_tx_delay": float(payload.get("d_txdelay", "nan")),
+            "rx_delay": int(payload.get("rx_m", -1)) / 1000.0,
+            "flood_tx_delay": int(payload.get("f_tx_m", -1)) / 1000.0,
+            "direct_tx_delay": int(payload.get("d_tx_m", -1)) / 1000.0,
         }
     except (TypeError, ValueError):
         return None, "invalid RF configuration response"
