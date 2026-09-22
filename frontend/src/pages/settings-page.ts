@@ -105,6 +105,7 @@ export class SettingsPage extends LitElement {
   @property({ type: Object }) selectedDevice?: MeshCoreDevice;
   @property({ type: Number }) contactCount = 0;
   @property({ type: Number }) channelCount = 0;
+  @property({ type: String }) viewMode: 'state' | 'settings' = 'settings';
 
   @state() private _deviceConfig: DeviceConfig | null = null;
   @state() private _repeaterStatus: LocalRepeaterStatus | null = null;
@@ -1272,10 +1273,12 @@ export class SettingsPage extends LitElement {
     return html`
       <div class="settings-page">
         <div class="settings-container" data-hive-native-layout="device-v2">
-          <!-- Companion Device Card (full width at top) -->
-          ${this.selectedDevice ? this._renderCompanionCard() : nothing}
-
-          <!-- Full-width Repeater setup directly below the Companion card. -->
+          ${this.viewMode === 'state' ? html`
+            <!-- Estado owns only the Companion status card. -->
+            ${this.selectedDevice ? this._renderCompanionCard() : nothing}
+          ` : html`
+          <!-- Definições owns all configuration/maintenance cards. -->
+          <!-- Full-width Repeater setup. -->
           ${this.selectedDevice ? html`
             <div id="hive-repeater-settings-card"
                  class="device-section"
@@ -1323,6 +1326,7 @@ export class SettingsPage extends LitElement {
             </div>
 
           </div>
+          `}
 
         </div>
       </div>
