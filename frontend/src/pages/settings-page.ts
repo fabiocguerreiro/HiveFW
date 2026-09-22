@@ -1677,6 +1677,7 @@ export class SettingsPage extends LitElement {
       'bandwidth',
       'spreading_factor',
       'coding_rate',
+      'path_hash_mode',
     ]);
 
     return html`
@@ -1748,6 +1749,19 @@ export class SettingsPage extends LitElement {
             ${[5, 6, 7, 8].map((cr) => {
               const current = this._editValues['coding_rate'] ?? this._deviceConfig!.coding_rate ?? 5;
               return html`<option value=${cr} ?selected=${Number(current) === cr}>${cr}</option>`;
+            })}
+          </select>
+        </div>
+        <div class="form-group-inline">
+          <label class="form-label">Path Hash Mode</label>
+          <select
+            class="form-select"
+            @change=${(e: Event) => {
+              this._editValues['path_hash_mode'] = Number((e.target as HTMLSelectElement).value);
+            }}>
+            ${[[0, '0 - 1 byte'], [1, '1 - 2 byte'], [2, '2 - 3 byte']].map(([val, label]) => {
+              const current = this._editValues['path_hash_mode'] ?? this._deviceConfig!.path_hash_mode ?? 0;
+              return html`<option value=${val} ?selected=${Number(current) === val}>${label}</option>`;
             })}
           </select>
         </div>
@@ -2241,39 +2255,8 @@ export class SettingsPage extends LitElement {
     const agcResetInterval = Number(this._editValues['agc_reset_interval'] ?? radioGuard?.agc_reset_interval ?? 0);
     const floodTxDelay = Number(this._editValues['flood_tx_delay'] ?? radioGuard?.flood_tx_delay ?? 0.5);
     const directTxDelay = Number(this._editValues['direct_tx_delay'] ?? radioGuard?.direct_tx_delay ?? 0.3);
-    const pathHashMode = Number(this._editValues['path_hash_mode'] ?? status.radio.path_hash_mode ?? this._deviceConfig?.path_hash_mode ?? 0);
 
     return html`
-      <div class="section-row">
-        <div class="form-group-inline">
-          <label class="form-label">Multi ACK</label>
-          <select
-            class="form-select"
-            .value=${String(multiAcks)}
-            @change=${(e: Event) => {
-              this._editValues['multi_acks'] = Number((e.target as HTMLSelectElement).value);
-              this._editValues = { ...this._editValues };
-            }}>
-            <option value="0">Desligado</option>
-            <option value="1">Ligado</option>
-          </select>
-        </div>
-        <div class="form-group-inline">
-          <label class="form-label">Path Hash Mode</label>
-          <select
-            class="form-select"
-            .value=${String(pathHashMode)}
-            @change=${(e: Event) => {
-              this._editValues['path_hash_mode'] = Number((e.target as HTMLSelectElement).value);
-              this._editValues = { ...this._editValues };
-            }}>
-            <option value="0">0 - 1 byte</option>
-            <option value="1">1 - 2 bytes</option>
-            <option value="2">2 - 3 bytes</option>
-          </select>
-        </div>
-      </div>
-
       <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;padding:10px 12px;border-radius:8px;background:var(--secondary-background-color);">
         <div>
           <div style="font-size:13px;font-weight:600;">Modo Repetidor</div>
@@ -2315,6 +2298,26 @@ export class SettingsPage extends LitElement {
           />
           ${autoAdvert ? 'Ativo' : 'Desligado'}
         </label>
+      </div>
+
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;padding:10px 12px;border-radius:8px;background:var(--secondary-background-color);">
+        <div>
+          <div style="font-size:13px;font-weight:600;">Multi ACK</div>
+          <div style="font-size:11px;color:var(--secondary-text-color);margin-top:2px;">
+            Confirmações múltiplas do Repeater.
+          </div>
+        </div>
+        <select
+          class="form-select"
+          style="width:auto;min-width:130px;"
+          .value=${String(multiAcks)}
+          @change=${(e: Event) => {
+            this._editValues['multi_acks'] = Number((e.target as HTMLSelectElement).value);
+            this._editValues = { ...this._editValues };
+          }}>
+          <option value="0">Desligado</option>
+          <option value="1">Ligado</option>
+        </select>
       </div>
 
       <div class="repeater-setup-grid">
@@ -2610,7 +2613,7 @@ export class SettingsPage extends LitElement {
       </div>
 
       <div style="margin-top:10px;font-size:11px;color:var(--secondary-text-color);line-height:1.45;">
-        Frequência, BW, SF, CR, TX Power e Path Hash continuam no cartão Radio acima;
+        Frequência, BW, SF, CR, TX Power e Path Hash pertencem ao cartão Radio;
         adverts, sync de relógio e reboot continuam no cartão do Companion.
       </div>
     `;
@@ -2843,7 +2846,6 @@ export class SettingsPage extends LitElement {
         'repeat',
         'auto_advert',
         'multi_acks',
-        'path_hash_mode',
         'rx_delay',
         'flood_max',
         'flood_max_unscoped',
@@ -2928,7 +2930,7 @@ export class SettingsPage extends LitElement {
         keysToApply = ['name'];
         break;
       case 'radio-settings':
-        keysToApply = ['tx_power', 'frequency', 'bandwidth', 'spreading_factor', 'coding_rate'];
+        keysToApply = ['tx_power', 'frequency', 'bandwidth', 'spreading_factor', 'coding_rate', 'path_hash_mode'];
         break;
     }
 
