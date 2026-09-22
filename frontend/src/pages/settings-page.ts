@@ -2590,6 +2590,127 @@ export class SettingsPage extends LitElement {
     `;
   }
 
+  private async _refreshRepeaterAccessStatus() {
+    if (!this.hass) return;
+    this._repeaterStatus = await getLocalRepeaterStatus(
+      this.hass,
+      this.config?.entry_id,
+    );
+  }
+
+  private async _saveRepeaterPassword(kind: 'admin' | 'guest') {
+    if (!this.hass || !this._repeaterStatus?.server_auth?.supported) return;
+
+    const isAdmin = kind === 'admin';
+    const value = isAdmin ? this._adminPasswordDraft : this._guestPasswordDraft;
+    if (!value) return;
+
+    this._repeaterAccessBusy = kind;
+    try {
+      const result = await setDeviceConfig(
+        this.hass,
+        { [isAdmin ? 'admin_password' : 'guest_password']: value },
+        this.config?.entry_id,
+      );
+      if (!result.success) {
+        this._showStatusMessage(
+          result.error || 'Não foi possível guardar a password.',
+          'error',
+        );
+        return;
+      }
+
+      if (isAdmin) this._adminPasswordDraft = '';
+      else this._guestPasswordDraft = '';
+
+      await this._refreshRepeaterAccessStatus();
+      this._showStatusMessage(
+        (isAdmin ? 'Admin' : 'Guest') + ' password guardada e verificada.',
+        'success',
+      );
+    } catch (error) {
+      this._showStatusMessage('Acesso remoto: ' + String(error), 'error');
+    } finally {
+      this._repeaterAccessBusy = null;
+    }
+  }
+
+  private async _clearRepeaterPassword(kind: 'admin' | 'guest') {
+    if (!this.hass || !this._repeaterStatus?.server_auth?.supported) return;
+
+    const isAdmin = kind === 'admin';
+    this._repeaterAccessBusy = kind;
+    try {
+      const result = await setDeviceConfig(
+        this.hass,
+        { [isAdmin ? 'admin_password' : 'guest_password']: '' },
+        this.config?.entry_id,
+      );
+      if (!result.success) {
+        this._showStatusMessage(
+          result.error || 'Não foi possível limpar a password.',
+          'error',
+        );
+        return;
+      }
+
+      if (isAdmin) this._adminPasswordDraft = '';
+      else this._guestPasswordDraft = '';
+
+      await this._refreshRepeaterAccessStatus();
+      this._showStatusMessage(
+        (isAdmin ? 'Admin' : 'Guest') + ' password removida.',
+        'success',
+      );
+    } catch (error) {
+      this._showStatusMessage('Acesso remoto: ' + String(error), 'error');
+    } finally {
+      this._repeaterAccessBusy = null;
+    }
+  }
+
+  private _confirmClearRepeaterAcl() {
+    const count = this._repeaterStatus?.server_auth?.acl_count ?? 0;
+    if (!count) return;
+
+    this._confirmAction = {
+      title: 'Limpar ACL do Repeater',
+      message:
+        'Isto remove ' + count +
+        ' identidade(s) autorizada(s) da ACL persistente. ' +
+        'As passwords Admin/Guest não são alteradas. Os clientes terão de autenticar-se novamente.',
+      onConfirm: () => this._clearRepeaterAcl(),
+    };
+    this._confirmDialogOpen = true;
+  }
+
+  private async _clearRepeaterAcl() {
+    if (!this.hass || !this._repeaterStatus?.server_auth?.supported) return;
+
+    this._repeaterAccessBusy = 'acl';
+    try {
+      const result = await setDeviceConfig(
+        this.hass,
+        { clear_acl: true },
+        this.config?.entry_id,
+      );
+      if (!result.success) {
+        this._showStatusMessage(
+          result.error || 'Não foi possível limpar a ACL.',
+          'error',
+        );
+        return;
+      }
+
+      await this._refreshRepeaterAccessStatus();
+      this._showStatusMessage('ACL do Repeater limpa e verificada.', 'success');
+    } catch (error) {
+      this._showStatusMessage('ACL: ' + String(error), 'error');
+    } finally {
+      this._repeaterAccessBusy = null;
+    }
+  }
+
   private async _readDutyCycle() {
     if (!this.hass) return;
 
