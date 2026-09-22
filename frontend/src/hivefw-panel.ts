@@ -4447,7 +4447,7 @@ class HiveFWPanel extends BasePanel {
     login.addEventListener("click",async()=>{
       accessResult.textContent="A testar auto-login…";
       const result=await this.__remoteAdminCommand("get name",consoleOut);
-      accessResult.textContent=result?.success===false?"Acesso recusado":"Comando autenticado concluído; consulta o console.";
+      accessResult.textContent=result?.success===false?"Acesso recusado":"Comando autenticado concluído; consulta a Consola.";
     });
     const trace=makeButton("Path + Trace");
     trace.addEventListener("click",()=>void this.__remoteAdminTrace(device,accessResult));
@@ -4488,7 +4488,7 @@ class HiveFWPanel extends BasePanel {
 
     const consoleCard=document.createElement("section");
     consoleCard.style.cssText="margin-top:10px;padding:11px;border:1px solid var(--divider-color,#ddd);border-radius:10px;";
-    const consoleTitle=document.createElement("strong");consoleTitle.textContent="Console administrativo remoto";consoleTitle.style.cssText="display:block;margin-bottom:7px;font-size:12px;";
+    const consoleTitle=document.createElement("strong");consoleTitle.textContent="Consola administrativa remota";consoleTitle.style.cssText="display:block;margin-bottom:7px;font-size:12px;";
     const form=document.createElement("div");form.style.cssText="display:flex;gap:7px;";
     const input=document.createElement("input");
     input.type="text";input.placeholder="Comando CLI remoto…";
@@ -7181,7 +7181,7 @@ class HiveFWPanel extends BasePanel {
       this.__consoleHistoryIndex = this.__consoleCommandHistory.length;
       this.__consoleError = null;
     } catch (error) {
-      this.__consoleError = error?.message || "Não foi possível carregar o histórico da Console.";
+      this.__consoleError = error?.message || "Não foi possível carregar o histórico da Consola.";
     }
     if (this._activeTab === "console" && this.__consoleOverlay) {
       this.__renderConsole(this.__consoleOverlay);
@@ -7228,7 +7228,7 @@ class HiveFWPanel extends BasePanel {
       this.__consoleHistory = [];
       this.__consoleError = null;
     } catch (error) {
-      this.__consoleError = error?.message || "Não foi possível limpar a Console.";
+      this.__consoleError = error?.message || "Não foi possível limpar a Consola.";
     } finally {
       this.__consoleBusy = false;
       if (this._activeTab === "console" && this.__consoleOverlay) {
@@ -7261,10 +7261,10 @@ class HiveFWPanel extends BasePanel {
     const heading = document.createElement("div");
     const eyebrow = document.createElement("div");
     eyebrow.className = "mcr-eyebrow";
-    eyebrow.textContent = "⌨  HIVEFW · CONSOLE";
+    eyebrow.textContent = "⌨  HIVEFW · CONSOLA";
     const title = document.createElement("h1");
     title.className = "mcr-title";
-    title.textContent = "Console";
+    title.textContent = "Consola";
     const subtitle = document.createElement("p");
     subtitle.className = "mcr-subtitle";
     subtitle.textContent =
@@ -7515,7 +7515,7 @@ class HiveFWPanel extends BasePanel {
     const hint = document.createElement("div");
     hint.className = "hivefw-console-hint";
     hint.textContent =
-      "A Console usa o parser nativo do HiveFW. Comandos destrutivos ou de configuração são executados exatamente como escritos; usa-os apenas quando pretendes alterar o rádio.";
+      "A Consola usa o parser nativo do HiveFW. Comandos destrutivos ou de configuração são executados exatamente como escritos; usa-os apenas quando pretendes alterar o rádio.";
     commandCard.append(inputTitle, row, hint);
     if (this.__consoleError) {
       const error = document.createElement("div");
