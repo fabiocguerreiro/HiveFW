@@ -15,7 +15,6 @@ import {
   setFloodScopes,
   getRemoteRegions,
   setDeviceConfig,
-  executeLocal,
   executeRemote,
   subscribeIdentityChange,
   setLocationSource,
@@ -26,12 +25,8 @@ import type {
   SetDeviceConfigRenameResult,
 } from '../api';
 import '../components/confirm-dialog';
-import '../components/command-dialog';
-import '../components/node-summary';
 import { attachDialogA11y } from '../utils/dialog-a11y';
-import type { CompanionDeviceDescriptor } from '../components/node-summary';
 import { panelStyles } from '../styles';
-import { loadMeshcoreEntityRegistry, type EntityInfo } from '../utils/classify-entity';
 
 interface ConfirmAction {
   title: string;
@@ -140,27 +135,10 @@ export class SettingsPage extends LitElement {
   @state() private _adminPasswordDraft = '';
   @state() private _guestPasswordDraft = '';
   @state() private _repeaterAccessBusy: 'admin' | 'guest' | 'acl' | null = null;
-  @state() private _commandDialogOpen = false;
   @state() private _confirmAction: ConfirmAction | null = null;
   @state() private _confirmDialogOpen = false;
   @state() private _locationSource: 'gps' | 'manual' | 'ha_location' = 'manual';
   @state() private _importKeyValue = '';
-
-  // Entity registry cache and companion device entities
-  @state() private _deviceEntities: Record<string, EntityInfo[]> = {};
-  @state() private _meshcoreDeviceMap: Record<string, string> = {};
-  @state() private _entityRegistryLoaded = false;
-  @state() private _hiddenSensors: Record<string, string[]> = {};
-
-  // Context menu modal state
-  @state() private _contextMenu: { entityId: string; label: string; deviceKey: string } | null = null;
-  private _overlayPointerStarted = false;
-
-  // Settings modal
-  @state() private _settingsModalOpen = false;
-
-  // Key management modal
-  @state() private _keyManagementModalOpen = false;
 
   // Streaming identity-change flow (Regenerate / Import).
   @state() private _identityFlowState: IdentityFlowState = { kind: 'closed' };
@@ -173,36 +151,12 @@ export class SettingsPage extends LitElement {
   // panel reflects the new name immediately.
   @state() private _renameSuccess: SetDeviceConfigRenameResult | null = null;
 
-  // Hidden sensors modal
-  @state() private _hiddenSensorsModalKey: string | null = null;
-
   // Status toast
   @state() private _statusMessage: { text: string; type: 'success' | 'error' } | null = null;
   private _statusMessageTimeout: number | null = null;
 
   constructor() {
     super();
-    // Focus trap + Escape closes inline modals.
-    attachDialogA11y(this, {
-      isOpen: () => this._contextMenu !== null,
-      onEscape: () => this._closeContextMenu(),
-      getScope: () => this.shadowRoot?.querySelector('[data-a11y="tile-context"]'),
-    });
-    attachDialogA11y(this, {
-      isOpen: () => this._settingsModalOpen,
-      onEscape: () => this._closeSettingsModal(),
-      getScope: () => this.shadowRoot?.querySelector('[data-a11y="companion-settings"]'),
-    });
-    attachDialogA11y(this, {
-      isOpen: () => this._keyManagementModalOpen,
-      onEscape: () => this._closeKeyManagementModal(),
-      getScope: () => this.shadowRoot?.querySelector('[data-a11y="key-management"]'),
-    });
-    attachDialogA11y(this, {
-      isOpen: () => this._hiddenSensorsModalKey !== null,
-      onEscape: () => this._closeHiddenSensorsModal(),
-      getScope: () => this.shadowRoot?.querySelector('[data-a11y="hidden-sensors"]'),
-    });
     attachDialogA11y(this, {
       // Identity-flow modal is non-dismissible while in-flight; only
       // terminal states (success / failure) accept Escape via the
@@ -1164,7 +1118,6 @@ export class SettingsPage extends LitElement {
   connectedCallback() {
     super.connectedCallback();
     this._loadDeviceConfig();
-    this._loadHiddenSensors();
   }
 
   disconnectedCallback() {
@@ -1178,10 +1131,6 @@ export class SettingsPage extends LitElement {
   updated(changedProperties: Map<string, unknown>) {
     if (changedProperties.has('config')) {
       this._loadDeviceConfig();
-    }
-    // Load entity registry once hass is available
-    if (changedProperties.has('hass') && this.hass && !this._entityRegistryLoaded) {
-      this._loadEntityRegistry();
     }
   }
 
@@ -1332,82 +1281,6 @@ export class SettingsPage extends LitElement {
       </div>
 
       <!-- Modals & Dialogs -->
-      ${this._contextMenu ? html`
-        <div class="modal-overlay"
-             @pointerdown=${this._onOverlayPointerDown}
-             @click=${this._closeContextMenu}>
-          <div class="modal-card" data-a11y="tile-context"
-               role="dialog" aria-modal="true" aria-label="${this._contextMenu.label} actions"
-               @click=${(e: Event) => e.stopPropagation()}
-               @pointerdown=${(e: Event) => e.stopPropagation()}>
-            <div class="modal-header">
-              <span class="modal-title">${this._contextMenu.label}</span>
-              <button class="modal-close" aria-label="Close" @click=${this._closeContextMenu}
-                      @pointerdown=${(e: Event) => e.stopPropagation()}>&times;</button>
-            </div>
-            <div class="modal-body">
-              <button class="modal-action danger" @click=${this._hideSensorFromContext}>
-                <span class="modal-action-icon"><svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M12 7c2.76 0 5 2.24 5 5 0 .65-.13 1.26-.36 1.83l2.92 2.92c1.51-1.26 2.7-2.89 3.43-4.75-1.73-4.39-6-7.5-11-7.5-1.4 0-2.74.25-3.98.7l2.16 2.16C10.74 7.13 11.35 7 12 7zM2 4.27l2.28 2.28.46.46C3.08 8.3 1.78 10.02 1 12c1.73 4.39 6 7.5 11 7.5 1.55 0 3.03-.3 4.38-.84l.42.42L19.73 22 21 20.73 3.27 3 2 4.27zM7.53 9.8l1.55 1.55c-.05.21-.08.43-.08.65 0 1.66 1.34 3 3 3 .22 0 .44-.03.65-.08l1.55 1.55c-.67.33-1.41.53-2.2.53-2.76 0-5-2.24-5-5 0-.79.2-1.53.53-2.2zm4.31-.78l3.15 3.15.02-.16c0-1.66-1.34-3-3-3l-.17.01z"/></svg></span>
-                Hide Sensor
-              </button>
-            </div>
-          </div>
-        </div>
-      ` : nothing}
-
-      <!-- Settings Modal -->
-      ${this._settingsModalOpen ? html`
-        <div class="modal-overlay" @click=${this._closeSettingsModal}>
-          <div class="modal-card" data-a11y="companion-settings"
-               role="dialog" aria-modal="true" aria-label="Companion settings"
-               @click=${(e: Event) => e.stopPropagation()}>
-            <div class="modal-header">
-              <span class="modal-title">Companion Settings</span>
-              <button class="modal-close" aria-label="Close" @click=${this._closeSettingsModal}>&times;</button>
-            </div>
-            <div class="modal-body">
-              <button class="modal-action" @click=${this._openHiddenSensorsList}>
-                <span class="modal-action-icon"><svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M12 7c2.76 0 5 2.24 5 5 0 .65-.13 1.26-.36 1.83l2.92 2.92c1.51-1.26 2.7-2.89 3.43-4.75-1.73-4.39-6-7.5-11-7.5-1.4 0-2.74.25-3.98.7l2.16 2.16C10.74 7.13 11.35 7 12 7zM2 4.27l2.28 2.28.46.46C3.08 8.3 1.78 10.02 1 12c1.73 4.39 6 7.5 11 7.5 1.55 0 3.03-.3 4.38-.84l.42.42L19.73 22 21 20.73 3.27 3 2 4.27zM7.53 9.8l1.55 1.55c-.05.21-.08.43-.08.65 0 1.66 1.34 3 3 3 .22 0 .44-.03.65-.08l1.55 1.55c-.67.33-1.41.53-2.2.53-2.76 0-5-2.24-5-5 0-.79.2-1.53.53-2.2zm4.31-.78l3.15 3.15.02-.16c0-1.66-1.34-3-3-3l-.17.01z"/></svg></span>
-                View Hidden Sensors (${(this._hiddenSensors[this._getCompanionDeviceKey()] || []).length})
-              </button>
-
-              <div class="modal-divider"></div>
-
-              <button class="modal-action danger" @click=${this._handleRebootFromModal}>
-                <span class="modal-action-icon"><svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M17.65 6.35A7.958 7.958 0 0012 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0112 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg></span>
-                Reboot Device
-              </button>
-
-              <button class="modal-action danger" @click=${this._openKeyManagementModal}>
-                <span class="modal-action-icon"><svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M12.65 10a6 6 0 110 4H10v2H8v-2H6v-2h6.65zM17 14a2 2 0 100-4 2 2 0 000 4z"/></svg></span>
-                Key Management
-              </button>
-            </div>
-          </div>
-        </div>
-      ` : nothing}
-
-      <!-- Key Management Modal -->
-      ${this._keyManagementModalOpen ? html`
-        <div class="modal-overlay" @click=${this._closeKeyManagementModal}>
-          <div class="modal-card" data-a11y="key-management"
-               role="dialog" aria-modal="true" aria-label="Key management"
-               style="max-width: 440px;"
-               @click=${(e: Event) => e.stopPropagation()}>
-            <div class="modal-header">
-              <span class="modal-title">Key Management</span>
-              <button class="modal-close" aria-label="Close" @click=${this._closeKeyManagementModal}>&times;</button>
-            </div>
-            <div class="modal-body" style="padding: 16px 20px;">
-              ${this._renderIdentityManagement()}
-            </div>
-          </div>
-        </div>
-      ` : nothing}
-
-      <!-- Hidden Sensors Modal -->
-      ${this._hiddenSensorsModalKey ? this._renderHiddenSensorsModal() : nothing}
-
       <!-- Identity Flow Modal (streaming progress) -->
       ${this._renderIdentityFlowModal()}
 
@@ -1432,121 +1305,6 @@ export class SettingsPage extends LitElement {
         @cancel=${this._onConfirmCancel}>
       </meshcore-confirm-dialog>
 
-      <meshcore-command-dialog
-        .open=${this._commandDialogOpen}
-        .hass=${this.hass}
-        .entryId=${this.config?.entry_id}
-        ?isLocal=${true}
-        ?narrow=${this.narrow}
-        @close=${this._onCommandDialogClose}>
-      </meshcore-command-dialog>
-    `;
-  }
-
-  private _renderCompanionCard() {
-    if (!this.selectedDevice) return nothing;
-
-    const d = this.selectedDevice;
-    const isOnline = d.connected;
-    const deviceKey = this._getCompanionDeviceKey();
-    const entities = this._getCompanionEntities();
-    const hiddenCount = (this._hiddenSensors[deviceKey] || []).length;
-
-    // Added-node count shown as a compact header stat (was a hero tile).
-    const nodeCountInfo = entities.find((e) => e.entity_id.includes('node_count'));
-    const addedNodesState = nodeCountInfo
-      ? this.hass?.states[nodeCountInfo.entity_id]?.state
-      : undefined;
-    const addedNodes = addedNodesState
-      && addedNodesState !== 'unavailable'
-      && addedNodesState !== 'unknown'
-      ? addedNodesState
-      : undefined;
-
-    return html`
-      <div class="device-section" @tile-context-menu=${(e: CustomEvent) => this._onTileContextMenu(e, deviceKey)}>
-        <div class="companion-header">
-          <div class="section-title">
-            <div class="section-icon companion">
-              <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M9,2A1,1 0 0,0 8,3C8,8.67 8,14.33 8,20C8,21.11 8.89,22 10,22H15C16.11,22 17,21.11 17,20V9C17,7.89 16.11,7 15,7H10V3A1,1 0 0,0 9,2M10,9H15V13H10V9Z"/></svg>
-            </div>
-            <div>
-              <div class="device-name">${d.name}</div>
-              <div class="device-meta">
-                <span>HiveFW Companion-Repeater</span>
-                <span>Firmware: ${d.firmware || 'unknown'}</span>
-                <span>Key: ${d.pubkey_prefix}</span>
-                <span>Nós conhecidos: ${this.contactCount}</span>
-                <span>Canais: ${this.channelCount}</span>
-                ${addedNodes !== undefined
-                  ? html`<span>Added nodes: ${addedNodes}</span>`
-                  : nothing}
-              </div>
-            </div>
-          </div>
-          <div style="display:flex;align-items:center;gap:4px;">
-            <button class="settings-btn" @click=${() => (this._settingsModalOpen = true)} title="Device settings" aria-label="Device settings">
-              <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 00.12-.61l-1.92-3.32a.49.49 0 00-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 00-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.49.49 0 00-.59-.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.07.62-.07.94s.02.64.07.94l-2.03 1.58a.49.49 0 00-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
-            </button>
-          </div>
-        </div>
-
-        ${entities.length > 0
-          ? html`
-              <meshcore-node-summary
-                data-hive-native-cockpit="1"
-                .hass=${this.hass}
-                .device=${this._companionDescriptor(d)}
-                .entities=${entities}
-                .hiddenCount=${hiddenCount}
-                .repeaterStatus=${this._repeaterStatus}>
-              </meshcore-node-summary>
-            `
-          : nothing}
-
-        <div class="actions-row">
-          <button
-            class="apply-button"
-            style="flex:1 1 120px;"
-            ?disabled=${!isOnline}
-            @click=${() => this._executeCompanionAction('send_advert', undefined, 'Local Advert')}>
-            Local Advert
-          </button>
-          <button
-            class="apply-button"
-            style="flex:1 1 120px;"
-            ?disabled=${!isOnline}
-            @click=${() => this._executeCompanionAction('send_advert', {flood: true}, 'Flood Advert')}>
-            Flood Advert
-          </button>
-          <button
-            class="apply-button"
-            style="flex:1 1 120px;"
-            ?disabled=${!isOnline}
-            @click=${() => this._executeCompanionAction('set_time', {val: Math.floor(Date.now() / 1000)}, 'Sync Clock')}>
-            Sync Clock
-          </button>
-          <button
-            class="apply-button"
-            style="flex:1 1 100px;"
-            ?disabled=${!isOnline}
-            @click=${this._onCompanionTrace}>
-            Trace
-          </button>
-          <button
-            class="danger-button"
-            style="flex:1 1 100px;"
-            ?disabled=${!isOnline}
-            @click=${() => {
-              if (window.confirm('Reiniciar agora o HiveFW?')) {
-                void this._executeCompanionAction('reboot', undefined, 'Reboot');
-              }
-            }}>
-            Reboot
-          </button>
-        </div>
-
-      </div>
     `;
   }
 
@@ -1852,58 +1610,6 @@ export class SettingsPage extends LitElement {
       }
       this._firmwareBusy = false;
     }
-  }
-
-  private _renderHiddenSensorsModal() {
-    const deviceKey = this._hiddenSensorsModalKey!;
-    const hiddenIds = this._hiddenSensors[deviceKey] || [];
-
-    const hiddenItems = hiddenIds.map(eid => {
-      let label = eid;
-      for (const entities of Object.values(this._deviceEntities)) {
-        const found = entities.find(e => e.entity_id === eid);
-        if (found) {
-          label = found.label;
-          break;
-        }
-      }
-      return { entityId: eid, label };
-    });
-
-    return html`
-      <div class="modal-overlay" @click=${this._closeHiddenSensorsModal}>
-        <div class="modal-card" data-a11y="hidden-sensors"
-             role="dialog" aria-modal="true" aria-label="Hidden sensors"
-             @click=${(e: Event) => e.stopPropagation()}>
-          <div class="modal-header">
-            <span class="modal-title">Hidden Sensors</span>
-            <button class="modal-close" aria-label="Close" @click=${this._closeHiddenSensorsModal}>&times;</button>
-          </div>
-          <div class="modal-body">
-            ${hiddenItems.length === 0
-              ? html`<div class="empty-hidden">No hidden sensors</div>`
-              : hiddenItems.map(item => html`
-                  <div class="hidden-sensor-item">
-                    <div>
-                      <div class="hidden-sensor-name">${item.label}</div>
-                      <div class="hidden-sensor-id">${item.entityId}</div>
-                    </div>
-                    <button class="unhide-btn" @click=${() => this._unhideSensor(deviceKey, item.entityId)}>Unhide</button>
-                  </div>
-                `)}
-          </div>
-          ${hiddenItems.length > 1
-            ? html`
-                <div class="modal-footer">
-                  <button class="action-btn" @click=${() => {
-                    this._unhideAllSensors(deviceKey);
-                  }}>Unhide All</button>
-                </div>
-              `
-            : nothing}
-        </div>
-      </div>
-    `;
   }
 
   // _renderSection removed — replaced with always-visible card layout
@@ -3317,30 +3023,6 @@ export class SettingsPage extends LitElement {
     this._confirmDialogOpen = true;
   }
 
-  private _handleRebootFromModal() {
-    this._settingsModalOpen = false;
-    this._confirmAction = {
-      title: 'Reboot Device',
-      message: 'Are you sure you want to reboot the device? The device will be temporarily unavailable.',
-      onConfirm: () => this._executeDeviceCommand('reboot'),
-    };
-    this._confirmDialogOpen = true;
-  }
-
-  private async _executeDeviceCommand(command: string) {
-    if (!this.hass) return;
-    try {
-      const result = await executeLocal(this.hass, command, undefined, this.config?.entry_id);
-      if (!result.success) {
-        this._showStatusMessage(`Command failed: ${result.response}`, 'error');
-      } else {
-        this._showStatusMessage(`Device ${command} initiated`, 'success');
-      }
-    } catch (error) {
-      this._showStatusMessage(`Error: ${String(error)}`, 'error');
-    }
-  }
-
   private async _applyLocation() {
     if (!this.hass || !this._deviceConfig) return;
     this._saving = true;
@@ -3411,10 +3093,6 @@ export class SettingsPage extends LitElement {
       requireTyped: 'REGENERATE',
       onConfirm: async () => {
         if (!this.hass) return;
-        // Close the Key Management modal so the progress modal isn't
-        // stacked on top of a stale UI (the confirm dialog already
-        // closes via _onConfirmAction).
-        this._closeKeyManagementModal();
         this._startIdentityFlow('regenerate', {
           type: 'hivefw_integration/regenerate_identity',
           payload: this.config?.entry_id
@@ -3449,9 +3127,6 @@ export class SettingsPage extends LitElement {
   private async _importIdentityKey() {
     if (!this.hass || !this._importKeyValue.trim()) return;
     const sanitized = this._importKeyValue.trim().replace(/\s+/g, '');
-    // Close the Key Management modal so the progress modal isn't
-    // stacked on top of a stale UI.
-    this._closeKeyManagementModal();
     this._importKeyValue = '';
     const payload: Record<string, unknown> = { private_key: sanitized };
     if (this.config?.entry_id) payload.entry_id = this.config.entry_id;
@@ -3730,204 +3405,7 @@ export class SettingsPage extends LitElement {
     this._confirmAction = null;
   }
 
-  private _onCommandDialogClose() {
-    this._commandDialogOpen = false;
-  }
 
-  // ─── Companion Device Methods ──────────────────────────────────────
-
-  private async _loadEntityRegistry() {
-    if (!this.hass || this._entityRegistryLoaded) return;
-    this._entityRegistryLoaded = true;
-
-    try {
-      const { meshcoreDeviceMap, deviceEntities } = await loadMeshcoreEntityRegistry(this.hass);
-      this._meshcoreDeviceMap = meshcoreDeviceMap;
-      this._deviceEntities = deviceEntities;
-    } catch (err) {
-      console.error('Failed to load entity registry:', err);
-    }
-  }
-
-  private _getCompanionEntities(): EntityInfo[] {
-    if (!this.hass || !this.selectedDevice) return [];
-
-    const deviceKey = this._getCompanionDeviceKey();
-    const hidden = new Set(this._hiddenSensors[deviceKey] || []);
-
-    const entryId = this.selectedDevice.entry_id;
-    const haDeviceId = this._meshcoreDeviceMap[entryId];
-    if (haDeviceId && this._deviceEntities[haDeviceId]) {
-      return this._deviceEntities[haDeviceId].filter(e => !hidden.has(e.entity_id));
-    }
-
-    const prefix = this.selectedDevice.pubkey_prefix?.substring(0, 6)?.toLowerCase() || '';
-    if (!prefix) return [];
-
-    const results: EntityInfo[] = [];
-    for (const [deviceId, entities] of Object.entries(this._deviceEntities)) {
-      const isManagedDevice = Object.entries(this._meshcoreDeviceMap).some(
-        ([key, id]) => id === deviceId && (key.includes('_repeater_') || key.includes('_client_'))
-      );
-      if (isManagedDevice) continue;
-
-      for (const entity of entities) {
-        if (entity.entity_id.toLowerCase().includes(prefix) && !hidden.has(entity.entity_id)) {
-          results.push(entity);
-        }
-      }
-    }
-    return results.sort((a, b) => a.sortOrder - b.sortOrder);
-  }
-
-  private _getCompanionDeviceKey(): string {
-    return this.selectedDevice?.entry_id || 'companion';
-  }
-
-  /** Build the discriminated-union descriptor that node-summary expects.
-   *  selectedDevice is a MeshCoreDevice (different shape than ManagedDevice);
-   *  the synthesized object below adds the `type: 'companion'` discriminator
-   *  and projects the fields node-summary actually reads. */
-  private _companionDescriptor(d: MeshCoreDevice): CompanionDeviceDescriptor {
-    return {
-      type: 'companion',
-      name: d.name,
-      pubkey_prefix: d.pubkey_prefix,
-      connected: d.connected,
-      firmware: d.firmware,
-      entry_id: d.entry_id,
-    };
-  }
-
-  private _loadHiddenSensors() {
-    try {
-      const stored = localStorage.getItem('meshcore-hidden-sensors');
-      if (stored) {
-        this._hiddenSensors = JSON.parse(stored);
-      }
-    } catch {
-      this._hiddenSensors = {};
-    }
-  }
-
-  private _saveHiddenSensors() {
-    try {
-      localStorage.setItem('meshcore-hidden-sensors', JSON.stringify(this._hiddenSensors));
-    } catch {
-      // localStorage full or unavailable
-    }
-  }
-
-
-  private _hideSensor(deviceKey: string, entityId: string) {
-    const current = this._hiddenSensors[deviceKey] || [];
-    if (!current.includes(entityId)) {
-      this._hiddenSensors = {
-        ...this._hiddenSensors,
-        [deviceKey]: [...current, entityId],
-      };
-      this._saveHiddenSensors();
-    }
-  }
-
-  private _unhideSensor(deviceKey: string, entityId: string) {
-    const current = this._hiddenSensors[deviceKey] || [];
-    this._hiddenSensors = {
-      ...this._hiddenSensors,
-      [deviceKey]: current.filter(id => id !== entityId),
-    };
-    if (this._hiddenSensors[deviceKey].length === 0) {
-      const copy = { ...this._hiddenSensors };
-      delete copy[deviceKey];
-      this._hiddenSensors = copy;
-    }
-    this._saveHiddenSensors();
-  }
-
-  private _unhideAllSensors(deviceKey: string) {
-    const copy = { ...this._hiddenSensors };
-    delete copy[deviceKey];
-    this._hiddenSensors = copy;
-    this._saveHiddenSensors();
-  }
-
-  private async _executeCompanionAction(command: string, args?: Record<string, unknown>, label?: string) {
-    if (!this.hass) return;
-    const displayName = label || command;
-
-    try {
-      const result = await executeLocal(this.hass, command, args, this.config?.entry_id);
-      this._showStatusMessage(`Companion: ${displayName} → ${result.response || 'OK'}`, 'success');
-    } catch (error) {
-      this._showStatusMessage(`Companion: ${displayName} failed — ${String(error)}`, 'error');
-    }
-  }
-
-  // Trace button on the Companion quick-actions row.  Rather
-  // than reach into the contact list (which lives on hivefw-integration-panel),
-  // the page dispatches an event upward.  The panel opens the target-
-  // picker dialog, and on selection routes through the same trace-
-  // dialog open code path that nodes-tab uses.
-  private _onCompanionTrace = () => {
-    const entryId = this.selectedDevice?.entry_id;
-    this.dispatchEvent(new CustomEvent('companion-trace-requested', {
-      detail: { entryId },
-      bubbles: true,
-      composed: true,
-    }));
-  };
-
-  private _onTileContextMenu(e: CustomEvent, deviceKey: string) {
-    const { entityId, label } = e.detail;
-    this._contextMenu = { entityId, label, deviceKey };
-    this._overlayPointerStarted = false;
-  }
-
-  private _onOverlayPointerDown() {
-    this._overlayPointerStarted = true;
-  }
-
-  private _closeContextMenu() {
-    if (!this._overlayPointerStarted) return;
-    this._overlayPointerStarted = false;
-    this._contextMenu = null;
-  }
-
-  private _hideSensorFromContext() {
-    if (!this._contextMenu) return;
-    this._hideSensor(this._contextMenu.deviceKey, this._contextMenu.entityId);
-    this._showStatusMessage(`Hidden: ${this._contextMenu.label}`, 'success');
-    this._contextMenu = null;
-  }
-
-  private _closeSettingsModal() {
-    this._settingsModalOpen = false;
-  }
-
-  private _openHiddenSensorsList() {
-    this._hiddenSensorsModalKey = this._getCompanionDeviceKey();
-    this._settingsModalOpen = false;
-  }
-
-  private _closeHiddenSensorsModal() {
-    this._hiddenSensorsModalKey = null;
-  }
-
-  private _openCommandDialogForCompanion() {
-    this._commandDialogOpen = true;
-    this._settingsModalOpen = false;
-  }
-
-  private _openKeyManagementModal() {
-    this._keyManagementModalOpen = true;
-    this._settingsModalOpen = false;
-  }
-
-  private _closeKeyManagementModal() {
-    this._keyManagementModalOpen = false;
-  }
-
-  // _fireMoreInfo removed — not currently used in settings context
 }
 
 declare global {
