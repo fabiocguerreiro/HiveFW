@@ -143,18 +143,18 @@ describe('node-summary companion hero — Self Diagnostics ENABLED', () => {
 
   it('renders the rich repeater-style hero tiles', () => {
     const text = el.shadowRoot?.textContent ?? '';
-    expect(text).toContain('Battery');
-    expect(text).toContain('Last message strength'); // Signal tile
-    expect(text).toContain('Radio activity');         // derived from airtime/uptime
-    expect(text).toContain('Messages Sent');
-    expect(text).toContain('Messages Received');
-    expect(text).toContain('Location'); // real coords present -> tile shows
+    expect(text).toContain('Bateria');
+    expect(text).toContain('Sinal da última mensagem'); // Signal tile
+    expect(text).toContain('Atividade de rádio');         // derived from airtime/uptime
+    expect(text).toContain('Mensagens enviadas');
+    expect(text).toContain('Mensagens recebidas');
+    expect(text).toContain('Localização'); // real coords present -> tile shows
     // Mesh nodes moved to the Settings-tab header; no longer a hero tile.
     expect(text).not.toContain('Mesh nodes');
   });
 
   it('draws the battery tile exactly once (no double battery)', () => {
-    const batteryHeads = heroHeads(el).filter((t) => t.startsWith('Battery'));
+    const batteryHeads = heroHeads(el).filter((t) => t.startsWith('Bateria'));
     expect(batteryHeads).toHaveLength(1);
   });
 
@@ -200,7 +200,7 @@ describe('node-summary companion hero — Self Diagnostics ENABLED', () => {
     // Noise floor is rendered by the HiveFW aggregate card (noise + RSSI + SNR),
     // not by the native node-summary, so there is no duplicate native tile.
     expect(heroText).not.toContain('Noise floor');
-    expect(heroText).toContain('TX queue');
+    expect(heroText).toContain('Fila TX');
   });
 
   it('renders the radio fault flags as OK / Detected problem rows', () => {
@@ -227,18 +227,18 @@ describe('node-summary companion hero — Self Diagnostics DISABLED (graceful de
     const text = el.shadowRoot?.textContent ?? '';
     // Power tile removed entirely when there's no battery (no "USB / mains").
     expect(text).not.toContain('USB / mains');
-    expect(text).not.toContain('Battery');
+    expect(text).not.toContain('Bateria');
     // Mesh nodes moved to the header; Location hidden (no coordinates).
     expect(text).not.toContain('Mesh nodes');
-    expect(text).not.toContain('Location');
+    expect(text).not.toContain('Localização');
   });
 
   it('hides the diagnostic-dependent tiles when their entities are absent', () => {
     const text = el.shadowRoot?.textContent ?? '';
-    expect(text).not.toContain('Radio activity');
-    expect(text).not.toContain('Last message strength');
-    expect(text).not.toContain('Messages Sent');
-    expect(text).not.toContain('Messages Received');
+    expect(text).not.toContain('Atividade de rádio');
+    expect(text).not.toContain('Sinal da última mensagem');
+    expect(text).not.toContain('Mensagens enviadas');
+    expect(text).not.toContain('Mensagens recebidas');
   });
 });
 
@@ -250,9 +250,9 @@ describe('node-summary companion hero — Power tile visibility', () => {
     expect(text).not.toContain('USB / mains');
     const heads = Array.from(el.shadowRoot?.querySelectorAll('.hero-tile-head') ?? [])
       .map((h) => (h.textContent ?? '').trim());
-    expect(heads.some((t) => t.startsWith('Battery'))).toBe(false);
+    expect(heads.some((t) => t.startsWith('Bateria'))).toBe(false);
     // Other diagnostic tiles still render.
-    expect(text).toContain('Last message strength');
+    expect(text).toContain('Sinal da última mensagem');
     el.remove();
   });
 });
@@ -260,13 +260,13 @@ describe('node-summary companion hero — Power tile visibility', () => {
 describe('node-summary companion hero — Location tile visibility', () => {
   it('shows the Location tile when coordinates are present', async () => {
     const el = await mount([...BASE, ...LOCATION, ...DIAGNOSTICS]);
-    expect(el.shadowRoot?.textContent ?? '').toContain('Location');
+    expect(el.shadowRoot?.textContent ?? '').toContain('Localização');
     el.remove();
   });
 
   it('hides the Location tile for a 0,0 placeholder fix', async () => {
     const el = await mount([...BASE, ...LOCATION_BLANK, ...DIAGNOSTICS]);
-    expect(el.shadowRoot?.textContent ?? '').not.toContain('Location');
+    expect(el.shadowRoot?.textContent ?? '').not.toContain('Localização');
     el.remove();
   });
 });
