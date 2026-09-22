@@ -2531,6 +2531,35 @@ uint8_t MyMesh::onContactRequest(const ContactInfo &contact, uint32_t sender_tim
     return reply_offset;
   }
 
+  if (
+    is_repeater_session &&
+    data[0] == REQ_TYPE_GET_OWNER_INFO
+  ) {
+    memcpy(reply, &sender_timestamp, 4);
+
+    const int written =
+      snprintf(
+        (char*)&reply[4],
+        MAX_PACKET_PAYLOAD - 4,
+        "%s\n%s\n%s",
+        FIRMWARE_VERSION,
+        _prefs.node_name,
+        _prefs.owner_info
+      );
+
+    if (written < 0) {
+      return 0;
+    }
+
+    return (uint8_t)(
+      4 +
+      min(
+        (size_t)written,
+        (size_t)MAX_PACKET_PAYLOAD - 5
+      )
+    );
+  }
+
   if (data[0] == REQ_TYPE_GET_TELEMETRY_DATA) {
     if (len < 2) {
       return 0;
@@ -7331,6 +7360,15 @@ void MyMesh::checkSerialInterface() {
 }
 
 void MyMesh::loop() {
+  if (
+    remote_reboot_at &&
+    millisHasNowPassed(remote_reboot_at)
+  ) {
+    remote_reboot_at = 0;
+    board.reboot();
+    return;
+  }
+
   BaseChatMesh::loop();
 
   if (_cli_rescue) {
