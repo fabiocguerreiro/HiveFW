@@ -125,8 +125,11 @@ O Smart Advert do Repeater usa um **slot diário determinístico de 24 horas der
 - anúncios manuais Local/Flood não reiniciam nem alteram o slot automático;
 - o timestamp persistido representa apenas um Auto Advert realmente originado;
 - existe uma proteção independente `at-most-once` para impedir dois Auto Adverts em menos de 24 horas;
-- se o equipamento arrancar sem conseguir confirmar um Auto Advert nas últimas 24 horas, envia um advert de recuperação imediatamente;
-- se esse envio ficar fora do slot normal, um slot demasiado próximo é ignorado e o nó regressa automaticamente ao horário por hash em até 48 horas;
+- ao ativar o Auto Advert sem existir um envio automático confirmado nas últimas 24 horas, existe uma **janela de segurança de 5 minutos** antes do primeiro advert; se for desligado durante essa janela, nada é transmitido;
+- essa janela de ativação é persistida, por isso um reboot durante os 5 minutos não a contorna;
+- depois da janela de segurança, se continuar sem existir um Auto Advert nas últimas 24 horas, é enviado um advert de recuperação;
+- em reboots normais com Auto Advert já ativo há mais de 5 minutos, a recuperação continua imediata quando passaram 24 horas sem envio;
+- se o advert de recuperação ficar fora do slot normal, um slot demasiado próximo é ignorado e o nó regressa automaticamente ao horário por hash em até 48 horas;
 - no ESP32 o último Auto Advert é também espelhado em NVS.
 
 ### Vizinhos zero-hop

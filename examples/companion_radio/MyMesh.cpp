@@ -163,6 +163,7 @@ extern bool hivefw_set_ota_token(const char* token);
 // - state version 1 distinguishes this scheme from the old "seed timestamp"
 //   implementation that could store a reference without transmitting.
 static constexpr uint32_t HIVEFW_SMART_ADVERT_INTERVAL_SECONDS = 24UL * 60UL * 60UL;
+static constexpr uint32_t HIVEFW_SMART_ADVERT_ENABLE_GRACE_SECONDS = 5UL * 60UL;
 static constexpr uint32_t HIVEFW_SMART_ADVERT_VALID_EPOCH_MIN = 1577836800UL;
 static constexpr uint8_t HIVEFW_SMART_ADVERT_STATE_VERSION = 1;
 
@@ -3419,7 +3420,26 @@ void MyMesh::handleCmdFrame(size_t len) {
       // settings as the local display menu without a private command opcode.
       if (strcmp(sp, "auto_advert") == 0) {
         if (strcmp(np, "0") == 0 || strcmp(np, "1") == 0) {
-          _prefs.setAutoAdvertEn(np[0] == '1');
+          const bool was_enabled = _prefs.isAutoAdvertEn();
+          const bool enable = np[0] == '1';
+
+          _prefs.setAutoAdvertEn(enable);
+
+          if (!enable) {
+            _prefs.setAutoAdvertEnabledEpoch(0);
+          } else if (!was_enabled) {
+            const uint32_t now_epoch = getRTCClock()->getCurrentTime();
+            _prefs.setAutoAdvertEnabledEpoch(
+              now_epoch >= HIVEFW_SMART_ADVERT_VALID_EPOCH_MIN
+                ? now_epoch
+                : 0
+            );
+          }
+
+          // Any explicit transition invalidates the cached millis deadline.
+          // Re-enabling with no Auto Advert in the last 24 h will therefore
+          // enter the five-minute safety grace instead of transmitting now.
+          next_smart_advert = 0;
           savePrefs();
           success = true;
         }
@@ -5418,6 +5438,13 @@ void MyMesh::loop() {
     }
   } else {
     next_smart_advert = 0;
+
+    // Leaving the effective Auto Advert state arms a new activation grace for
+    // the next time both Repeater and Auto Advert are enabled.
+    if (_prefs.getAutoAdvertEnabledEpoch() != 0) {
+      _prefs.setAutoAdvertEnabledEpoch(0);
+      savePrefs();
+    }
   }
 
 #ifdef DISPLAY_CLASS
@@ -5557,14 +5584,28 @@ uint32_t MyMesh::getNextSmartAdvertEpoch(
   }
 
   // Boot/restart recovery: if we cannot prove an automatic advert happened in
-  // the previous 24 h, advertise immediately even when this is off the normal
-  // hash slot.
+  // the previous 24 h, an advert is due even when this is off the normal hash
+  // slot. A fresh OFF -> ON activation must, however, remain enabled for five
+  // minutes first. The activation timestamp is persisted, so rebooting during
+  // that grace period does not bypass the safeguard.
   if (
     last_epoch < HIVEFW_SMART_ADVERT_VALID_EPOCH_MIN ||
     last_epoch > now_epoch ||
     (now_epoch - last_epoch) >= HIVEFW_SMART_ADVERT_INTERVAL_SECONDS
   ) {
-    return now_epoch;
+    const uint32_t enabled_epoch = _prefs.getAutoAdvertEnabledEpoch();
+
+    if (
+      enabled_epoch < HIVEFW_SMART_ADVERT_VALID_EPOCH_MIN ||
+      enabled_epoch > now_epoch
+    ) {
+      return now_epoch + HIVEFW_SMART_ADVERT_ENABLE_GRACE_SECONDS;
+    }
+
+    const uint32_t grace_end =
+      enabled_epoch + HIVEFW_SMART_ADVERT_ENABLE_GRACE_SECONDS;
+
+    return now_epoch < grace_end ? grace_end : now_epoch;
   }
 
   // Normal operation follows the deterministic daily slot. If an off-slot
@@ -5596,6 +5637,18 @@ void MyMesh::updateSmartAdvertTimer() {
     // clock is usable; explicit clock sync also invalidates this timer.
     next_smart_advert = futureMillis(60UL * 1000UL);
     return;
+  }
+
+  // Seed the persisted activation timestamp lazily as well, so enabling Auto
+  // Advert from any UI path (not only CMD_SET_CUSTOM_VAR) gets the same
+  // five-minute safety grace.
+  const uint32_t enabled_epoch = _prefs.getAutoAdvertEnabledEpoch();
+  if (
+    enabled_epoch < HIVEFW_SMART_ADVERT_VALID_EPOCH_MIN ||
+    enabled_epoch > now_epoch
+  ) {
+    _prefs.setAutoAdvertEnabledEpoch(now_epoch);
+    savePrefs();
   }
 
   const uint32_t last_epoch = loadPersistedAutoAdvertEpoch();

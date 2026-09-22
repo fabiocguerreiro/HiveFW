@@ -31,7 +31,9 @@ pela mesma linha de Releases.
 - [x] Smart Advert com slot diário determinístico de 24 h derivado do hash do nó;
 - [x] persistência apenas do último Auto Advert realmente originado;
 - [x] proteção at-most-once para Auto Advert;
-- [x] advert de recuperação no arranque quando não existe envio confirmado nas últimas 24 h;
+- [x] janela de segurança de 5 min após ativar Auto Advert quando não existe envio confirmado nas últimas 24 h;
+- [x] persistência da janela de ativação para impedir bypass por reboot;
+- [x] advert de recuperação quando não existe envio confirmado nas últimas 24 h;
 - [x] realinhamento automático ao slot por hash em até 48 h após um advert de recuperação;
 - [x] tabela acumulada de vizinhos Repeater zero-hop;
 - [x] exclusão de Share Contact da deteção de vizinhos RF;
@@ -93,7 +95,7 @@ Continuar a observar/testar:
 - [ ] confirmar ausência de ligações duplicadas após vários reloads;
 - [ ] Backup + Restore completo num equipamento de teste;
 - [ ] restauro de identidade/private key;
-- [ ] Smart Advert durante vários dias, incluindo slot por hash, reboot fora do slot e recuperação após mais de 24 h sem envio;
+- [ ] Smart Advert durante vários dias, incluindo slot por hash, ativação/desativação durante a janela de 5 min, reboot durante a grace period e recuperação após mais de 24 h sem envio;
 - [ ] tabela de vizinhos com vários Repeaters zero-hop durante utilização prolongada;
 - [ ] diagnóstico CAD durante operação prolongada.
 
