@@ -3420,27 +3420,7 @@ void MyMesh::handleCmdFrame(size_t len) {
       // settings as the local display menu without a private command opcode.
       if (strcmp(sp, "auto_advert") == 0) {
         if (strcmp(np, "0") == 0 || strcmp(np, "1") == 0) {
-          const bool was_enabled = _prefs.isAutoAdvertEn();
-          const bool enable = np[0] == '1';
-
-          _prefs.setAutoAdvertEn(enable);
-
-          if (!enable) {
-            _prefs.setAutoAdvertEnabledEpoch(0);
-          } else if (!was_enabled) {
-            const uint32_t now_epoch = getRTCClock()->getCurrentTime();
-            _prefs.setAutoAdvertEnabledEpoch(
-              now_epoch >= HIVEFW_SMART_ADVERT_VALID_EPOCH_MIN
-                ? now_epoch
-                : 0
-            );
-          }
-
-          // Any explicit transition invalidates the cached millis deadline.
-          // Re-enabling with no Auto Advert in the last 24 h will therefore
-          // enter the five-minute safety grace instead of transmitting now.
-          next_smart_advert = 0;
-          savePrefs();
+          setAutoAdvertEnabled(np[0] == '1');
           success = true;
         }
       } else if (strcmp(sp, "duty_cycle") == 0) {
@@ -5577,11 +5557,13 @@ uint32_t MyMesh::getNextSmartAdvertEpoch(
   }
 
   // Version 0 belongs to the temporary seed-based implementation. Its stored
-  // timestamp did not necessarily represent a transmitted advert, so do not
-  // let it suppress the first advert after this migration.
-  if (_prefs.getAutoAdvertStateVersion() != HIVEFW_SMART_ADVERT_STATE_VERSION) {
-    return now_epoch;
-  }
+  // timestamp did not necessarily represent a transmitted advert. Treat that
+  // state exactly like "no confirmed Auto Advert in the last 24 h" so the
+  // five-minute activation grace still applies during migration.
+  const bool trusted_last_advert =
+    _prefs.getAutoAdvertStateVersion() == HIVEFW_SMART_ADVERT_STATE_VERSION &&
+    last_epoch >= HIVEFW_SMART_ADVERT_VALID_EPOCH_MIN &&
+    last_epoch <= now_epoch;
 
   // Boot/restart recovery: if we cannot prove an automatic advert happened in
   // the previous 24 h, an advert is due even when this is off the normal hash
@@ -5589,8 +5571,7 @@ uint32_t MyMesh::getNextSmartAdvertEpoch(
   // minutes first. The activation timestamp is persisted, so rebooting during
   // that grace period does not bypass the safeguard.
   if (
-    last_epoch < HIVEFW_SMART_ADVERT_VALID_EPOCH_MIN ||
-    last_epoch > now_epoch ||
+    !trusted_last_advert ||
     (now_epoch - last_epoch) >= HIVEFW_SMART_ADVERT_INTERVAL_SECONDS
   ) {
     const uint32_t enabled_epoch = _prefs.getAutoAdvertEnabledEpoch();
@@ -5622,6 +5603,62 @@ uint32_t MyMesh::getNextSmartAdvertEpoch(
   }
 
   return target_epoch;
+}
+
+void MyMesh::setAutoAdvertEnabled(bool enabled) {
+  const bool was_enabled = _prefs.isAutoAdvertEn();
+
+  // Re-applying the same state must not restart the five-minute grace window.
+  if (was_enabled == enabled) {
+    next_smart_advert = 0;
+    return;
+  }
+
+  _prefs.setAutoAdvertEn(enabled);
+
+  if (!enabled) {
+    _prefs.setAutoAdvertEnabledEpoch(0);
+  } else {
+    const uint32_t now_epoch = getRTCClock()->getCurrentTime();
+    _prefs.setAutoAdvertEnabledEpoch(
+      now_epoch >= HIVEFW_SMART_ADVERT_VALID_EPOCH_MIN
+        ? now_epoch
+        : 0
+    );
+  }
+
+  // Recalculate immediately from the new effective state. If no Auto Advert
+  // was confirmed in the last 24 h, this activation timestamp enforces the
+  // five-minute safety grace.
+  next_smart_advert = 0;
+  savePrefs();
+}
+
+bool MyMesh::getSmartAdvertSecondsUntilNext(uint32_t& seconds) {
+  seconds = 0;
+
+  if (!_prefs.isRepeatEn() || !_prefs.isAutoAdvertEn()) {
+    return false;
+  }
+
+  const uint32_t now_epoch = getRTCClock()->getCurrentTime();
+  if (now_epoch < HIVEFW_SMART_ADVERT_VALID_EPOCH_MIN) {
+    return false;
+  }
+
+  const uint32_t last_epoch = loadPersistedAutoAdvertEpoch();
+  const uint32_t next_epoch =
+    getNextSmartAdvertEpoch(now_epoch, last_epoch);
+
+  if (next_epoch == 0) {
+    return false;
+  }
+
+  seconds = next_epoch <= now_epoch
+    ? 0
+    : next_epoch - now_epoch;
+
+  return true;
 }
 
 void MyMesh::updateSmartAdvertTimer() {

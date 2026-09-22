@@ -16255,20 +16255,80 @@ public:
             bool auto_advert =
               !the_mesh.getNodePrefs()->isAutoAdvertEn();
 
-            the_mesh.getNodePrefs()->setAutoAdvertEn(
+            // Use the same transition path as Companion/HA so the persisted
+            // five-minute activation grace and scheduler state stay aligned.
+            the_mesh.setAutoAdvertEnabled(
               auto_advert
             );
-
-            the_mesh.savePrefs();
 
             _task->notify(UIEventType::ack);
 
-            _task->showAlert(
-              auto_advert
-                ? "AutoAdvert: ON"
-                : "AutoAdvert: OFF",
-              1000
-            );
+            if (!auto_advert) {
+
+              _task->showAlert(
+                "ADV: OFF",
+                1400
+              );
+
+            } else if (
+              !the_mesh.getNodePrefs()->isRepeatEn()
+            ) {
+
+              _task->showAlert(
+                "ADV: RPT OFF",
+                1800
+              );
+
+            } else {
+
+              uint32_t seconds_to_advert = 0;
+
+              if (
+                the_mesh.getSmartAdvertSecondsUntilNext(
+                  seconds_to_advert
+                )
+              ) {
+
+                // Round up partial minutes so a pending transmit never looks
+                // like 00(M) until it is genuinely due now.
+                uint32_t total_minutes =
+                  seconds_to_advert == 0
+                    ? 0
+                    : (seconds_to_advert + 59UL) / 60UL;
+
+                uint32_t days =
+                  total_minutes / (24UL * 60UL);
+
+                uint32_t hours =
+                  (total_minutes / 60UL) % 24UL;
+
+                uint32_t minutes =
+                  total_minutes % 60UL;
+
+                char advert_eta[40];
+
+                snprintf(
+                  advert_eta,
+                  sizeof(advert_eta),
+                  "ADV em: %lu(D)/%02lu(H)/%02lu(M)",
+                  (unsigned long)days,
+                  (unsigned long)hours,
+                  (unsigned long)minutes
+                );
+
+                _task->showAlert(
+                  advert_eta,
+                  2800
+                );
+
+              } else {
+
+                _task->showAlert(
+                  "ADV: aguarda hora",
+                  2200
+                );
+              }
+            }
 
             return true;
           }

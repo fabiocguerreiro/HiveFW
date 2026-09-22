@@ -127,6 +127,8 @@ public:
   mesh::Packet* createSelfAdvert(const char* name, double lat, double lon);
   unsigned long next_smart_advert;
   void updateSmartAdvertTimer();
+  void setAutoAdvertEnabled(bool enabled);
+  bool getSmartAdvertSecondsUntilNext(uint32_t& seconds);
   void enterCLIRescue();
 
   int  getRecentlyHeard(AdvertPath dest[], int max_num);

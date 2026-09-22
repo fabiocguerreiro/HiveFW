@@ -35,6 +35,7 @@ pela mesma linha de Releases.
 - [x] persistência da janela de ativação para impedir bypass por reboot;
 - [x] advert de recuperação quando não existe envio confirmado nas últimas 24 h;
 - [x] realinhamento automático ao slot por hash em até 48 h após um advert de recuperação;
+- [x] confirmação no Companion com ETA do próximo Smart Advert em D(D)/HH(H)/MM(M);
 - [x] tabela acumulada de vizinhos Repeater zero-hop;
 - [x] exclusão de Share Contact da deteção de vizinhos RF;
 - [x] diagnóstico e recuperação de CAD Timeout;
