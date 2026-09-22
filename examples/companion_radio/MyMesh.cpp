@@ -1242,6 +1242,19 @@ void MyMesh::onChannelDataRecv(const mesh::GroupChannel &channel, mesh::Packet *
 
 uint8_t MyMesh::onContactRequest(const ContactInfo &contact, uint32_t sender_timestamp, const uint8_t *data,
                                  uint8_t len, uint8_t *reply) {
+  // Reserved/transient contacts created by the Repeater login server must
+  // still exist in the ACL. This makes "Limpar ACL" revoke those sessions
+  // immediately without changing normal Companion contact behaviour.
+  if (
+    contact.type == ADV_TYPE_NONE &&
+    (
+      !_prefs.isRepeatEn() ||
+      repeater_acl.getClient(contact.id.pub_key, PUB_KEY_SIZE) == NULL
+    )
+  ) {
+    return 0;
+  }
+
   if (data[0] == REQ_TYPE_GET_TELEMETRY_DATA) {
     uint8_t permissions = 0;
     uint8_t cp = contact.flags >> 1; // LSB used as 'favourite' bit (so only use upper bits)
