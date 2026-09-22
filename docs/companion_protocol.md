@@ -1005,3 +1005,39 @@ MeshCore `simple_repeater` binary request family:
 `GET_NEIGHBOURS` reads the same `repeater_neighbours` table already used by
 the HiveFW Home Assistant **Vizinhos** page. It does not launch Discovery and
 does not maintain a second neighbour cache.
+
+
+## Anonymous Repeater discovery metadata and remote CLI
+
+HiveFW implements the remaining `simple_repeater` discovery/admin surfaces.
+
+Anonymous requests are accepted only while Repeater mode is enabled, only over
+DIRECT routing, and are protected by the same 4-per-180-second limiter used by
+the reference Repeater:
+
+| Request | ID | Response |
+| --- | ---: | --- |
+| `REGIONS` | `0x01` | Echoed request tag, Repeater clock, and the exported Region list. |
+| `OWNER` | `0x02` | Echoed request tag, Repeater clock, node name and persisted owner information. |
+| `BASIC/CLOCK` | `0x03` | Echoed request tag, Repeater clock and feature flags. |
+
+These requests carry an explicit reply path and do not require a login. They do
+not create a persistent ACL entry.
+
+Authenticated `GET_OWNER_INFO (0x07)` is also supported and returns
+`firmware version + node name + owner information`.
+
+### Remote CLI
+
+An authenticated Repeater ACL **Admin** may send `CLI_DATA` commands to HiveFW.
+The server applies timestamp replay protection and sends the result back as
+`CLI_DATA`. Reserved transient Repeater sessions are the only contacts for
+which inbound `CLI_DATA` is executed; normal Companion contacts continue to
+treat `CLI_DATA` as a command response.
+
+The HiveFW remote CLI covers the Repeater settings represented by HiveFW:
+identity/name, radio parameters, airtime/duty cycle, forwarding, RF delays,
+Flood Limits, Loop Detect, interference/AGC, RX gain, owner information,
+passwords/ACL permissions, clock, neighbours, adverts, statistics, RegionMap
+management and deferred reboot. Hardware-specific commands for features that
+HiveFW does not provide are rejected as unsupported rather than emulated.
