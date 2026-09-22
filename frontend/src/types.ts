@@ -444,6 +444,14 @@ export interface LocalRepeaterStatus {
   auto_advert: boolean;
   duty_cycle_supported: boolean;
   duty_cycle?: number;
+  smart_advert?: {
+    supported: boolean;
+    enabled: boolean;
+    tx_this_boot?: number | null;
+    last_epoch?: number | null;
+    next_epoch?: number | null;
+    remaining_seconds?: number | null;
+  };
   name: string;
   firmware: string;
   model: string;
@@ -489,6 +497,22 @@ export interface LocalRepeaterStatus {
     rx_delay?: number;
     airtime_factor?: number;
   };
+  routing?: {
+    supported: boolean;
+    flood_max?: number | null;
+    flood_max_unscoped?: number | null;
+    flood_max_advert?: number | null;
+    loop_detect?: number | null;
+  };
+  radio_guard?: {
+    supported: boolean;
+    cad_enabled: boolean;
+    interference_threshold?: number | null;
+    agc_reset_interval?: number | null;
+    rx_delay?: number | null;
+    flood_tx_delay?: number | null;
+    direct_tx_delay?: number | null;
+  };
   clock: {
     timestamp?: number;
     drift_seconds?: number;
@@ -503,5 +527,6 @@ export interface LocalRepeaterStatus {
     core?: Record<string, number | null>;
     radio?: Record<string, number | null>;
     packets?: Record<string, number | null>;
+    cad?: Record<string, number | null>;
   };
 }
