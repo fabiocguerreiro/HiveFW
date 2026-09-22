@@ -39,6 +39,7 @@ jobs:
         environment:
           # HiveFW supported hardware only.
           - Heltec_v3_companion_radio_wifi
+          - Heltec_v3_companion_radio_ble
           - Heltec_t114_companion_radio_ble
 
     steps:
