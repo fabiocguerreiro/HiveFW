@@ -1244,10 +1244,24 @@ export class SettingsPage extends LitElement {
           <!-- Companion Device Card (full width at top) -->
           ${this.selectedDevice ? this._renderCompanionCard() : nothing}
 
-          <!-- Standalone firmware manager directly below the main device card -->
+          <!-- Full-width Repeater setup directly below the Companion card. -->
+          ${this.selectedDevice ? html`
+            <div id="hive-repeater-settings-card"
+                 class="device-section"
+                 data-hive-native="repeater"
+                 style="margin-bottom:16px;">
+              <div class="card-title">Repeater Setup</div>
+              ${this._renderRepeaterSettings()}
+              <div style="height:1px;background:var(--divider-color);margin:16px 0;"></div>
+              <div style="font-size:13px;font-weight:600;margin-bottom:10px;">Regions &amp; Scopes</div>
+              ${this._renderRegionsScopes()}
+            </div>
+          ` : nothing}
+
+          <!-- Firmware manager is the third full-width card. -->
           ${this.selectedDevice ? this._renderFirmwareOta() : nothing}
 
-          <!-- Two-column grid for settings cards -->
+          <!-- Two-column grid for the remaining device settings cards -->
           <div class="settings-grid">
             <!-- Companion Information -->
             <div class="device-section">
@@ -1259,17 +1273,6 @@ export class SettingsPage extends LitElement {
             <div class="device-section">
               <div class="card-title">Radio</div>
               ${this._renderRadioSettings()}
-            </div>
-
-            <!-- HiveFW / integrated Repeater -->
-            <div id="hive-repeater-settings-card" class="device-section" data-hive-native="repeater">
-              <div class="card-title">Repeater</div>
-              ${this._renderRepeaterSettings()}
-            </div>
-
-            <div id="hive-regions-scopes-card" class="device-section" data-hive-native="regions-scopes">
-              <div class="card-title">Regions &amp; Scopes</div>
-              ${this._renderRegionsScopes()}
             </div>
 
             <!-- Local observability/RX hosts are part of the native layout so
