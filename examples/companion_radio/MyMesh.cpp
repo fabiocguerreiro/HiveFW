@@ -56,7 +56,8 @@ extern bool hivefw_set_ota_token(const char* token);
 #define CMD_GET_TUNING_PARAMS         43
 #define CMD_GET_HIVE_NEIGHBOURS       44   // HiveFW local neighbour-table page
 #define CMD_GET_REPEATER_RF_CONFIG     45   // HiveFW local CAD/interference/AGC/delays
-// NOTE: CMD range 46..49 parked for future local extensions
+#define CMD_GET_REPEATER_AUTH_CONFIG   46   // HiveFW local Repeater login/ACL status
+// NOTE: CMD range 47..49 parked for future local extensions
 #define CMD_SEND_BINARY_REQ           50
 #define CMD_FACTORY_RESET             51
 #define CMD_SEND_PATH_DISCOVERY_REQ   52
@@ -115,6 +116,8 @@ extern bool hivefw_set_ota_token(const char* token);
 #define DIRECT_SEND_PERHOP_FACTOR       6.0f
 #define DIRECT_SEND_PERHOP_EXTRA_MILLIS 250
 #define LAZY_CONTACTS_WRITE_DELAY       5000
+#define HIVEFW_REPEATER_RESPONSE_DELAY   300
+#define HIVEFW_REPEATER_FW_LEVEL           2
 
 #ifndef CTL_TYPE_NODE_DISCOVER_REQ
 #define CTL_TYPE_NODE_DISCOVER_REQ   0x80
@@ -1475,6 +1478,265 @@ bool MyMesh::onContactPathRecv(ContactInfo& contact, uint8_t* in_path, uint8_t i
   return BaseChatMesh::onContactPathRecv(contact, in_path, in_path_len, out_path, out_path_len, extra_type, extra, extra_len);
 }
 
+ContactInfo* MyMesh::ensureRepeaterLoginContact(
+  const mesh::Identity& sender
+) {
+  ContactInfo* contact =
+    lookupContactByPubKey(sender.pub_key, PUB_KEY_SIZE);
+
+  if (contact != NULL) {
+    contact->lastmod = getRTCClock()->getCurrentTime();
+    return contact;
+  }
+
+  ContactInfo transient;
+  memset(&transient, 0, sizeof(transient));
+  transient.id = sender;
+  transient.type = ADV_TYPE_NONE;
+  transient.out_path_len = OUT_PATH_UNKNOWN;
+  transient.lastmod = getRTCClock()->getCurrentTime();
+  transient.shared_secret_valid = false;
+
+  if (!addContact(transient)) {
+    return NULL;
+  }
+
+  return lookupContactByPubKey(sender.pub_key, PUB_KEY_SIZE);
+}
+
+
+uint8_t MyMesh::handleRepeaterLoginReq(
+  const mesh::Identity& sender,
+  const uint8_t* secret,
+  uint32_t sender_timestamp,
+  const uint8_t* password,
+  bool is_flood,
+  uint8_t* reply
+) {
+  ClientInfo* client = NULL;
+
+  // An empty password is only a re-login for an identity already present in
+  // the persistent ACL. It never grants first-time access.
+  if (password[0] == '\0') {
+    client = repeater_acl.getClient(sender.pub_key, PUB_KEY_SIZE);
+  }
+
+  if (client == NULL) {
+    uint8_t permissions = PERM_ACL_GUEST;
+    const char* admin_password = _prefs.getRepeaterAdminPassword();
+    const char* guest_password = _prefs.getRepeaterGuestPassword();
+
+    if (
+      admin_password[0] != '\0' &&
+      strcmp((const char*)password, admin_password) == 0
+    ) {
+      permissions = PERM_ACL_ADMIN;
+    } else if (
+      guest_password[0] != '\0' &&
+      strcmp((const char*)password, guest_password) == 0
+    ) {
+      permissions = PERM_ACL_GUEST;
+    } else {
+      return 0;
+    }
+
+    client = repeater_acl.putClient(sender, 0);
+    if (client == NULL || sender_timestamp <= client->last_timestamp) {
+      return 0;
+    }
+
+    client->last_timestamp = sender_timestamp;
+    client->last_activity = getRTCClock()->getCurrentTime();
+    client->permissions &= ~PERM_ACL_ROLE_MASK;
+    client->permissions |= permissions;
+    memcpy(client->shared_secret, secret, PUB_KEY_SIZE);
+
+    // Guest sessions are intentionally transient, matching simple_repeater.
+    if (permissions != PERM_ACL_GUEST) {
+      repeater_acl.save(_store->getPrimaryFS());
+    }
+  }
+
+  if (is_flood) {
+    client->out_path_len = OUT_PATH_UNKNOWN;
+  }
+
+  // BaseChatMesh performs encrypted peer matching. Seed one of its reserved
+  // transient contacts so authenticated Repeater clients can use the normal
+  // peer crypto path without replacing Companion contacts.
+  if (ensureRepeaterLoginContact(sender) == NULL) {
+    return 0;
+  }
+
+  uint32_t now = getRTCClock()->getCurrentTimeUnique();
+  memcpy(reply, &now, 4);
+  reply[4] = RESP_SERVER_LOGIN_OK;
+  reply[5] = 0;  // legacy keep-alive recommendation
+  reply[6] = client->isAdmin() ? 1 : 0;
+  reply[7] = client->permissions;
+  getRNG()->random(&reply[8], 4);
+  reply[12] = HIVEFW_REPEATER_FW_LEVEL;
+
+  return 13;
+}
+
+
+void MyMesh::sendRepeaterFloodReply(
+  mesh::Packet* packet,
+  uint32_t delay_millis,
+  uint8_t path_hash_size
+) {
+  TransportKey request_scope;
+  const bool is_wildcard =
+    recv_pkt_region != NULL && recv_pkt_region->isWildcard();
+  const bool request_scope_known =
+    recv_pkt_region != NULL &&
+    !is_wildcard &&
+    region_map.getTransportKeysFor(
+      *recv_pkt_region,
+      &request_scope,
+      1
+    ) > 0;
+
+  TransportKey default_scope;
+  memcpy(
+    default_scope.key,
+    _prefs.default_scope_key,
+    sizeof(default_scope.key)
+  );
+
+  switch (
+    mesh::chooseReplyScope(
+      request_scope_known,
+      is_wildcard,
+      !default_scope.isNull()
+    )
+  ) {
+    case mesh::REPLY_SCOPE_REQUEST:
+      sendFloodScoped(
+        request_scope,
+        packet,
+        delay_millis
+      );
+      break;
+
+    case mesh::REPLY_SCOPE_DEFAULT:
+      sendFloodScoped(
+        default_scope,
+        packet,
+        delay_millis
+      );
+      break;
+
+    case mesh::REPLY_SCOPE_NONE:
+    default:
+      sendFlood(
+        packet,
+        delay_millis,
+        path_hash_size
+      );
+      break;
+  }
+}
+
+
+void MyMesh::onAnonDataRecv(
+  mesh::Packet* packet,
+  const uint8_t* secret,
+  const mesh::Identity& sender,
+  uint8_t* data,
+  size_t len
+) {
+  if (
+    !_prefs.isRepeatEn() ||
+    packet->getPayloadType() != PAYLOAD_TYPE_ANON_REQ ||
+    len < 5
+  ) {
+    return;
+  }
+
+  uint32_t sender_timestamp = 0;
+  memcpy(&sender_timestamp, data, 4);
+
+  // Point 4 implements the Repeater login server. Binary anonymous OWNER /
+  // REGIONS / CLOCK requests are intentionally left for roadmap point 6.
+  if (!(data[4] == 0 || data[4] >= ' ')) {
+    return;
+  }
+
+  data[len] = 0;
+
+  uint8_t reply_data[16];
+  const uint8_t reply_len =
+    handleRepeaterLoginReq(
+      sender,
+      secret,
+      sender_timestamp,
+      &data[4],
+      packet->isRouteFlood(),
+      reply_data
+    );
+
+  if (reply_len == 0) {
+    return;
+  }
+
+  ContactInfo* contact =
+    lookupContactByPubKey(sender.pub_key, PUB_KEY_SIZE);
+
+  if (packet->isRouteFlood()) {
+    mesh::Packet* path = createPathReturn(
+      sender,
+      secret,
+      packet->path,
+      packet->path_len,
+      PAYLOAD_TYPE_RESPONSE,
+      reply_data,
+      reply_len
+    );
+
+    if (path != NULL) {
+      sendRepeaterFloodReply(
+        path,
+        HIVEFW_REPEATER_RESPONSE_DELAY,
+        packet->getPathHashSize()
+      );
+    }
+    return;
+  }
+
+  mesh::Packet* reply = createDatagram(
+    PAYLOAD_TYPE_RESPONSE,
+    sender,
+    secret,
+    reply_data,
+    reply_len
+  );
+
+  if (reply == NULL) {
+    return;
+  }
+
+  if (
+    contact != NULL &&
+    contact->out_path_len != OUT_PATH_UNKNOWN
+  ) {
+    sendDirect(
+      reply,
+      contact->out_path,
+      contact->out_path_len,
+      HIVEFW_REPEATER_RESPONSE_DELAY
+    );
+  } else {
+    sendRepeaterFloodReply(
+      reply,
+      HIVEFW_REPEATER_RESPONSE_DELAY,
+      packet->getPathHashSize()
+    );
+  }
+}
+
+
 void MyMesh::onControlDataRecv(mesh::Packet *packet) {
   // Node Discovery is exclusively a Repeater feature.
   // Normal Companion control-data handling remains unchanged.
@@ -2390,6 +2652,11 @@ void MyMesh::begin(bool has_display) {
 
   // load persisted prefs
   _store->loadPrefs(_prefs);
+
+  // Repeater server ACL is deliberately separate from Companion contacts.
+  // It uses the same persistent format as MeshCore simple_repeater.
+  repeater_acl.load(_store->getPrimaryFS(), self_id);
+
   sensors.node_lat = _prefs.node_lat;
   sensors.node_lon = _prefs.node_lon;
 
@@ -3628,6 +3895,31 @@ void MyMesh::handleCmdFrame(size_t len) {
           savePrefs();
           success = true;
         }
+      } else if (
+        strcmp(sp, "admin_pw") == 0 ||
+        strcmp(sp, "guest_pw") == 0
+      ) {
+        const size_t password_len = strlen(np);
+        bool printable = password_len <= 15;
+
+        for (size_t i = 0; printable && i < password_len; ++i) {
+          const uint8_t ch = (uint8_t)np[i];
+          printable = ch >= 0x20 && ch <= 0x7E;
+        }
+
+        if (printable) {
+          if (strcmp(sp, "admin_pw") == 0) {
+            _prefs.setRepeaterAdminPassword(np);
+          } else {
+            _prefs.setRepeaterGuestPassword(np);
+          }
+          savePrefs();
+          success = true;
+        }
+      } else if (strcmp(sp, "acl_clear") == 0) {
+        if (strcmp(np, "1") == 0) {
+          success = repeater_acl.clear();
+        }
       } else if (strcmp(sp, "duty_cycle") == 0) {
         char *endp = nullptr;
         long duty = strtol(np, &endp, 10);
@@ -3820,6 +4112,28 @@ void MyMesh::handleCmdFrame(size_t len) {
       (long)(_prefs.rx_delay_base * 1000.0f + 0.5f),
       (long)(_prefs.tx_delay_factor * 1000.0f + 0.5f),
       (long)(_prefs.direct_tx_delay_factor * 1000.0f + 0.5f)
+    );
+
+    if (
+      written < 0 ||
+      written >= (int)(sizeof(out_frame) - 1)
+    ) {
+      writeErrFrame(ERR_CODE_BAD_STATE);
+    } else {
+      _serial->writeFrame(out_frame, 1 + written);
+    }
+
+  } else if (cmd_frame[0] == CMD_GET_REPEATER_AUTH_CONFIG) {
+    // Passwords are write-only. Only configuration booleans and ACL count
+    // leave the radio over the local Companion transport.
+    out_frame[0] = RESP_CODE_CUSTOM_VARS;
+    const int written = snprintf(
+      (char*)&out_frame[1],
+      sizeof(out_frame) - 1,
+      "adm:%u,gst:%u,acl:%d",
+      _prefs.getRepeaterAdminPassword()[0] != '\0' ? 1U : 0U,
+      _prefs.getRepeaterGuestPassword()[0] != '\0' ? 1U : 0U,
+      repeater_acl.getNumClients()
     );
 
     if (
