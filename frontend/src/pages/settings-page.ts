@@ -1241,12 +1241,6 @@ export class SettingsPage extends LitElement {
 
           <!-- Two-column grid for the remaining device settings cards -->
           <div class="settings-grid">
-            <!-- Companion Information -->
-            <div class="device-section">
-              <div class="card-title">General</div>
-              ${this._renderDeviceInfo()}
-            </div>
-
             <!-- Radio & RF Settings -->
             <div class="device-section">
               <div class="card-title">Radio</div>
@@ -1614,60 +1608,6 @@ export class SettingsPage extends LitElement {
 
   // _renderSection removed — replaced with always-visible card layout
 
-  private _renderDeviceInfo() {
-    if (!this._deviceConfig) return;
-
-    return html`
-      <div class="info-row">
-        <span class="info-label">Hardware Model</span>
-        <span class="info-value">${this._deviceConfig.hardware_model}</span>
-      </div>
-
-      <div class="info-row">
-        <span class="info-label">Public Key</span>
-        <span class="info-value" style="display: flex; align-items: center; gap: 6px;">
-          ${this._deviceConfig.pubkey}
-          <button
-            style="border: none; background: none; cursor: pointer; padding: 2px; color: var(--secondary-text-color); display: flex; align-items: center;"
-            title="Copy public key"
-            @click=${() => this._copyToClipboard(this._deviceConfig!.pubkey)}>
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>
-          </button>
-        </span>
-      </div>
-
-      ${this._deviceConfig.connection_type ? html`
-        <div class="info-row">
-          <span class="info-label">Connection</span>
-          <span class="info-value">${this._deviceConfig.connection_type.toUpperCase()}${this._deviceConfig.connection_address ? html` — ${this._deviceConfig.connection_address}` : ''}</span>
-        </div>
-      ` : ''}
-
-      <div class="danger-zone" style="margin-top: 16px;">
-        <div class="danger-zone-title">Rename Device</div>
-        <div style="font-size: 12px; color: var(--secondary-text-color); margin-bottom: 8px;">
-          Changing the device name will change all entity IDs. Automations, scripts, and dashboards using current entity IDs will need to be updated.
-        </div>
-        <div style="display: flex; gap: 8px;">
-          <input
-            type="text"
-            class="form-input"
-            style="flex: 1;"
-            .value=${this._editValues['name'] ?? this._deviceConfig.name}
-            @input=${(e: Event) => {
-              this._editValues['name'] = (e.target as HTMLInputElement).value;
-            }}
-          />
-          <button class="danger-button"
-            ?disabled=${!this._editValues['name'] || this._editValues['name'] === this._deviceConfig.name}
-            @click=${this._handleNameSave}>
-            Rename
-          </button>
-        </div>
-      </div>
-    `;
-  }
-
   private _renderRadioSettings() {
     if (!this._deviceConfig) return;
 
@@ -1677,6 +1617,7 @@ export class SettingsPage extends LitElement {
       'bandwidth',
       'spreading_factor',
       'coding_rate',
+      'path_hash_mode',
     ]);
 
     return html`
@@ -1748,6 +1689,19 @@ export class SettingsPage extends LitElement {
             ${[5, 6, 7, 8].map((cr) => {
               const current = this._editValues['coding_rate'] ?? this._deviceConfig!.coding_rate ?? 5;
               return html`<option value=${cr} ?selected=${Number(current) === cr}>${cr}</option>`;
+            })}
+          </select>
+        </div>
+        <div class="form-group-inline">
+          <label class="form-label">Path Hash Mode</label>
+          <select
+            class="form-select"
+            @change=${(e: Event) => {
+              this._editValues['path_hash_mode'] = Number((e.target as HTMLSelectElement).value);
+            }}>
+            ${[[0, '0 - 1 byte'], [1, '1 - 2 byte'], [2, '2 - 3 byte']].map(([val, label]) => {
+              const current = this._editValues['path_hash_mode'] ?? this._deviceConfig!.path_hash_mode ?? 0;
+              return html`<option value=${val} ?selected=${Number(current) === val}>${label}</option>`;
             })}
           </select>
         </div>
@@ -2241,39 +2195,8 @@ export class SettingsPage extends LitElement {
     const agcResetInterval = Number(this._editValues['agc_reset_interval'] ?? radioGuard?.agc_reset_interval ?? 0);
     const floodTxDelay = Number(this._editValues['flood_tx_delay'] ?? radioGuard?.flood_tx_delay ?? 0.5);
     const directTxDelay = Number(this._editValues['direct_tx_delay'] ?? radioGuard?.direct_tx_delay ?? 0.3);
-    const pathHashMode = Number(this._editValues['path_hash_mode'] ?? status.radio.path_hash_mode ?? this._deviceConfig?.path_hash_mode ?? 0);
 
     return html`
-      <div class="section-row">
-        <div class="form-group-inline">
-          <label class="form-label">Multi ACK</label>
-          <select
-            class="form-select"
-            .value=${String(multiAcks)}
-            @change=${(e: Event) => {
-              this._editValues['multi_acks'] = Number((e.target as HTMLSelectElement).value);
-              this._editValues = { ...this._editValues };
-            }}>
-            <option value="0">Desligado</option>
-            <option value="1">Ligado</option>
-          </select>
-        </div>
-        <div class="form-group-inline">
-          <label class="form-label">Path Hash Mode</label>
-          <select
-            class="form-select"
-            .value=${String(pathHashMode)}
-            @change=${(e: Event) => {
-              this._editValues['path_hash_mode'] = Number((e.target as HTMLSelectElement).value);
-              this._editValues = { ...this._editValues };
-            }}>
-            <option value="0">0 - 1 byte</option>
-            <option value="1">1 - 2 bytes</option>
-            <option value="2">2 - 3 bytes</option>
-          </select>
-        </div>
-      </div>
-
       <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;padding:10px 12px;border-radius:8px;background:var(--secondary-background-color);">
         <div>
           <div style="font-size:13px;font-weight:600;">Modo Repetidor</div>
@@ -2315,6 +2238,28 @@ export class SettingsPage extends LitElement {
           />
           ${autoAdvert ? 'Ativo' : 'Desligado'}
         </label>
+      </div>
+
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;padding:10px 12px;border-radius:8px;background:var(--secondary-background-color);">
+        <div>
+          <div style="font-size:13px;font-weight:600;">RX Delay</div>
+          <div style="font-size:11px;color:var(--secondary-text-color);margin-top:2px;">
+            Atraso base de receção/retransmissão do Repeater.
+          </div>
+        </div>
+        <input
+          class="form-input"
+          style="width:auto;min-width:130px;max-width:180px;"
+          type="number"
+          min="0"
+          max="20"
+          step="0.001"
+          .value=${String(rxDelay)}
+          @input=${(e: Event) => {
+            this._editValues['rx_delay'] = Number((e.target as HTMLInputElement).value);
+            this._editValues = { ...this._editValues };
+          }}
+        />
       </div>
 
       <div class="repeater-setup-grid">
@@ -2367,6 +2312,18 @@ export class SettingsPage extends LitElement {
                   <option value="3">Strict</option>
                 </select>
               </div>
+              <div>
+                <label class="form-label">Multi ACK</label>
+                <select class="form-select"
+                  .value=${String(multiAcks)}
+                  @change=${(e: Event) => {
+                    this._editValues['multi_acks'] = Number((e.target as HTMLSelectElement).value);
+                    this._editValues = { ...this._editValues };
+                  }}>
+                  <option value="0">Desligado</option>
+                  <option value="1">Ligado</option>
+                </select>
+              </div>
             </div>
           ` : html`
             <div style="font-size:11px;color:var(--secondary-text-color);">
@@ -2410,15 +2367,6 @@ export class SettingsPage extends LitElement {
                   .value=${String(agcResetInterval)}
                   @input=${(e: Event) => {
                     this._editValues['agc_reset_interval'] = Number((e.target as HTMLInputElement).value);
-                    this._editValues = { ...this._editValues };
-                  }} />
-              </div>
-              <div>
-                <label class="form-label">RX Delay</label>
-                <input class="form-input" type="number" min="0" max="20" step="0.001"
-                  .value=${String(rxDelay)}
-                  @input=${(e: Event) => {
-                    this._editValues['rx_delay'] = Number((e.target as HTMLInputElement).value);
                     this._editValues = { ...this._editValues };
                   }} />
               </div>
@@ -2610,7 +2558,7 @@ export class SettingsPage extends LitElement {
       </div>
 
       <div style="margin-top:10px;font-size:11px;color:var(--secondary-text-color);line-height:1.45;">
-        Frequência, BW, SF, CR, TX Power e Path Hash continuam no cartão Radio acima;
+        Frequência, BW, SF, CR, TX Power e Path Hash pertencem ao cartão Radio;
         adverts, sync de relógio e reboot continuam no cartão do Companion.
       </div>
     `;
@@ -2843,7 +2791,6 @@ export class SettingsPage extends LitElement {
         'repeat',
         'auto_advert',
         'multi_acks',
-        'path_hash_mode',
         'rx_delay',
         'flood_max',
         'flood_max_unscoped',
@@ -2871,8 +2818,32 @@ export class SettingsPage extends LitElement {
   }
 
   private _renderIdentityManagement() {
+    if (!this._deviceConfig) return nothing;
+
     return html`
       <div style="display: flex; flex-direction: column; gap: 16px;">
+        <div class="danger-zone" style="margin-top: 0;">
+          <div class="danger-zone-title">Rename Device</div>
+          <div style="font-size: 12px; color: var(--secondary-text-color); margin-bottom: 8px;">
+            Changing the device name will change all entity IDs. Automations, scripts, and dashboards using current entity IDs will need to be updated.
+          </div>
+          <div style="display: flex; gap: 8px;">
+            <input
+              type="text"
+              class="form-input"
+              style="flex: 1;"
+              .value=${this._editValues['name'] ?? this._deviceConfig.name}
+              @input=${(e: Event) => {
+                this._editValues['name'] = (e.target as HTMLInputElement).value;
+              }}
+            />
+            <button class="danger-button"
+              ?disabled=${!this._editValues['name'] || this._editValues['name'] === this._deviceConfig.name}
+              @click=${this._handleNameSave}>
+              Rename
+            </button>
+          </div>
+        </div>
         <div class="danger-zone" style="margin-top: 0;">
           <div class="danger-zone-title">Regenerate Identity</div>
           <div style="font-size: 12px; color: var(--secondary-text-color); margin-bottom: 8px;">
@@ -2928,7 +2899,7 @@ export class SettingsPage extends LitElement {
         keysToApply = ['name'];
         break;
       case 'radio-settings':
-        keysToApply = ['tx_power', 'frequency', 'bandwidth', 'spreading_factor', 'coding_rate'];
+        keysToApply = ['tx_power', 'frequency', 'bandwidth', 'spreading_factor', 'coding_rate', 'path_hash_mode'];
         break;
     }
 
