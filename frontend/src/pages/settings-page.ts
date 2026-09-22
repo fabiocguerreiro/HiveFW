@@ -2302,22 +2302,24 @@ export class SettingsPage extends LitElement {
 
       <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;padding:10px 12px;border-radius:8px;background:var(--secondary-background-color);">
         <div>
-          <div style="font-size:13px;font-weight:600;">Multi ACK</div>
+          <div style="font-size:13px;font-weight:600;">RX Delay</div>
           <div style="font-size:11px;color:var(--secondary-text-color);margin-top:2px;">
-            Confirmações múltiplas do Repeater.
+            Atraso base de receção/retransmissão do Repeater.
           </div>
         </div>
-        <select
-          class="form-select"
-          style="width:auto;min-width:130px;"
-          .value=${String(multiAcks)}
-          @change=${(e: Event) => {
-            this._editValues['multi_acks'] = Number((e.target as HTMLSelectElement).value);
+        <input
+          class="form-input"
+          style="width:auto;min-width:130px;max-width:180px;"
+          type="number"
+          min="0"
+          max="20"
+          step="0.001"
+          .value=${String(rxDelay)}
+          @input=${(e: Event) => {
+            this._editValues['rx_delay'] = Number((e.target as HTMLInputElement).value);
             this._editValues = { ...this._editValues };
-          }}>
-          <option value="0">Desligado</option>
-          <option value="1">Ligado</option>
-        </select>
+          }}
+        />
       </div>
 
       <div class="repeater-setup-grid">
@@ -2370,6 +2372,18 @@ export class SettingsPage extends LitElement {
                   <option value="3">Strict</option>
                 </select>
               </div>
+              <div>
+                <label class="form-label">Multi ACK</label>
+                <select class="form-select"
+                  .value=${String(multiAcks)}
+                  @change=${(e: Event) => {
+                    this._editValues['multi_acks'] = Number((e.target as HTMLSelectElement).value);
+                    this._editValues = { ...this._editValues };
+                  }}>
+                  <option value="0">Desligado</option>
+                  <option value="1">Ligado</option>
+                </select>
+              </div>
             </div>
           ` : html`
             <div style="font-size:11px;color:var(--secondary-text-color);">
@@ -2413,15 +2427,6 @@ export class SettingsPage extends LitElement {
                   .value=${String(agcResetInterval)}
                   @input=${(e: Event) => {
                     this._editValues['agc_reset_interval'] = Number((e.target as HTMLInputElement).value);
-                    this._editValues = { ...this._editValues };
-                  }} />
-              </div>
-              <div>
-                <label class="form-label">RX Delay</label>
-                <input class="form-input" type="number" min="0" max="20" step="0.001"
-                  .value=${String(rxDelay)}
-                  @input=${(e: Event) => {
-                    this._editValues['rx_delay'] = Number((e.target as HTMLInputElement).value);
                     this._editValues = { ...this._editValues };
                   }} />
               </div>
