@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "frontend/**"
+      - "VERSION"
       - ".github/workflows/build-frontend-bundle.yaml"
   workflow_dispatch:
 
