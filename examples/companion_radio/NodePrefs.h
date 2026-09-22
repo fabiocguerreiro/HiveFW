@@ -143,11 +143,13 @@ private:
     uint8_t disable_fwd = 1;
     uint8_t auto_advert = 0;
     uint32_t last_auto_advert_epoch = 0;
+    uint8_t auto_advert_state_version = 0;
   protected:
     void structure() override {
       def("disable", disable_fwd);
       def("auto_adv", auto_advert);
       def("last_adv", last_auto_advert_epoch);
+      def("adv_ver", auto_advert_state_version);
       //def("f_max", flood_max);
       //def("f_max_uns", flood_max_unscoped);
       //def("f_max_adv", flood_max_advert);
@@ -217,5 +219,12 @@ public:
   }
   void setLastAutoAdvertEpoch(uint32_t epoch) {
     repeat.last_auto_advert_epoch = epoch;
+  }
+
+  uint8_t getAutoAdvertStateVersion() const {
+    return repeat.auto_advert_state_version;
+  }
+  void setAutoAdvertStateVersion(uint8_t version) {
+    repeat.auto_advert_state_version = version;
   }
 };

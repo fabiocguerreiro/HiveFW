@@ -157,6 +157,15 @@ extern bool hivefw_set_ota_token(const char* token);
 
 #define MAX_SIGN_DATA_LEN               (8 * 1024) // 8K
 
+// HiveFW Smart Advert:
+// - one deterministic daily slot derived from the node hash;
+// - persisted timestamp means an Auto Advert was actually originated;
+// - state version 1 distinguishes this scheme from the old "seed timestamp"
+//   implementation that could store a reference without transmitting.
+static constexpr uint32_t HIVEFW_SMART_ADVERT_INTERVAL_SECONDS = 24UL * 60UL * 60UL;
+static constexpr uint32_t HIVEFW_SMART_ADVERT_VALID_EPOCH_MIN = 1577836800UL;
+static constexpr uint8_t HIVEFW_SMART_ADVERT_STATE_VERSION = 1;
+
 // Auto-add config bitmask
 // Bit 0: If set, overwrite oldest non-favourite contact when contacts file is full
 // Bits 1-4: these indicate which contact types to auto-add when manual_contact_mode = 0x01
@@ -2404,6 +2413,10 @@ bool MyMesh::syncClockFromCompanionTime() {
     mesh::RTCClock::SyncSource::Companion
   );
 
+  // Recalculate the deterministic daily Smart Advert slot against the
+  // corrected RTC instead of keeping a millis() deadline based on old time.
+  next_smart_advert = 0;
+
   return true;
 }
 
@@ -2692,6 +2705,9 @@ void MyMesh::handleCmdFrame(size_t len) {
         secs,
         mesh::RTCClock::SyncSource::Companion
       );
+
+      // RTC changes must immediately invalidate the cached millis deadline.
+      next_smart_advert = 0;
 
       writeOKFrame();
 
@@ -3343,13 +3359,21 @@ void MyMesh::handleCmdFrame(size_t len) {
     );
     appendCustomVar("apps_channel", apps_channel_value);
 
-    char auto_adv_diag_value[32];
+    const uint32_t smart_adv_now = getRTCClock()->getCurrentTime();
+    const uint32_t smart_adv_last = loadPersistedAutoAdvertEpoch();
+    const uint32_t smart_adv_next =
+      getNextSmartAdvertEpoch(smart_adv_now, smart_adv_last);
+
+    // Compact Smart Advert diagnostics:
+    // sent_this_boot / last_actual_auto_advert_epoch / next_expected_epoch
+    char auto_adv_diag_value[48];
     snprintf(
       auto_adv_diag_value,
       sizeof(auto_adv_diag_value),
-      "%lu/%lu",
+      "%lu/%lu/%lu",
       (unsigned long)companion_auto_advert_tx_count,
-      (unsigned long)loadPersistedAutoAdvertEpoch()
+      (unsigned long)smart_adv_last,
+      (unsigned long)smart_adv_next
     );
     appendCustomVar("auto_adv_diag", auto_adv_diag_value);
 
@@ -5334,27 +5358,30 @@ void MyMesh::loop() {
   }
 
   // Smart Advert is exclusively a Repeater feature.
-  // It also requires AUTOADVERT to be enabled.
+  // The normal daily slot is deterministic from the node hash. Persistence is
+  // only a 24 h at-most-once guard: it never chooses the node's daily slot.
   if (_prefs.isRepeatEn() && _prefs.isAutoAdvertEn()) {
     if (next_smart_advert == 0) {
       updateSmartAdvertTimer();
     } else if (millisHasNowPassed(next_smart_advert)) {
       next_smart_advert = 0;
 
-      const uint32_t AUTO_ADVERT_INTERVAL_SECONDS = 24UL * 60UL * 60UL;
-      const uint32_t VALID_EPOCH_MIN = 1577836800UL;
       const uint32_t now_epoch = getRTCClock()->getCurrentTime();
       const uint32_t last_epoch = loadPersistedAutoAdvertEpoch();
 
-      // Independent at-most-once guard. Even if the millis timer is
-      // accidentally re-armed, corrupted, or evaluated twice around a reboot,
-      // never originate a second automatic advert inside the 24 h window.
-      if (
-        now_epoch >= VALID_EPOCH_MIN &&
-        last_epoch >= VALID_EPOCH_MIN &&
+      if (now_epoch < HIVEFW_SMART_ADVERT_VALID_EPOCH_MIN) {
+        // RTC is not usable yet. Retry later; a clock sync also clears the
+        // cached timer so this is recalculated immediately.
+        updateSmartAdvertTimer();
+      } else if (
+        _prefs.getAutoAdvertStateVersion() == HIVEFW_SMART_ADVERT_STATE_VERSION &&
+        last_epoch >= HIVEFW_SMART_ADVERT_VALID_EPOCH_MIN &&
         last_epoch <= now_epoch &&
-        (now_epoch - last_epoch) < AUTO_ADVERT_INTERVAL_SECONDS
+        (now_epoch - last_epoch) < HIVEFW_SMART_ADVERT_INTERVAL_SECONDS
       ) {
+        // Independent at-most-once guard. This can happen after a clock
+        // correction or when an off-slot recovery advert made the next hash
+        // slot too early. Recalculate the next eligible hash slot.
         updateSmartAdvertTimer();
       } else {
         mesh::Packet* pkt;
@@ -5374,11 +5401,12 @@ void MyMesh::loop() {
               _prefs.default_scope_key,
               sizeof(default_scope.key));
 
-          // Persist first. If power is lost immediately afterwards we prefer
-          // skipping one automatic advert over originating duplicates.
-          if (now_epoch >= VALID_EPOCH_MIN) {
-            persistAutoAdvertEpoch(now_epoch);
-          }
+          // Persist first. From state version 1 onward this timestamp always
+          // means that an automatic advert was actually queued for origin.
+          // On the first boot after migrating from the old seed-based scheme,
+          // adv_ver is 0, so the stale reference is ignored and a recovery
+          // advert is originated immediately.
+          persistAutoAdvertEpoch(now_epoch);
 
           sendFloodScoped(default_scope, pkt, 0);
           companion_advert_tx_count++;
@@ -5447,12 +5475,23 @@ uint32_t MyMesh::loadPersistedAutoAdvertEpoch() {
 }
 
 void MyMesh::persistAutoAdvertEpoch(uint32_t epoch) {
-  if (epoch < 1577836800UL) {
+  if (epoch < HIVEFW_SMART_ADVERT_VALID_EPOCH_MIN) {
     return;
   }
 
+  bool prefs_changed = false;
+
   if (_prefs.getLastAutoAdvertEpoch() != epoch) {
     _prefs.setLastAutoAdvertEpoch(epoch);
+    prefs_changed = true;
+  }
+
+  if (_prefs.getAutoAdvertStateVersion() != HIVEFW_SMART_ADVERT_STATE_VERSION) {
+    _prefs.setAutoAdvertStateVersion(HIVEFW_SMART_ADVERT_STATE_VERSION);
+    prefs_changed = true;
+  }
+
+  if (prefs_changed) {
     savePrefs();
   }
 
@@ -5465,40 +5504,114 @@ void MyMesh::persistAutoAdvertEpoch(uint32_t epoch) {
 #endif
 }
 
+uint32_t MyMesh::getSmartAdvertSlotOffsetSeconds() const {
+  uint32_t hash = 0;
+  const char* name = _prefs.node_name ? _prefs.node_name : "";
+
+  // Preserve the original Smart Advert identity/hash concept: name + the
+  // first bytes of the node identity choose a stable point in a 24 h day.
+  mesh::Utils::sha256(
+      (uint8_t*)&hash,
+      sizeof(hash),
+      (const uint8_t*)name,
+      strlen(name),
+      self_id.pub_key,
+      4);
+
+  return hash % HIVEFW_SMART_ADVERT_INTERVAL_SECONDS;
+}
+
+uint32_t MyMesh::getNextSmartAdvertSlotEpoch(uint32_t now_epoch) const {
+  if (now_epoch < HIVEFW_SMART_ADVERT_VALID_EPOCH_MIN) {
+    return 0;
+  }
+
+  const uint32_t cycle_start =
+      now_epoch - (now_epoch % HIVEFW_SMART_ADVERT_INTERVAL_SECONDS);
+  uint32_t target_epoch =
+      cycle_start + getSmartAdvertSlotOffsetSeconds();
+
+  if (target_epoch <= now_epoch) {
+    target_epoch += HIVEFW_SMART_ADVERT_INTERVAL_SECONDS;
+  }
+
+  return target_epoch;
+}
+
+uint32_t MyMesh::getNextSmartAdvertEpoch(
+    uint32_t now_epoch,
+    uint32_t last_epoch) const {
+  if (
+    !_prefs.isRepeatEn() ||
+    !_prefs.isAutoAdvertEn() ||
+    now_epoch < HIVEFW_SMART_ADVERT_VALID_EPOCH_MIN
+  ) {
+    return 0;
+  }
+
+  // Version 0 belongs to the temporary seed-based implementation. Its stored
+  // timestamp did not necessarily represent a transmitted advert, so do not
+  // let it suppress the first advert after this migration.
+  if (_prefs.getAutoAdvertStateVersion() != HIVEFW_SMART_ADVERT_STATE_VERSION) {
+    return now_epoch;
+  }
+
+  // Boot/restart recovery: if we cannot prove an automatic advert happened in
+  // the previous 24 h, advertise immediately even when this is off the normal
+  // hash slot.
+  if (
+    last_epoch < HIVEFW_SMART_ADVERT_VALID_EPOCH_MIN ||
+    last_epoch > now_epoch ||
+    (now_epoch - last_epoch) >= HIVEFW_SMART_ADVERT_INTERVAL_SECONDS
+  ) {
+    return now_epoch;
+  }
+
+  // Normal operation follows the deterministic daily slot. If an off-slot
+  // recovery advert makes the upcoming slot less than 24 h after the last
+  // transmission, skip that slot and use the following day's slot. This
+  // realigns the node to its hash schedule within at most 48 h without ever
+  // originating two automatic adverts inside 24 h.
+  uint32_t target_epoch = getNextSmartAdvertSlotEpoch(now_epoch);
+  if (
+    target_epoch > last_epoch &&
+    (target_epoch - last_epoch) < HIVEFW_SMART_ADVERT_INTERVAL_SECONDS
+  ) {
+    target_epoch += HIVEFW_SMART_ADVERT_INTERVAL_SECONDS;
+  }
+
+  return target_epoch;
+}
+
 void MyMesh::updateSmartAdvertTimer() {
   if (!_prefs.isRepeatEn() || !_prefs.isAutoAdvertEn()) {
     next_smart_advert = 0;
     return;
   }
 
-  const uint32_t AUTO_ADVERT_INTERVAL_SECONDS = 24UL * 60UL * 60UL;
-  const uint32_t VALID_EPOCH_MIN = 1577836800UL;
-
   const uint32_t now_epoch = getRTCClock()->getCurrentTime();
 
-  if (now_epoch < VALID_EPOCH_MIN) {
-    next_smart_advert =
-      futureMillis((int)(AUTO_ADVERT_INTERVAL_SECONDS * 1000UL));
+  if (now_epoch < HIVEFW_SMART_ADVERT_VALID_EPOCH_MIN) {
+    // Do not anchor scheduling to an invalid RTC. Retry every minute until the
+    // clock is usable; explicit clock sync also invalidates this timer.
+    next_smart_advert = futureMillis(60UL * 1000UL);
     return;
   }
 
-  uint32_t last_epoch = loadPersistedAutoAdvertEpoch();
+  const uint32_t last_epoch = loadPersistedAutoAdvertEpoch();
+  const uint32_t next_epoch =
+      getNextSmartAdvertEpoch(now_epoch, last_epoch);
 
-  if (last_epoch < VALID_EPOCH_MIN || last_epoch > now_epoch) {
-    persistAutoAdvertEpoch(now_epoch);
-    next_smart_advert =
-      futureMillis((int)(AUTO_ADVERT_INTERVAL_SECONDS * 1000UL));
+  if (next_epoch == 0) {
+    next_smart_advert = 0;
     return;
   }
 
-  const uint32_t elapsed = now_epoch - last_epoch;
   const uint32_t wait_seconds =
-    elapsed >= AUTO_ADVERT_INTERVAL_SECONDS
-      ? 1UL
-      : AUTO_ADVERT_INTERVAL_SECONDS - elapsed;
+      next_epoch <= now_epoch ? 1UL : next_epoch - now_epoch;
 
   next_smart_advert =
-    futureMillis((int)(wait_seconds * 1000UL));
+      futureMillis((int)(wait_seconds * 1000UL));
 }
 
 bool MyMesh::advert(bool flood) {

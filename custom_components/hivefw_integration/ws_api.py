@@ -2169,6 +2169,51 @@ async def ws_get_local_repeater_status(hass, connection, msg):
             "on",
             "yes",
         }
+        smart_advert = {
+            "supported": False,
+            "enabled": auto_advert,
+            "tx_this_boot": None,
+            "last_epoch": None,
+            "next_epoch": None,
+            "remaining_seconds": None,
+        }
+        raw_auto_adv_diag = str(custom_vars.get("auto_adv_diag", "")).strip()
+        if raw_auto_adv_diag:
+            try:
+                auto_adv_parts = [int(part) for part in raw_auto_adv_diag.split("/")]
+                if len(auto_adv_parts) >= 2:
+                    tx_this_boot = auto_adv_parts[0]
+                    last_epoch = auto_adv_parts[1] or None
+                    # New firmware exposes the actual next eligible hash slot.
+                    # Two-part diagnostics are kept compatible with the
+                    # temporary last+24h implementation.
+                    next_epoch = (
+                        auto_adv_parts[2]
+                        if len(auto_adv_parts) >= 3 and auto_adv_parts[2] > 0
+                        else (
+                            last_epoch + 24 * 60 * 60
+                            if last_epoch is not None
+                            else None
+                        )
+                    )
+                    clock_epoch = device_clock.get("time")
+                    remaining_seconds = None
+                    if next_epoch is not None and clock_epoch is not None:
+                        remaining_seconds = max(
+                            0,
+                            int(next_epoch) - int(clock_epoch),
+                        )
+                    smart_advert = {
+                        "supported": True,
+                        "enabled": auto_advert,
+                        "tx_this_boot": tx_this_boot,
+                        "last_epoch": last_epoch,
+                        "next_epoch": next_epoch,
+                        "remaining_seconds": remaining_seconds,
+                    }
+            except (TypeError, ValueError):
+                pass
+
         duty_cycle_supported = "duty_cycle" in custom_vars
         duty_cycle = None
         if duty_cycle_supported:
@@ -2216,6 +2261,7 @@ async def ws_get_local_repeater_status(hass, connection, msg):
                 "repeat": repeat_enabled,
                 "auto_advert_supported": auto_advert_supported,
                 "auto_advert": auto_advert,
+                "smart_advert": smart_advert,
                 "duty_cycle_supported": duty_cycle_supported,
                 "duty_cycle": duty_cycle,
                 "name": coordinator.name or self_info.get("name") or "",

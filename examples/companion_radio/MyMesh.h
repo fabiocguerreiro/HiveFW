@@ -406,6 +406,9 @@ private:
 
   uint32_t loadPersistedAutoAdvertEpoch();
   void persistAutoAdvertEpoch(uint32_t epoch);
+  uint32_t getSmartAdvertSlotOffsetSeconds() const;
+  uint32_t getNextSmartAdvertSlotEpoch(uint32_t now_epoch) const;
+  uint32_t getNextSmartAdvertEpoch(uint32_t now_epoch, uint32_t last_epoch) const;
 
   // helpers, short-cuts
   void saveChannels() { _store->saveChannels(this); }

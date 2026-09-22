@@ -120,12 +120,14 @@ Funcionalidades comuns:
 
 ### Smart Advert
 
-O Auto Advert do Repeater usa uma cadência mínima de **24 horas entre anúncios automáticos**.
+O Smart Advert do Repeater usa um **slot diário determinístico de 24 horas derivado do hash/identidade do nó**. Reiniciar, atualizar ou reflashear não escolhe uma nova hora normal de anúncio.
 
-- anúncios manuais Local/Flood não reiniciam a cadência automática;
-- o último Auto Advert é persistido;
-- no ESP32 existe também persistência em NVS;
-- existe uma proteção independente `at-most-once` para impedir um segundo Auto Advert dentro das mesmas 24 horas, mesmo que o temporizador seja rearmado indevidamente.
+- anúncios manuais Local/Flood não reiniciam nem alteram o slot automático;
+- o timestamp persistido representa apenas um Auto Advert realmente originado;
+- existe uma proteção independente `at-most-once` para impedir dois Auto Adverts em menos de 24 horas;
+- se o equipamento arrancar sem conseguir confirmar um Auto Advert nas últimas 24 horas, envia um advert de recuperação imediatamente;
+- se esse envio ficar fora do slot normal, um slot demasiado próximo é ignorado e o nó regressa automaticamente ao horário por hash em até 48 horas;
+- no ESP32 o último Auto Advert é também espelhado em NVS.
 
 ### Vizinhos zero-hop
 

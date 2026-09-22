@@ -36,6 +36,8 @@ class HiveFWPanel extends BasePanel {
     this.__repeaterMessage = null;
     this.__repeaterLoadedEntry = null;
     this.__repeaterEdit = {};
+    this.__repeaterStatusLoadedAt = 0;
+    this.__smartAdvertCountdownTimer = null;
     this.__settingsObserver = null;
     this.__settingsObservedRoot = null;
     this.__managedDevices = { repeaters: [], clients: [] };
@@ -270,6 +272,11 @@ class HiveFWPanel extends BasePanel {
 
     this.__ensureRepeaterStyles(root);
     this.__ensureTabs(root);
+    if (this._activeTab === "settings") {
+      this.__startSmartAdvertCountdown();
+    } else {
+      this.__stopSmartAdvertCountdown();
+    }
     this.__enhanceManualOtaCard(root);
     this.__renderOtaLiveProgress(root);
 
@@ -3722,6 +3729,26 @@ class HiveFWPanel extends BasePanel {
       hero.appendChild(makeTile("Device clock",t,abs<=2?"· synchronized":`· drift ${drift>0?"+":""}${drift}s`,Math.min(abs,120),0,120,abs<=2?"good":abs<=30?"warn":"bad","clock",clickEntity("device_clock","clock")));
     }
 
+    const smartAdvert=status.smart_advert||{};
+    if(smartAdvert.supported){
+      const remaining=this.__smartAdvertRemainingSeconds();
+      const sent=Number(smartAdvert.tx_this_boot);
+      const secondary=smartAdvert.enabled
+        ? "· "+(Number.isFinite(sent)?Math.max(0,Math.round(sent)):0)+" enviados neste boot"
+        : "· Auto Advert desativado";
+      hero.appendChild(makeTile(
+        "Smart Advert",
+        smartAdvert.enabled?this.__formatSmartAdvertCountdown(remaining):"Off",
+        secondary,
+        Number.isFinite(remaining)?Math.min(48,remaining/3600):0,
+        0,48,
+        "info",
+        "smart-advert",
+        null,
+        "compact"
+      ));
+    }
+
     const queue=Number(status.stats?.core?.queue_len);
     if(Number.isFinite(queue)) hero.appendChild(makeTile("TX queue",String(Math.round(queue)),"queued",Math.min(Math.max(queue,0),30),0,30,queue>10?"bad":queue>5?"warn":"good","queue",clickEntity("tx_queue_len"),"compact"));
 
@@ -6913,6 +6940,7 @@ class HiveFWPanel extends BasePanel {
       if (entryId) msg.entry_id = entryId;
 
       this.__repeaterStatus = await this.hass.callWS(msg);
+      this.__repeaterStatusLoadedAt = Date.now();
       this.__seedRepeaterEdit(this.__repeaterStatus);
     } catch (error) {
       this.__repeaterError =
@@ -6921,6 +6949,85 @@ class HiveFWPanel extends BasePanel {
       this.__repeaterLoading = false;
       this.__rerenderRepeater();
     }
+  }
+
+  __smartAdvertRemainingSeconds() {
+    const smart = this.__repeaterStatus?.smart_advert;
+    if (!smart?.supported || !smart?.enabled) return null;
+
+    const elapsed = this.__repeaterStatusLoadedAt
+      ? Math.max(0, (Date.now() - this.__repeaterStatusLoadedAt) / 1000)
+      : 0;
+
+    const remaining = Number(smart.remaining_seconds);
+    if (Number.isFinite(remaining)) {
+      return Math.max(0, remaining - elapsed);
+    }
+
+    const nextEpoch = Number(smart.next_epoch);
+    const clockEpoch = Number(this.__repeaterStatus?.clock?.timestamp);
+    if (Number.isFinite(nextEpoch) && Number.isFinite(clockEpoch)) {
+      return Math.max(0, nextEpoch - clockEpoch - elapsed);
+    }
+
+    return null;
+  }
+
+  __formatSmartAdvertCountdown(seconds) {
+    if (!Number.isFinite(seconds)) return "—";
+    if (seconds <= 5) return "A enviar…";
+
+    const totalMinutes = Math.max(1, Math.ceil(seconds / 60));
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+
+    if (hours <= 0) return minutes + " min";
+    return hours + "h " + String(minutes).padStart(2, "0") + "m";
+  }
+
+  __updateSmartAdvertCountdown() {
+    const remaining = this.__smartAdvertRemainingSeconds();
+    const settingsHost = this.shadowRoot?.querySelector("meshcore-settings-page");
+    const settingsRoot = settingsHost?.shadowRoot;
+    const summary = settingsRoot?.querySelector("meshcore-node-summary");
+    const tile = summary?.shadowRoot?.querySelector(
+      '.hero-tile[data-repeater-extra="smart-advert"]'
+    );
+    const primary = tile?.querySelector(".hero-tile-value .primary");
+
+    if (primary) {
+      const smart = this.__repeaterStatus?.smart_advert;
+      primary.textContent = smart?.enabled
+        ? this.__formatSmartAdvertCountdown(remaining)
+        : "Off";
+    }
+
+    // Once the countdown reaches the slot, refresh local Companion status so
+    // the card picks up the newly persisted last/next epochs. This is local
+    // transport only and creates no LoRa traffic.
+    if (
+      this._activeTab === "settings" &&
+      Number.isFinite(remaining) &&
+      remaining <= 0 &&
+      !this.__repeaterLoading
+    ) {
+      void this.__loadRepeaterStatus();
+    }
+  }
+
+  __startSmartAdvertCountdown() {
+    if (this.__smartAdvertCountdownTimer) return;
+    this.__smartAdvertCountdownTimer = window.setInterval(
+      () => this.__updateSmartAdvertCountdown(),
+      30000
+    );
+    queueMicrotask(() => this.__updateSmartAdvertCountdown());
+  }
+
+  __stopSmartAdvertCountdown() {
+    if (!this.__smartAdvertCountdownTimer) return;
+    window.clearInterval(this.__smartAdvertCountdownTimer);
+    this.__smartAdvertCountdownTimer = null;
   }
 
   __seedRepeaterEdit(status) {

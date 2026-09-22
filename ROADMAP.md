@@ -28,8 +28,11 @@ pela mesma linha de Releases.
 - [x] portal Wi-Fi e credenciais NVS no V3;
 - [x] Web OTA seguro;
 - [x] BLE DFU / UF2 no T114;
-- [x] Smart Advert com intervalo mínimo de 24 h e persistência;
+- [x] Smart Advert com slot diário determinístico de 24 h derivado do hash do nó;
+- [x] persistência apenas do último Auto Advert realmente originado;
 - [x] proteção at-most-once para Auto Advert;
+- [x] advert de recuperação no arranque quando não existe envio confirmado nas últimas 24 h;
+- [x] realinhamento automático ao slot por hash em até 48 h após um advert de recuperação;
 - [x] tabela acumulada de vizinhos Repeater zero-hop;
 - [x] exclusão de Share Contact da deteção de vizinhos RF;
 - [x] diagnóstico e recuperação de CAD Timeout;
@@ -59,7 +62,8 @@ pela mesma linha de Releases.
 - [x] health transitions e eventos HA;
 - [x] frontend e backend testados em CI;
 - [x] histórico RF/tráfego através do Recorder do Home Assistant;
-- [x] janela RF de 7 dias com média das últimas 24 h e tendência face às 24 h anteriores.
+- [x] janela RF de 7 dias com média das últimas 24 h e tendência face às 24 h anteriores;
+- [x] cartão Smart Advert com countdown até ao próximo envio, independente de fuso horário.
 
 ## Ponto de recuperação
 
@@ -89,7 +93,7 @@ Continuar a observar/testar:
 - [ ] confirmar ausência de ligações duplicadas após vários reloads;
 - [ ] Backup + Restore completo num equipamento de teste;
 - [ ] restauro de identidade/private key;
-- [ ] Smart Advert durante vários dias, incluindo o advert previsto para esta noite;
+- [ ] Smart Advert durante vários dias, incluindo slot por hash, reboot fora do slot e recuperação após mais de 24 h sem envio;
 - [ ] tabela de vizinhos com vários Repeaters zero-hop durante utilização prolongada;
 - [ ] diagnóstico CAD durante operação prolongada.
 
