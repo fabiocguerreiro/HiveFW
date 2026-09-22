@@ -1350,6 +1350,7 @@ let e,t,i,o,a,r,s,n,l,d,c,p,h,u,v,g,m,f,_,b,y,x,w,$,k,C,S,M,R,A,z,T,I,N,F,D,E,O,
       display: flex;
       flex-direction: column;
       height: 100%;
+      min-height: 0;
       width: 280px;
       border-right: 1px solid var(--divider-color, #e0e0e0);
       background: var(--card-background-color, #fff);
@@ -1533,6 +1534,8 @@ let e,t,i,o,a,r,s,n,l,d,c,p,h,u,v,g,m,f,_,b,y,x,w,$,k,C,S,M,R,A,z,T,I,N,F,D,E,O,
       min-height: 0;
       overflow-y: auto;
       overflow-x: hidden;
+      -webkit-overflow-scrolling: touch;
+      overscroll-behavior-y: contain;
     }
 
     .conversation-list::-webkit-scrollbar {
@@ -3152,6 +3155,7 @@ let e,t,i,o,a,r,s,n,l,d,c,p,h,u,v,g,m,f,_,b,y,x,w,$,k,C,S,M,R,A,z,T,I,N,F,D,E,O,
       display: flex;
       width: 100%;
       height: 100%;
+      min-height: 0;
       overflow: hidden;
     }
 
@@ -3186,6 +3190,8 @@ let e,t,i,o,a,r,s,n,l,d,c,p,h,u,v,g,m,f,_,b,y,x,w,$,k,C,S,M,R,A,z,T,I,N,F,D,E,O,
        * at the new buffer tail. That misfires mark-read on channel
        * re-entry. See 2026-05-15 unread-clearing investigation. */
       overflow-anchor: none;
+      -webkit-overflow-scrolling: touch;
+      overscroll-behavior-y: contain;
     }
 
     .chat-container::-webkit-scrollbar {
@@ -4125,6 +4131,7 @@ let e,t,i,o,a,r,s,n,l,d,c,p,h,u,v,g,m,f,_,b,y,x,w,$,k,C,S,M,R,A,z,T,I,N,F,D,E,O,
       flex-direction: column;
       width: 100%;
       height: 100%;
+      min-height: 0;
       overflow: hidden;
     }
 
@@ -4545,6 +4552,9 @@ let e,t,i,o,a,r,s,n,l,d,c,p,h,u,v,g,m,f,_,b,y,x,w,$,k,C,S,M,R,A,z,T,I,N,F,D,E,O,
       grid-template-columns: 1fr;
       grid-template-rows: auto minmax(280px, 34%) minmax(320px, 42%) minmax(260px, 24%);
       overflow-y: auto;
+      overflow-x: hidden;
+      -webkit-overflow-scrolling: touch;
+      overscroll-behavior-y: contain;
     }
     :host([narrow]) .nodes-header {
       grid-column: 1;
@@ -4836,7 +4846,12 @@ let e,t,i,o,a,r,s,n,l,d,c,p,h,u,v,g,m,f,_,b,y,x,w,$,k,C,S,M,R,A,z,T,I,N,F,D,E,O,
       color:var(--error-color,#db4437); font-size:10px;
     }
     @media (max-width:1050px) {
-      :host { overflow:auto; }
+      :host {
+        overflow-y:auto;
+        overflow-x:hidden;
+        -webkit-overflow-scrolling:touch;
+        overscroll-behavior-y:contain;
+      }
       .page { height:auto; min-height:100%; overflow:visible; }
       .layout { grid-template-columns:1fr; height:auto; }
       .panel { min-height:360px; }
@@ -5972,7 +5987,7 @@ let e,t,i,o,a,r,s,n,l,d,c,p,h,u,v,g,m,f,_,b,y,x,w,$,k,C,S,M,R,A,z,T,I,N,F,D,E,O,
         <div class="dialog-head"><div class="dialog-title">Sensores ocultos</div><button class="minor" @click=${0}>Fechar</button></div>
         ${0}
       </div></div>`),()=>this._hiddenSensorsOpen=!1,e=>e.stopPropagation(),()=>this._hiddenSensorsOpen=!1,o.map(e=>{var t;return pn(ca||(ca=bs`<div class="sensor-row"><div><div>${0}</div><div class="sensor-id">${0}</div></div><button class="minor" @click=${0}>Mostrar</button></div>`),(null===(t=Object.values(this._deviceEntities).flat().find(t=>t.entity_id===e))||void 0===t?void 0:t.label)||e,e,()=>this._unhideSensor(e))})):vn,this._statusMessage?pn(pa||(pa=bs`<div class="toast ${0}">${0}</div>`),this._statusMessage.type,this._statusMessage.text):vn)}};ql.styles=Ss(ha||(ha=bs`
-    :host{display:block;width:100%;height:100%;overflow:auto;background:var(--primary-background-color)}
+    :host{display:block;width:100%;height:100%;min-height:0;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;overscroll-behavior-y:contain;background:var(--primary-background-color)}
     .page{box-sizing:border-box;width:100%;padding:20px}
     .wrap{width:100%;max-width:none;margin:0}
     .device-section{box-sizing:border-box;width:100%;padding:16px;border:1px solid var(--divider-color);border-radius:12px;background:var(--card-background-color)}
@@ -7094,8 +7109,11 @@ let e,t,i,o,a,r,s,n,l,d,c,p,h,u,v,g,m,f,_,b,y,x,w,$,k,C,S,M,R,A,z,T,I,N,F,D,E,O,
 
       .settings-container {
         flex: 1;
+        min-height: 0;
         overflow-y: auto;
         overflow-x: hidden;
+        -webkit-overflow-scrolling: touch;
+        overscroll-behavior-y: contain;
       }
 
       .settings-container::-webkit-scrollbar {
@@ -9219,6 +9237,15 @@ let e,t,i,o,a,r,s,n,l,d,c,p,h,u,v,g,m,f,_,b,y,x,w,$,k,C,S,M,R,A,z,T,I,N,F,D,E,O,
         background: var(--card-background-color, #fff);
         border-bottom: 1px solid var(--divider-color, #e0e0e0);
         flex-shrink: 0;
+        overflow-x: auto;
+        overflow-y: hidden;
+        scrollbar-width: none;
+        -webkit-overflow-scrolling: touch;
+        overscroll-behavior-x: contain;
+      }
+
+      .tab-bar::-webkit-scrollbar {
+        display: none;
       }
 
       .tab-bar button {
@@ -9247,13 +9274,32 @@ let e,t,i,o,a,r,s,n,l,d,c,p,h,u,v,g,m,f,_,b,y,x,w,$,k,C,S,M,R,A,z,T,I,N,F,D,E,O,
 
       .page-container {
         flex: 1;
+        min-width: 0;
+        min-height: 0;
         overflow: hidden;
         display: flex;
       }
 
+      /* Let each page own its scrolling model. Forcing overflow:hidden on
+         every custom-element host prevented mobile pages whose :host uses
+         overflow:auto from ever receiving a usable scroll container. */
       .page-container > * {
         flex: 1;
-        overflow: hidden;
+        min-width: 0;
+        min-height: 0;
+      }
+
+      @media (max-width: 870px) {
+        .tab-bar {
+          justify-content: flex-start;
+        }
+
+        .tab-bar button {
+          flex: 0 0 auto;
+          min-width: 96px;
+          padding-left: 12px;
+          padding-right: 12px;
+        }
       }
 
       .error-banner {
