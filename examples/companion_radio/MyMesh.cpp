@@ -1134,6 +1134,1023 @@ void MyMesh::sendFloodScoped(const mesh::GroupChannel& channel, mesh::Packet* pk
   }
 }
 
+bool MyMesh::handleRepeaterRemoteCommand(
+  uint32_t sender_timestamp,
+  char* command,
+  char* reply,
+  size_t reply_size
+) {
+  if (
+    command == NULL ||
+    reply == NULL ||
+    reply_size == 0
+  ) {
+    return false;
+  }
+
+  reply[0] = '\0';
+
+  while (*command == ' ' || *command == '\t') {
+    command++;
+  }
+
+  size_t command_len = strlen(command);
+  while (
+    command_len > 0 &&
+    (
+      command[command_len - 1] == ' ' ||
+      command[command_len - 1] == '\t'
+    )
+  ) {
+    command[--command_len] = '\0';
+  }
+
+  if (command_len == 0) {
+    snprintf(reply, reply_size, "Err - empty command");
+    return true;
+  }
+
+  auto save_ok = [&]() {
+    savePrefs();
+    snprintf(reply, reply_size, "OK");
+  };
+
+  if (strcmp(command, "ver") == 0) {
+    snprintf(
+      reply,
+      reply_size,
+      "%s (Build: %s)",
+      FIRMWARE_VERSION,
+      FIRMWARE_BUILD_DATE
+    );
+    return true;
+  }
+
+  if (strcmp(command, "board") == 0) {
+    snprintf(reply, reply_size, "HiveFW");
+    return true;
+  }
+
+  if (strcmp(command, "get name") == 0) {
+    snprintf(reply, reply_size, "%s", _prefs.node_name);
+    return true;
+  }
+
+  if (strcmp(command, "get radio") == 0) {
+    snprintf(
+      reply,
+      reply_size,
+      "%.3f,%.3f,%u,%u",
+      _prefs.freq,
+      _prefs.bw,
+      (unsigned)_prefs.sf,
+      (unsigned)_prefs.cr
+    );
+    return true;
+  }
+
+  if (strcmp(command, "get freq") == 0) {
+    snprintf(reply, reply_size, "%.3f", _prefs.freq);
+    return true;
+  }
+
+  if (strcmp(command, "get tx") == 0) {
+    snprintf(reply, reply_size, "%d", (int)_prefs.tx_power_dbm);
+    return true;
+  }
+
+  if (strcmp(command, "get af") == 0) {
+    snprintf(reply, reply_size, "%.3f", _prefs.airtime_factor);
+    return true;
+  }
+
+  if (strcmp(command, "get dutycycle") == 0) {
+    const float pct =
+      100.0f / (_prefs.airtime_factor + 1.0f);
+
+    snprintf(reply, reply_size, "%.1f%%", pct);
+    return true;
+  }
+
+  if (strcmp(command, "get lat") == 0) {
+    snprintf(reply, reply_size, "%.6f", _prefs.node_lat);
+    return true;
+  }
+
+  if (strcmp(command, "get lon") == 0) {
+    snprintf(reply, reply_size, "%.6f", _prefs.node_lon);
+    return true;
+  }
+
+  if (strcmp(command, "get repeat") == 0) {
+    snprintf(
+      reply,
+      reply_size,
+      "%s",
+      _prefs.isRepeatEn() ? "on" : "off"
+    );
+    return true;
+  }
+
+  if (strcmp(command, "get rxdelay") == 0) {
+    snprintf(reply, reply_size, "%.3f", _prefs.rx_delay_base);
+    return true;
+  }
+
+  if (strcmp(command, "get txdelay") == 0) {
+    snprintf(reply, reply_size, "%.3f", _prefs.tx_delay_factor);
+    return true;
+  }
+
+  if (strcmp(command, "get direct.txdelay") == 0) {
+    snprintf(reply, reply_size, "%.3f", _prefs.direct_tx_delay_factor);
+    return true;
+  }
+
+  if (strcmp(command, "get flood.max") == 0) {
+    snprintf(reply, reply_size, "%u", (unsigned)_prefs.getFloodMax());
+    return true;
+  }
+
+  if (strcmp(command, "get flood.max.unscoped") == 0) {
+    snprintf(
+      reply,
+      reply_size,
+      "%u",
+      (unsigned)_prefs.getFloodMaxUnscoped()
+    );
+    return true;
+  }
+
+  if (strcmp(command, "get flood.max.advert") == 0) {
+    snprintf(
+      reply,
+      reply_size,
+      "%u",
+      (unsigned)_prefs.getFloodMaxAdvert()
+    );
+    return true;
+  }
+
+  if (strcmp(command, "get int.thresh") == 0) {
+    snprintf(
+      reply,
+      reply_size,
+      "%u",
+      (unsigned)_prefs.interference_threshold
+    );
+    return true;
+  }
+
+  if (strcmp(command, "get agc.reset.interval") == 0) {
+    snprintf(
+      reply,
+      reply_size,
+      "%u",
+      (unsigned)_prefs.agc_reset_interval
+    );
+    return true;
+  }
+
+  if (strcmp(command, "get multi.acks") == 0) {
+    snprintf(reply, reply_size, "%u", (unsigned)_prefs.multi_acks);
+    return true;
+  }
+
+  if (strcmp(command, "get public.key") == 0) {
+    char hex[PUB_KEY_SIZE * 2 + 1];
+    mesh::Utils::toHex(hex, self_id.pub_key, PUB_KEY_SIZE);
+    snprintf(reply, reply_size, "%s", hex);
+    return true;
+  }
+
+  if (strcmp(command, "get role") == 0) {
+    snprintf(reply, reply_size, "repeater");
+    return true;
+  }
+
+  if (strcmp(command, "get owner.info") == 0) {
+    size_t out = 0;
+    for (
+      const char* sp = _prefs.owner_info;
+      *sp && out + 1 < reply_size;
+      sp++
+    ) {
+      reply[out++] = *sp == '\n' ? '|' : *sp;
+    }
+    reply[out] = '\0';
+    return true;
+  }
+
+  if (strcmp(command, "get path.hash.mode") == 0) {
+    snprintf(reply, reply_size, "%u", (unsigned)_prefs.path_hash_mode);
+    return true;
+  }
+
+  if (strcmp(command, "get loop.detect") == 0) {
+    static const char* names[] = {
+      "off",
+      "minimal",
+      "moderate",
+      "strict"
+    };
+
+    const uint8_t mode =
+      constrain(_prefs.getLoopDetect(), 0, 3);
+
+    snprintf(reply, reply_size, "%s", names[mode]);
+    return true;
+  }
+
+  if (strcmp(command, "get radio.rxgain") == 0) {
+    snprintf(
+      reply,
+      reply_size,
+      "%s",
+      _prefs.rx_boosted_gain ? "on" : "off"
+    );
+    return true;
+  }
+
+  if (strncmp(command, "set name ", 9) == 0) {
+    const char* value = command + 9;
+
+    if (*value == '\0') {
+      snprintf(reply, reply_size, "Err - empty name");
+      return true;
+    }
+
+    StrHelper::strncpy(
+      _prefs.node_name,
+      value,
+      sizeof(_prefs.node_name)
+    );
+    savePrefs();
+    snprintf(reply, reply_size, "OK - name changed");
+    return true;
+  }
+
+  if (strncmp(command, "set af ", 7) == 0) {
+    const float value = atof(command + 7);
+
+    if (value < 0.0f || value > 9.0f) {
+      snprintf(reply, reply_size, "Err - invalid airtime factor");
+      return true;
+    }
+
+    _prefs.airtime_factor = value;
+    savePrefs();
+    snprintf(reply, reply_size, "OK - airtime factor set");
+    return true;
+  }
+
+  if (strncmp(command, "set dutycycle ", 14) == 0) {
+    const float pct = atof(command + 14);
+
+    if (pct < 1.0f || pct > 100.0f) {
+      snprintf(reply, reply_size, "Err - invalid duty cycle");
+      return true;
+    }
+
+    _prefs.airtime_factor =
+      (100.0f / pct) - 1.0f;
+
+    savePrefs();
+    snprintf(reply, reply_size, "OK - %.1f%%", pct);
+    return true;
+  }
+
+  if (strncmp(command, "set repeat ", 11) == 0) {
+    const char* value = command + 11;
+
+    if (
+      strcmp(value, "on") != 0 &&
+      strcmp(value, "off") != 0
+    ) {
+      snprintf(reply, reply_size, "Err - use on or off");
+      return true;
+    }
+
+    _prefs.setRepeatEn(strcmp(value, "on") == 0);
+    savePrefs();
+    snprintf(
+      reply,
+      reply_size,
+      "OK - forwarding %s",
+      _prefs.isRepeatEn() ? "enabled" : "disabled"
+    );
+    return true;
+  }
+
+  if (strncmp(command, "set radio ", 10) == 0) {
+    float freq = 0;
+    float bw = 0;
+    unsigned sf = 0;
+    unsigned cr = 0;
+
+    if (
+      sscanf(
+        command + 10,
+        "%f,%f,%u,%u",
+        &freq,
+        &bw,
+        &sf,
+        &cr
+      ) != 4 ||
+      freq < 150.0f ||
+      freq > 2500.0f ||
+      bw < 7.8f ||
+      bw > 500.0f ||
+      sf < 5 ||
+      sf > 12 ||
+      cr < 5 ||
+      cr > 8
+    ) {
+      snprintf(reply, reply_size, "Err - invalid radio params");
+      return true;
+    }
+
+    _prefs.freq = freq;
+    _prefs.bw = bw;
+    _prefs.sf = (uint8_t)sf;
+    _prefs.cr = (uint8_t)cr;
+    savePrefs();
+
+    snprintf(
+      reply,
+      reply_size,
+      "OK - radio parameters set (reboot required)"
+    );
+    return true;
+  }
+
+  if (strncmp(command, "set lat ", 8) == 0) {
+    const double value = atof(command + 8);
+
+    if (value < -90.0 || value > 90.0) {
+      snprintf(reply, reply_size, "Err - invalid latitude");
+      return true;
+    }
+
+    _prefs.node_lat = value;
+    sensors.node_lat = value;
+    save_ok();
+    return true;
+  }
+
+  if (strncmp(command, "set lon ", 8) == 0) {
+    const double value = atof(command + 8);
+
+    if (value < -180.0 || value > 180.0) {
+      snprintf(reply, reply_size, "Err - invalid longitude");
+      return true;
+    }
+
+    _prefs.node_lon = value;
+    sensors.node_lon = value;
+    save_ok();
+    return true;
+  }
+
+  if (strncmp(command, "set tx ", 7) == 0) {
+    const int value = atoi(command + 7);
+
+    if (value < -9 || value > MAX_LORA_TX_POWER) {
+      snprintf(reply, reply_size, "Err - invalid TX power");
+      return true;
+    }
+
+    _prefs.tx_power_dbm = (int8_t)value;
+    radio_driver.setTxPower(_prefs.tx_power_dbm);
+    savePrefs();
+    snprintf(reply, reply_size, "OK - TX power set");
+    return true;
+  }
+
+  if (strncmp(command, "set rxdelay ", 12) == 0) {
+    const float value = atof(command + 12);
+
+    if (value < 0.0f || value > 20.0f) {
+      snprintf(reply, reply_size, "Err - invalid RX delay");
+      return true;
+    }
+
+    _prefs.rx_delay_base = value;
+    save_ok();
+    return true;
+  }
+
+  if (strncmp(command, "set txdelay ", 12) == 0) {
+    const float value = atof(command + 12);
+
+    if (value < 0.0f || value > 2.0f) {
+      snprintf(reply, reply_size, "Err - invalid TX delay");
+      return true;
+    }
+
+    _prefs.tx_delay_factor = value;
+    save_ok();
+    return true;
+  }
+
+  if (strncmp(command, "set direct.txdelay ", 19) == 0) {
+    const float value = atof(command + 19);
+
+    if (value < 0.0f || value > 2.0f) {
+      snprintf(reply, reply_size, "Err - invalid direct TX delay");
+      return true;
+    }
+
+    _prefs.direct_tx_delay_factor = value;
+    save_ok();
+    return true;
+  }
+
+  if (strncmp(command, "set flood.max.unscoped ", 23) == 0) {
+    const int value = atoi(command + 23);
+
+    if (value < 0 || value > 64) {
+      snprintf(reply, reply_size, "Err - invalid flood max");
+      return true;
+    }
+
+    _prefs.setFloodMaxUnscoped((uint8_t)value);
+    save_ok();
+    return true;
+  }
+
+  if (strncmp(command, "set flood.max.advert ", 21) == 0) {
+    const int value = atoi(command + 21);
+
+    if (value < 0 || value > 64) {
+      snprintf(reply, reply_size, "Err - invalid flood max");
+      return true;
+    }
+
+    _prefs.setFloodMaxAdvert((uint8_t)value);
+    save_ok();
+    return true;
+  }
+
+  if (strncmp(command, "set flood.max ", 14) == 0) {
+    const int value = atoi(command + 14);
+
+    if (value < 0 || value > 64) {
+      snprintf(reply, reply_size, "Err - invalid flood max");
+      return true;
+    }
+
+    _prefs.setFloodMax((uint8_t)value);
+    save_ok();
+    return true;
+  }
+
+  if (strncmp(command, "set int.thresh ", 15) == 0) {
+    const int value = atoi(command + 15);
+
+    if (value < 0 || value > 255) {
+      snprintf(reply, reply_size, "Err - invalid threshold");
+      return true;
+    }
+
+    _prefs.interference_threshold = (uint8_t)value;
+    save_ok();
+    return true;
+  }
+
+  if (strncmp(command, "set agc.reset.interval ", 23) == 0) {
+    const int value = atoi(command + 23);
+
+    if (value < 0 || value > 255) {
+      snprintf(reply, reply_size, "Err - invalid AGC interval");
+      return true;
+    }
+
+    _prefs.agc_reset_interval = (uint8_t)value;
+    save_ok();
+    return true;
+  }
+
+  if (strncmp(command, "set multi.acks ", 15) == 0) {
+    const int value = atoi(command + 15);
+
+    if (value != 0 && value != 1) {
+      snprintf(reply, reply_size, "Err - use 0 or 1");
+      return true;
+    }
+
+    _prefs.multi_acks = (uint8_t)value;
+    save_ok();
+    return true;
+  }
+
+  if (strncmp(command, "set guest.password ", 19) == 0) {
+    _prefs.setRepeaterGuestPassword(command + 19);
+    savePrefs();
+    snprintf(reply, reply_size, "OK - guest password set");
+    return true;
+  }
+
+  if (strncmp(command, "set owner.info ", 15) == 0) {
+    const char* source = command + 15;
+    size_t out = 0;
+
+    while (
+      *source &&
+      out + 1 < sizeof(_prefs.owner_info)
+    ) {
+      _prefs.owner_info[out++] =
+        *source == '|' ? '\n' : *source;
+      source++;
+    }
+
+    _prefs.owner_info[out] = '\0';
+    savePrefs();
+    snprintf(reply, reply_size, "OK - owner info set");
+    return true;
+  }
+
+  if (strncmp(command, "set path.hash.mode ", 19) == 0) {
+    const int value = atoi(command + 19);
+
+    if (value < 0 || value > 2) {
+      snprintf(reply, reply_size, "Err - invalid hash mode");
+      return true;
+    }
+
+    _prefs.path_hash_mode = (uint8_t)value;
+    save_ok();
+    return true;
+  }
+
+  if (strncmp(command, "set loop.detect ", 16) == 0) {
+    const char* value = command + 16;
+    uint8_t mode = LOOP_DETECT_OFF;
+
+    if (strcmp(value, "off") == 0) {
+      mode = LOOP_DETECT_OFF;
+    } else if (strcmp(value, "minimal") == 0) {
+      mode = LOOP_DETECT_MINIMAL;
+    } else if (strcmp(value, "moderate") == 0) {
+      mode = LOOP_DETECT_MODERATE;
+    } else if (strcmp(value, "strict") == 0) {
+      mode = LOOP_DETECT_STRICT;
+    } else {
+      snprintf(reply, reply_size, "Err - invalid loop mode");
+      return true;
+    }
+
+    _prefs.setLoopDetect(mode);
+    save_ok();
+    return true;
+  }
+
+  if (strncmp(command, "set radio.rxgain ", 17) == 0) {
+    const char* value = command + 17;
+
+    if (
+      strcmp(value, "on") != 0 &&
+      strcmp(value, "off") != 0
+    ) {
+      snprintf(reply, reply_size, "Err - use on or off");
+      return true;
+    }
+
+    _prefs.rx_boosted_gain =
+      strcmp(value, "on") == 0 ? 1 : 0;
+
+    radio_driver.setRxBoostedGainMode(
+      _prefs.rx_boosted_gain
+    );
+
+    save_ok();
+    return true;
+  }
+
+  if (strncmp(command, "password ", 9) == 0) {
+    _prefs.setRepeaterAdminPassword(command + 9);
+    savePrefs();
+    snprintf(reply, reply_size, "password updated");
+    return true;
+  }
+
+  if (strcmp(command, "clock") == 0) {
+    DateTime dt(getRTCClock()->getCurrentTime());
+
+    snprintf(
+      reply,
+      reply_size,
+      "%02u:%02u - %u/%u/%u UTC",
+      (unsigned)dt.hour(),
+      (unsigned)dt.minute(),
+      (unsigned)dt.day(),
+      (unsigned)dt.month(),
+      (unsigned)dt.year()
+    );
+    return true;
+  }
+
+  if (strcmp(command, "clock sync") == 0) {
+    getRTCClock()->setCurrentTimeFromSource(
+      sender_timestamp,
+      mesh::RTCClock::SyncSource::Companion
+    );
+
+    next_smart_advert = 0;
+    snprintf(reply, reply_size, "OK - clock set");
+    return true;
+  }
+
+  if (strncmp(command, "time ", 5) == 0) {
+    const uint32_t epoch =
+      (uint32_t)strtoul(command + 5, NULL, 10);
+
+    if (epoch == 0) {
+      snprintf(reply, reply_size, "Err - invalid time");
+      return true;
+    }
+
+    getRTCClock()->setCurrentTimeFromSource(
+      epoch,
+      mesh::RTCClock::SyncSource::Companion
+    );
+
+    next_smart_advert = 0;
+    snprintf(reply, reply_size, "OK - clock set");
+    return true;
+  }
+
+  if (strcmp(command, "neighbors") == 0) {
+    size_t used = 0;
+    const int count = getRepeaterNeighbourCount();
+
+    if (count == 0) {
+      snprintf(reply, reply_size, "-none-");
+      return true;
+    }
+
+    for (
+      int i = 0;
+      i < count && used + 2 < reply_size;
+      i++
+    ) {
+      const mesh::Identity* id =
+        getRepeaterNeighbour(i);
+
+      if (id == NULL) {
+        continue;
+      }
+
+      char key[9];
+      mesh::Utils::toHex(key, id->pub_key, 4);
+
+      const int written =
+        snprintf(
+          reply + used,
+          reply_size - used,
+          "%s%s:%lu:%d",
+          used ? "\n" : "",
+          key,
+          (unsigned long)getRepeaterNeighbourHeardAgo(i),
+          (int)getRepeaterNeighbourSNR(i)
+        );
+
+      if (written <= 0) {
+        break;
+      }
+
+      used += min(
+        (size_t)written,
+        reply_size - used - 1
+      );
+    }
+
+    return true;
+  }
+
+  if (strncmp(command, "neighbor.remove ", 16) == 0) {
+    const char* hex = command + 16;
+    const size_t hex_len = strlen(hex);
+
+    if (
+      hex_len < 2 ||
+      hex_len > PUB_KEY_SIZE * 2 ||
+      (hex_len & 1)
+    ) {
+      snprintf(reply, reply_size, "Err - bad pubkey");
+      return true;
+    }
+
+    uint8_t key[PUB_KEY_SIZE];
+    const int key_len = hex_len / 2;
+
+    if (!mesh::Utils::fromHex(key, key_len, hex)) {
+      snprintf(reply, reply_size, "Err - bad pubkey");
+      return true;
+    }
+
+    bool removed = false;
+
+    for (int i = 0; i < MAX_REPEATER_NEIGHBOURS; i++) {
+      if (
+        repeater_neighbours[i].heard_timestamp > 0 &&
+        memcmp(
+          repeater_neighbours[i].id.pub_key,
+          key,
+          key_len
+        ) == 0
+      ) {
+        memset(
+          &repeater_neighbours[i],
+          0,
+          sizeof(repeater_neighbours[i])
+        );
+        removed = true;
+      }
+    }
+
+    snprintf(
+      reply,
+      reply_size,
+      removed ? "OK - neighbor removed" : "Err - not found"
+    );
+    return true;
+  }
+
+  if (strncmp(command, "setperm ", 8) == 0) {
+    char* hex = command + 8;
+    char* space = strchr(hex, ' ');
+
+    if (space == NULL) {
+      snprintf(reply, reply_size, "Err - bad params");
+      return true;
+    }
+
+    *space++ = '\0';
+
+    const size_t hex_len = strlen(hex);
+
+    if (
+      hex_len < 2 ||
+      hex_len > PUB_KEY_SIZE * 2 ||
+      (hex_len & 1)
+    ) {
+      snprintf(reply, reply_size, "Err - bad pubkey");
+      return true;
+    }
+
+    uint8_t key[PUB_KEY_SIZE];
+    const int key_len = hex_len / 2;
+
+    if (
+      !mesh::Utils::fromHex(key, key_len, hex) ||
+      !repeater_acl.applyPermissions(
+        self_id,
+        key,
+        key_len,
+        (uint8_t)atoi(space)
+      )
+    ) {
+      snprintf(reply, reply_size, "Err - invalid params");
+      return true;
+    }
+
+    repeater_acl.save(_store->getPrimaryFS());
+    snprintf(reply, reply_size, "OK");
+    return true;
+  }
+
+  if (strcmp(command, "region") == 0) {
+    exportRepeaterRegions(reply, reply_size);
+    return true;
+  }
+
+  if (strcmp(command, "region save") == 0) {
+    snprintf(
+      reply,
+      reply_size,
+      saveRepeaterRegions() ? "OK" : "Err - save failed"
+    );
+    return true;
+  }
+
+  if (strncmp(command, "region get ", 11) == 0) {
+    RegionEntry* region =
+      findRepeaterRegion(command + 11);
+
+    if (region == NULL) {
+      snprintf(reply, reply_size, "Err - unknown region");
+      return true;
+    }
+
+    RegionEntry* parent =
+      region_map.findById(region->parent);
+
+    snprintf(
+      reply,
+      reply_size,
+      " %s%s%s%s",
+      region->name,
+      parent != NULL && parent->id != 0 ? " (" : "",
+      parent != NULL && parent->id != 0 ? parent->name : "",
+      parent != NULL && parent->id != 0 ? ")" : ""
+    );
+
+    if (
+      (region->flags & REGION_DENY_FLOOD) == 0 &&
+      strlen(reply) + 2 < reply_size
+    ) {
+      strcat(reply, " F");
+    }
+
+    return true;
+  }
+
+  if (strncmp(command, "region list ", 12) == 0) {
+    const char* filter = command + 12;
+    bool invert = false;
+
+    if (strcmp(filter, "allowed") == 0) {
+      invert = false;
+    } else if (strcmp(filter, "denied") == 0) {
+      invert = true;
+    } else {
+      snprintf(reply, reply_size, "Err - use allowed or denied");
+      return true;
+    }
+
+    const int length =
+      region_map.exportNamesTo(
+        reply,
+        reply_size,
+        REGION_DENY_FLOOD,
+        invert
+      );
+
+    if (length == 0) {
+      snprintf(reply, reply_size, "-none-");
+    }
+
+    return true;
+  }
+
+  if (strncmp(command, "region put ", 11) == 0) {
+    char* name = command + 11;
+    char* parent = strchr(name, ' ');
+
+    if (parent != NULL) {
+      *parent++ = '\0';
+      while (*parent == ' ') parent++;
+    }
+
+    snprintf(
+      reply,
+      reply_size,
+      putRepeaterRegion(
+        name,
+        parent != NULL && *parent ? parent : "*"
+      )
+        ? "OK - (flood allowed)"
+        : "Err - unable to put"
+    );
+    return true;
+  }
+
+  if (strncmp(command, "region remove ", 14) == 0) {
+    snprintf(
+      reply,
+      reply_size,
+      removeRepeaterRegion(command + 14)
+        ? "OK"
+        : "Err - not found or not empty"
+    );
+    return true;
+  }
+
+  if (strcmp(command, "region home") == 0) {
+    RegionEntry* home = getRepeaterHomeRegion();
+
+    snprintf(
+      reply,
+      reply_size,
+      " home is %s",
+      home != NULL ? home->name : "*"
+    );
+    return true;
+  }
+
+  if (strncmp(command, "region home ", 12) == 0) {
+    if (!setRepeaterHomeRegion(command + 12)) {
+      snprintf(reply, reply_size, "Err - unknown region");
+      return true;
+    }
+
+    RegionEntry* home = getRepeaterHomeRegion();
+    snprintf(
+      reply,
+      reply_size,
+      " home is now %s",
+      home != NULL ? home->name : "*"
+    );
+    return true;
+  }
+
+  if (strcmp(command, "region default") == 0) {
+    RegionEntry* def = getRepeaterDefaultRegion();
+
+    snprintf(
+      reply,
+      reply_size,
+      " default scope is %s",
+      def != NULL ? def->name : "<null>"
+    );
+    return true;
+  }
+
+  if (strncmp(command, "region default ", 15) == 0) {
+    const char* value = command + 15;
+    bool ok = false;
+
+    if (strcmp(value, "<null>") == 0) {
+      ok = clearRepeaterDefaultRegion();
+    } else {
+      ok = setRepeaterDefaultRegion(value);
+    }
+
+    if (!ok) {
+      snprintf(reply, reply_size, "Err - save failed");
+      return true;
+    }
+
+    RegionEntry* def = getRepeaterDefaultRegion();
+    snprintf(
+      reply,
+      reply_size,
+      " default scope is now %s",
+      def != NULL ? def->name : "<null>"
+    );
+    return true;
+  }
+
+  if (strncmp(command, "region allowf ", 14) == 0) {
+    snprintf(
+      reply,
+      reply_size,
+      setRepeaterRegionFloodAllowed(command + 14, true)
+        ? "OK"
+        : "Err - unknown region"
+    );
+    return true;
+  }
+
+  if (strncmp(command, "region denyf ", 13) == 0) {
+    snprintf(
+      reply,
+      reply_size,
+      setRepeaterRegionFloodAllowed(command + 13, false)
+        ? "OK"
+        : "Err - unknown region"
+    );
+    return true;
+  }
+
+  if (strcmp(command, "advert") == 0) {
+    snprintf(
+      reply,
+      reply_size,
+      advert(true) ? "OK - Advert sent" : "Err - advert failed"
+    );
+    return true;
+  }
+
+  if (strcmp(command, "advert.zerohop") == 0) {
+    snprintf(
+      reply,
+      reply_size,
+      advert(false) ? "OK - zerohop advert sent" : "Err - advert failed"
+    );
+    return true;
+  }
+
+  if (strcmp(command, "clear stats") == 0) {
+    radio_driver.resetStats();
+    resetStats();
+    ((SimpleMeshTables*)getTables())->resetStats();
+    snprintf(reply, reply_size, "OK - stats reset");
+    return true;
+  }
+
+  if (strcmp(command, "reboot") == 0) {
+    remote_reboot_at = futureMillis(1000);
+    snprintf(reply, reply_size, "OK - rebooting");
+    return true;
+  }
+
+  snprintf(reply, reply_size, "Err - unsupported command");
+  return true;
+}
+
+
 void MyMesh::onMessageRecv(const ContactInfo &from, mesh::Packet *pkt, uint32_t sender_timestamp,
                            const char *text) {
   markConnectionActive(from); // in case this is from a server, and we have a connection
