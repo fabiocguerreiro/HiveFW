@@ -72,6 +72,7 @@
 #endif
 
 #include <helpers/BaseChatMesh.h>
+#include <helpers/ClientACL.h>
 #include <helpers/TransportKeyStore.h>
 #include <helpers/RegionMap.h>
 #include <helpers/RoutingPolicy.h>
@@ -247,6 +248,14 @@ protected:
     mesh::Packet* packet
   ) override;
 
+  void onAnonDataRecv(
+    mesh::Packet* packet,
+    const uint8_t* secret,
+    const mesh::Identity& sender,
+    uint8_t* data,
+    size_t len
+  ) override;
+
   bool filterRecvFloodPacket(
     mesh::Packet* packet
   ) override;
@@ -256,6 +265,16 @@ protected:
   ) override;
 
   void sendFloodScoped(const TransportKey& scope, mesh::Packet* pkt, uint32_t delay_millis);
+  void sendRepeaterFloodReply(mesh::Packet* packet, uint32_t delay_millis, uint8_t path_hash_size);
+  uint8_t handleRepeaterLoginReq(
+    const mesh::Identity& sender,
+    const uint8_t* secret,
+    uint32_t sender_timestamp,
+    const uint8_t* password,
+    bool is_flood,
+    uint8_t* reply
+  );
+  ContactInfo* ensureRepeaterLoginContact(const mesh::Identity& sender);
   void sendFloodScoped(const ContactInfo& recipient, mesh::Packet* pkt, uint32_t delay_millis=0) override;
   void sendFloodScoped(const mesh::GroupChannel& channel, mesh::Packet* pkt, uint32_t delay_millis=0) override;
 
@@ -426,6 +445,7 @@ private:
 
   DataStore* _store;
   NodePrefs _prefs;
+  ClientACL repeater_acl;
   uint32_t pending_login;
   uint32_t pending_status;
   uint32_t pending_telemetry, pending_discovery;   // pending _TELEMETRY_REQ
