@@ -990,6 +990,42 @@ def on_notification_received(data):
 - **Message truncation**: Send long messages as separate shorter messages
 
 
+## HiveFW local Repeater RegionMap extensions
+
+HiveFW exposes the integrated Repeater RegionMap over the local Companion
+transport. These commands are local-only: reading or editing the RegionMap
+does not itself transmit anything over LoRa.
+
+| Command | Value | Request | Response |
+|---|---:|---|---|
+| `CMD_GET_REPEATER_REGION` | `0x2F` | `[cmd][index]` | `CUSTOM_VARS` with `idx,total,name,parent,allow,home,default` for one RegionMap entry. Index 0 is the wildcard `*`. |
+| `CMD_SET_REPEATER_REGION` | `0x30` | See operation frame below. | `OK` or `ERR`. |
+
+The mutation frame is:
+
+```text
+[0x30][op][name_len][name...][parent_len][parent...]
+```
+
+Operations:
+
+- `0` — save the current RegionMap to `/regions2`
+- `1` — put/create a Region; optional parent is used
+- `2` — remove a Region
+- `3` — allow flood for a Region
+- `4` — deny flood for a Region
+- `5` — set HOME Region
+- `6` — set default Region
+- `7` — clear the default Region
+
+For operations `0` and `7`, only `[cmd][op]` is required. Region names
+follow the normal MeshCore RegionMap constraints and are limited to 30 UTF-8
+bytes by the underlying `RegionEntry`.
+
+As in the official Repeater CLI, put/remove/allow/deny/HOME changes remain in
+RAM until the explicit save operation. Default Region changes are persisted
+immediately by the RegionMap helper.
+
 ## Repeater authenticated binary requests
 
 With Repeater mode enabled, authenticated Repeater clients support the
