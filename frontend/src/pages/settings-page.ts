@@ -1,9 +1,11 @@
 import { LitElement, html, css, nothing } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
-import type { HomeAssistant, PanelConfig, DeviceConfig, MeshCoreDevice, LocalRepeaterStatus, ManagedDevice } from '../types';
+import type { HomeAssistant, PanelConfig, DeviceConfig, MeshCoreDevice, LocalRepeaterStatus, LocalRegionsResponse, ManagedDevice } from '../types';
 import {
   getDeviceConfig,
   getLocalRepeaterStatus,
+  getLocalRegions,
+  setLocalRegion,
   getFirmwareOtaStatus,
   installLatestFirmware,
   getDutyCycle,
@@ -116,6 +118,11 @@ export class SettingsPage extends LitElement {
   @state() private _regionTarget = '';
   @state() private _regionText = '';
   @state() private _regionBusy = false;
+  @state() private _localRegions: LocalRegionsResponse | null = null;
+  @state() private _localRegionBusy = false;
+  @state() private _localRegionAction: 'put' | 'remove' | 'allow' | 'deny' | 'home' | 'default' | 'clear_default' = 'put';
+  @state() private _localRegionName = '';
+  @state() private _localRegionParent = '';
   @state() private _regionAction: 'allowf' | 'denyf' | 'home' | 'default' | 'put' | 'remove' = 'allowf';
   @state() private _regionName = '';
   @state() private _loading = true;
@@ -1191,6 +1198,14 @@ export class SettingsPage extends LitElement {
         }
       } catch {
         this._repeaterStatus = null;
+      }
+      try {
+        this._localRegions = await getLocalRegions(
+          this.hass,
+          this.config?.entry_id,
+        );
+      } catch {
+        this._localRegions = null;
       }
       try {
         this._firmwareOtaStatus = await getFirmwareOtaStatus(
