@@ -2159,8 +2159,78 @@ void MyMesh::onMessageRecv(const ContactInfo &from, mesh::Packet *pkt, uint32_t 
 
 void MyMesh::onCommandDataRecv(const ContactInfo &from, mesh::Packet *pkt, uint32_t sender_timestamp,
                                const char *text) {
-  markConnectionActive(from); // in case this is from a server, and we have a connection
-  queueMessage(from, TXT_TYPE_CLI_DATA, pkt, sender_timestamp, NULL, 0, text);
+  // Reserved transient contacts are authenticated Repeater sessions. For
+  // those only, CLI_DATA is an inbound admin command. Normal Companion
+  // contacts keep the existing meaning: CLI_DATA is a reply to queue for UI.
+  if (from.type == ADV_TYPE_NONE && _prefs.isRepeatEn()) {
+    ClientInfo* client =
+      repeater_acl.getClient(from.id.pub_key, PUB_KEY_SIZE);
+
+    if (client == NULL || !client->isAdmin()) {
+      return;
+    }
+
+    if (sender_timestamp < client->last_timestamp) {
+      MESH_DEBUG_PRINTLN(
+        "Remote CLI: replay detected"
+      );
+      return;
+    }
+
+    const bool is_retry =
+      sender_timestamp == client->last_timestamp;
+
+    client->last_timestamp = sender_timestamp;
+    client->last_activity =
+      getRTCClock()->getCurrentTime();
+
+    if (is_retry) {
+      return;
+    }
+
+    char command[161];
+    StrHelper::strncpy(
+      command,
+      text != NULL ? text : "",
+      sizeof(command)
+    );
+
+    char reply[MAX_TEXT_LEN + 1];
+
+    handleRepeaterRemoteCommand(
+      sender_timestamp,
+      command,
+      reply,
+      sizeof(reply)
+    );
+
+    if (reply[0] != '\0') {
+      uint32_t est_timeout = 0;
+      const uint32_t reply_timestamp =
+        getRTCClock()->getCurrentTimeUnique();
+
+      sendCommandData(
+        from,
+        reply_timestamp,
+        0,
+        reply,
+        est_timeout
+      );
+    }
+
+    return;
+  }
+
+  markConnectionActive(from);
+  queueMessage(
+    from,
+    TXT_TYPE_CLI_DATA,
+    pkt,
+    sender_timestamp,
+    NULL,
+    0,
+    text
+  );
 }
 
 void MyMesh::onSignedMessageRecv(const ContactInfo &from, mesh::Packet *pkt, uint32_t sender_timestamp,
