@@ -9,6 +9,7 @@ import { UnreadController } from './chat/unread-controller';
 import './pages/chat-page';
 import './pages/nodes-page';
 import './pages/neighbors-page';
+import './pages/status-page';
 import './pages/settings-page';
 import './components/trace-dialog';
 import './components/target-picker';
@@ -858,16 +859,14 @@ export class MeshCorePanel extends LitElement {
             .narrow=${this.narrow}></meshcore-neighbors-page>`;
       case 'state':
         return html`
-          <meshcore-settings-page
+          <meshcore-status-page
             .hass=${this.hass}
             .config=${this._config}
             .selectedDevice=${this._selectedDevice}
             .contactCount=${this._contacts.length}
             .channelCount=${this._channels.length}
-            .viewMode=${'state'}
             .narrow=${this.narrow}
-            @companion-trace-requested=${this._onCompanionTraceRequested}
-            @device-renamed=${this._onDeviceRenamed}></meshcore-settings-page>`;
+            @companion-trace-requested=${this._onCompanionTraceRequested}></meshcore-status-page>`;
       case 'settings':
         return html`
           <meshcore-settings-page
@@ -876,7 +875,6 @@ export class MeshCorePanel extends LitElement {
             .selectedDevice=${this._selectedDevice}
             .contactCount=${this._contacts.length}
             .channelCount=${this._channels.length}
-            .viewMode=${'settings'}
             .narrow=${this.narrow}
             @companion-trace-requested=${this._onCompanionTraceRequested}
             @device-renamed=${this._onDeviceRenamed}></meshcore-settings-page>`;
