@@ -414,7 +414,7 @@ A primeira linha unificada é:
 HiveFW 1.13.0
 ```
 
-**Um merge normal não publica uma Release.** Uma commit explícita `Release HiveFW X.Y.Z` cria a tag `vX.Y.Z`; a tag dispara o workflow que compila e publica a Release. Uma tag criada manualmente continua igualmente suportada.
+**Um merge normal não publica uma Release.** Uma commit explícita `Release HiveFW X.Y.Z` cria/move a tag `vX.Y.Z` para essa commit e o próprio workflow compila e publica a Release. Uma tag criada manualmente continua igualmente suportada.
 
 ## Releases
 
