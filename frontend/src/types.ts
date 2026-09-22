@@ -493,6 +493,12 @@ export interface LocalRepeaterStatus {
     timestamp?: number;
     drift_seconds?: number;
   };
+  server_auth?: {
+    supported: boolean;
+    admin_password_set: boolean;
+    guest_password_set: boolean;
+    acl_count?: number | null;
+  };
   stats: {
     core?: Record<string, number | null>;
     radio?: Record<string, number | null>;
