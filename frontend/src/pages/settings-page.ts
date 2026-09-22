@@ -2913,6 +2913,24 @@ export class SettingsPage extends LitElement {
     if (status.auto_advert_supported && this._editValues['auto_advert'] !== undefined) {
       settings.auto_advert = Boolean(this._editValues['auto_advert']);
     }
+    for (const key of [
+      'path_hash_mode',
+      'flood_max',
+      'flood_max_unscoped',
+      'flood_max_advert',
+      'loop_detect',
+      'interference_threshold',
+      'agc_reset_interval',
+      'flood_tx_delay',
+      'direct_tx_delay',
+    ]) {
+      if (this._editValues[key] !== undefined) {
+        settings[key] = Number(this._editValues[key]);
+      }
+    }
+    if (this._editValues['cad_enabled'] !== undefined) {
+      settings.cad_enabled = Boolean(this._editValues['cad_enabled']);
+    }
     if (Object.keys(settings).length === 0) {
       this._showStatusMessage('No Repeater settings changed', 'success');
       return;
@@ -2929,7 +2947,22 @@ export class SettingsPage extends LitElement {
         return;
       }
 
-      for (const key of ['repeat', 'auto_advert', 'multi_acks', 'rx_delay']) {
+      for (const key of [
+        'repeat',
+        'auto_advert',
+        'multi_acks',
+        'path_hash_mode',
+        'rx_delay',
+        'flood_max',
+        'flood_max_unscoped',
+        'flood_max_advert',
+        'loop_detect',
+        'cad_enabled',
+        'interference_threshold',
+        'agc_reset_interval',
+        'flood_tx_delay',
+        'direct_tx_delay',
+      ]) {
         delete this._editValues[key];
       }
       this._editValues = { ...this._editValues };
