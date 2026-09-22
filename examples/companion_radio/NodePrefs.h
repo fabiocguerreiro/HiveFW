@@ -9,6 +9,12 @@
 #define ADVERT_LOC_NONE       0
 #define ADVERT_LOC_SHARE      1
 
+// MeshCore simple_repeater loop-detection modes.
+#define LOOP_DETECT_OFF       0
+#define LOOP_DETECT_MINIMAL   1
+#define LOOP_DETECT_MODERATE  2
+#define LOOP_DETECT_STRICT    3
+
 class NodePrefs : public ConfigSerializer {  // persisted to file
 public:
   float airtime_factor = 0;
@@ -145,6 +151,12 @@ private:
     uint32_t last_auto_advert_epoch = 0;
     uint32_t auto_advert_enabled_epoch = 0;
     uint8_t auto_advert_state_version = 0;
+
+    // Official simple_repeater routing safeguards.
+    uint8_t flood_max = 64;
+    uint8_t flood_max_unscoped = 64;
+    uint8_t flood_max_advert = 8;
+    uint8_t loop_detect = LOOP_DETECT_OFF;
   protected:
     void structure() override {
       def("disable", disable_fwd);
@@ -152,10 +164,10 @@ private:
       def("last_adv", last_auto_advert_epoch);
       def("adv_on", auto_advert_enabled_epoch);
       def("adv_ver", auto_advert_state_version);
-      //def("f_max", flood_max);
-      //def("f_max_uns", flood_max_unscoped);
-      //def("f_max_adv", flood_max_advert);
-      //def("loop", loop_detect);
+      def("f_max", flood_max);
+      def("f_max_uns", flood_max_unscoped);
+      def("f_max_adv", flood_max_advert);
+      def("loop", loop_detect);
     }
   };
   RepeatPrefs repeat;

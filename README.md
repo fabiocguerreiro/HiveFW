@@ -111,6 +111,8 @@ Funcionalidades comuns:
 - identidade de advert adaptada ao estado Repeater;
 - configuração de rádio: frequência, BW, SF, CR, TX Power e Path Hash;
 - Duty Cycle configurável;
+- Flood Limits oficiais: geral, unscoped e advert;
+- Loop Detect configurável: Off / Minimal / Moderate / Strict;
 - Regions / Flood Scopes;
 - descoberta de Repeaters;
 - Node Discovery;

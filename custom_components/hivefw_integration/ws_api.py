@@ -2224,6 +2224,32 @@ async def ws_get_local_repeater_status(hass, connection, msg):
             except (TypeError, ValueError):
                 duty_cycle = None
 
+        routing = {
+            "supported": False,
+            "flood_max": None,
+            "flood_max_unscoped": None,
+            "flood_max_advert": None,
+            "loop_detect": None,
+        }
+        raw_route = str(custom_vars.get("route", "")).strip()
+        if raw_route:
+            try:
+                route_parts = [int(part) for part in raw_route.split("/")]
+                if (
+                    len(route_parts) == 4
+                    and all(0 <= value <= 64 for value in route_parts[:3])
+                    and 0 <= route_parts[3] <= 3
+                ):
+                    routing = {
+                        "supported": True,
+                        "flood_max": route_parts[0],
+                        "flood_max_unscoped": route_parts[1],
+                        "flood_max_advert": route_parts[2],
+                        "loop_detect": route_parts[3],
+                    }
+            except (TypeError, ValueError):
+                pass
+
         cad_diag = {}
         raw_cad_diag = str(custom_vars.get("cad_diag", "")).strip()
         if raw_cad_diag:
@@ -2300,6 +2326,7 @@ async def ws_get_local_repeater_status(hass, connection, msg):
                 },
                 "battery": battery,
                 "tuning": tuning_view,
+                "routing": routing,
                 "clock": {
                     "timestamp": device_clock.get("time"),
                     "drift_seconds": (
@@ -3001,6 +3028,106 @@ async def ws_set_device_config(hass, connection, msg):
                 )
                 return
             changed.append("duty_cycle")
+
+        # HiveFW Repeater flood limits + loop detection. Firmware exposes the
+        # four official simple_repeater values atomically through one compact
+        # custom var: route=flood/unscoped/advert/loop.
+        routing_keys = {
+            "flood_max",
+            "flood_max_unscoped",
+            "flood_max_advert",
+            "loop_detect",
+        }
+        if routing_keys & set(settings.keys()):
+            current = await coordinator.api.mesh_core.commands.get_custom_vars()
+            reason = _device_config_failure_reason(current)
+            if reason is not None:
+                _send_device_config_failure(
+                    connection, msg["id"], "routing", reason, changed
+                )
+                return
+
+            current_payload = getattr(current, "payload", {}) or {}
+            raw_route = str(current_payload.get("route", "")).strip()
+            try:
+                current_route = [int(part) for part in raw_route.split("/")]
+            except (TypeError, ValueError):
+                current_route = []
+
+            if (
+                len(current_route) != 4
+                or not all(0 <= value <= 64 for value in current_route[:3])
+                or not 0 <= current_route[3] <= 3
+            ):
+                _send_device_config_failure(
+                    connection,
+                    msg["id"],
+                    "routing",
+                    "firmware does not expose a valid route configuration",
+                    changed,
+                )
+                return
+
+            requested_route = [
+                int(settings.get("flood_max", current_route[0])),
+                int(settings.get("flood_max_unscoped", current_route[1])),
+                int(settings.get("flood_max_advert", current_route[2])),
+                int(settings.get("loop_detect", current_route[3])),
+            ]
+
+            if not all(0 <= value <= 64 for value in requested_route[:3]):
+                _send_device_config_failure(
+                    connection,
+                    msg["id"],
+                    "routing",
+                    "flood limits must be between 0 and 64",
+                    changed,
+                )
+                return
+            if not 0 <= requested_route[3] <= 3:
+                _send_device_config_failure(
+                    connection,
+                    msg["id"],
+                    "routing",
+                    "loop_detect must be 0..3",
+                    changed,
+                )
+                return
+
+            route_value = "/".join(str(value) for value in requested_route)
+            result = await coordinator.api.mesh_core.commands.set_custom_var(
+                "route",
+                route_value,
+            )
+            reason = _device_config_failure_reason(result)
+            if reason is not None:
+                _send_device_config_failure(
+                    connection, msg["id"], "routing", reason, changed
+                )
+                return
+
+            verified = await coordinator.api.mesh_core.commands.get_custom_vars()
+            reason = _device_config_failure_reason(verified)
+            if reason is not None:
+                _send_device_config_failure(
+                    connection, msg["id"], "routing verification", reason, changed
+                )
+                return
+
+            verified_payload = getattr(verified, "payload", {}) or {}
+            if str(verified_payload.get("route", "")).strip() != route_value:
+                _send_device_config_failure(
+                    connection,
+                    msg["id"],
+                    "routing verification",
+                    "read-back mismatch",
+                    changed,
+                )
+                return
+
+            changed.extend(
+                key for key in routing_keys if key in settings
+            )
 
         # Companion tuning values are floats in the UI but thousandths on wire.
         if "rx_delay" in settings or "airtime_factor" in settings:

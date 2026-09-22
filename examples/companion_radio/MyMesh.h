@@ -73,6 +73,7 @@
 #include <helpers/BaseChatMesh.h>
 #include <helpers/TransportKeyStore.h>
 #include <helpers/RegionMap.h>
+#include <helpers/RoutingPolicy.h>
 
 /* -------------------------------------------------------------------------------------- */
 
@@ -400,6 +401,11 @@ private:
 
   bool handleCLIRegionCommand(
     char* command
+  );
+
+  bool isRepeaterLooped(
+    const mesh::Packet* packet,
+    const uint8_t max_counters[]
   );
 
   void checkCLIRescueCmd();

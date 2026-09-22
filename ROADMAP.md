@@ -40,6 +40,8 @@ pela mesma linha de Releases.
 - [x] exclusão de Share Contact da deteção de vizinhos RF;
 - [x] diagnóstico e recuperação de CAD Timeout;
 - [x] Regions / Flood Scopes;
+- [x] Flood Limits equivalentes ao simple_repeater (geral / unscoped / advert);
+- [x] Loop Detect equivalente ao simple_repeater (off / minimal / moderate / strict);
 - [x] Duty Cycle e Path Hash;
 - [x] UI HiveFW.
 
@@ -117,6 +119,17 @@ Continuar a observar/testar:
 - [ ] migrar gradualmente as extensões ainda existentes em `hivefw-panel.ts` para páginas/componentes TypeScript próprios;
 - [ ] reduzir manipulação DOM pós-render onde já existe um componente Lit equivalente;
 - [ ] remover o wrapper de extensão quando toda a funcionalidade HiveFW estiver integrada na árvore TypeScript principal.
+
+### Paridade com simple_repeater
+
+Implementar pela ordem definida para o Repeater HiveFW:
+
+- [x] 1. Flood Limits + Loop Detect;
+- [ ] 2. CAD / interference / AGC + delays configuráveis;
+- [ ] 3. Discovery rate limiting;
+- [ ] 4. ACL + servidor de login Repeater;
+- [ ] 5. GET_STATUS / TELEMETRY / NEIGHBOURS / ACCESS_LIST;
+- [ ] 6. OWNER / REGIONS / CLOCK anónimos + remote CLI.
 
 ### Observabilidade RF
 

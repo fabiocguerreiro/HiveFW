@@ -7035,6 +7035,7 @@ class HiveFWPanel extends BasePanel {
     const radio = status.radio || {};
     const location = status.location || {};
     const tuning = status.tuning || {};
+    const routing = status.routing || {};
 
     this.__repeaterEdit = {
       repeat: !!status.repeat,
@@ -7047,6 +7048,10 @@ class HiveFWPanel extends BasePanel {
       multi_acks: Number(radio.multi_acks ?? 0),
       rx_delay: tuning.rx_delay ?? 0,
       airtime_factor: tuning.airtime_factor ?? 0,
+      flood_max: Number(routing.flood_max ?? 64),
+      flood_max_unscoped: Number(routing.flood_max_unscoped ?? 64),
+      flood_max_advert: Number(routing.flood_max_advert ?? 8),
+      loop_detect: Number(routing.loop_detect ?? 0),
       latitude: location.latitude ?? 0,
       longitude: location.longitude ?? 0,
     };
@@ -7670,6 +7675,7 @@ class HiveFWPanel extends BasePanel {
     columns.append(
       this.__renderModeCard(status),
       this.__renderRadioCard(status),
+      this.__renderFloodLoopCard(status),
       this.__renderRoutingCard(status),
       this.__renderStatsCard(status),
       this.__renderLocationCard(status),
@@ -7814,6 +7820,87 @@ class HiveFWPanel extends BasePanel {
 
     return card;
   }
+
+  __renderFloodLoopCard(status) {
+    const routing = status.routing || {};
+    const card = this.__card(
+      "Flood Limits & Loop Detect",
+      "Proteções de encaminhamento equivalentes ao simple_repeater oficial. 0 num Flood Limit bloqueia esse tipo de flood."
+    );
+
+    if (!routing.supported) {
+      const note = document.createElement("div");
+      note.className = "mcr-note";
+      note.textContent =
+        "Esta versão do firmware não expõe ainda a configuração de Flood Limits / Loop Detect.";
+      card.appendChild(note);
+      return card;
+    }
+
+    const grid = document.createElement("div");
+    grid.className = "mcr-form-grid";
+
+    grid.append(
+      this.__numberField(
+        "Flood max",
+        this.__repeaterEdit.flood_max,
+        "1",
+        (v) => this.__repeaterEdit.flood_max = Number(v)
+      ),
+      this.__numberField(
+        "Flood max · unscoped",
+        this.__repeaterEdit.flood_max_unscoped,
+        "1",
+        (v) => this.__repeaterEdit.flood_max_unscoped = Number(v)
+      ),
+      this.__numberField(
+        "Flood max · advert",
+        this.__repeaterEdit.flood_max_advert,
+        "1",
+        (v) => this.__repeaterEdit.flood_max_advert = Number(v)
+      ),
+      this.__selectField(
+        "Loop Detect",
+        [
+          { value: 0, label: "Off" },
+          { value: 1, label: "Minimal" },
+          { value: 2, label: "Moderate" },
+          { value: 3, label: "Strict" },
+        ],
+        this.__repeaterEdit.loop_detect,
+        (v) => this.__repeaterEdit.loop_detect = Number(v)
+      )
+    );
+
+    card.appendChild(grid);
+
+    const actions = document.createElement("div");
+    actions.className = "mcr-actions";
+    const save = this.__button("Guardar routing", "primary");
+    save.disabled = this.__repeaterLoading;
+    save.addEventListener("click", () => {
+      void this.__saveRepeaterSettings(
+        {
+          flood_max: Number(this.__repeaterEdit.flood_max),
+          flood_max_unscoped: Number(this.__repeaterEdit.flood_max_unscoped),
+          flood_max_advert: Number(this.__repeaterEdit.flood_max_advert),
+          loop_detect: Number(this.__repeaterEdit.loop_detect),
+        },
+        "Flood Limits e Loop Detect atualizados."
+      );
+    });
+    actions.appendChild(save);
+    card.appendChild(actions);
+
+    const note = document.createElement("div");
+    note.className = "mcr-note";
+    note.textContent =
+      "Defaults MeshCore: Flood 64 · Unscoped 64 · Advert 8 · Loop Detect Off. Os limites contam hashes/hops já presentes no path.";
+    card.appendChild(note);
+
+    return card;
+  }
+
 
   __renderRoutingCard(status) {
     const card = this.__card(

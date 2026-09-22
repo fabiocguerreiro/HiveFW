@@ -972,6 +972,39 @@ bool MyMesh::filterRecvFloodPacket(
 }
 
 
+// MeshCore simple_repeater loop thresholds.
+// Index is the path-hash size in bytes (1..3).
+static const uint8_t HIVEFW_LOOP_MAX_MINIMAL[]  = { 0, 4, 2, 1 };
+static const uint8_t HIVEFW_LOOP_MAX_MODERATE[] = { 0, 2, 1, 1 };
+static const uint8_t HIVEFW_LOOP_MAX_STRICT[]   = { 0, 1, 1, 1 };
+
+bool MyMesh::isRepeaterLooped(
+  const mesh::Packet* packet,
+  const uint8_t max_counters[]
+) {
+  const uint8_t hash_size = packet->getPathHashSize();
+  uint8_t hash_count = packet->getPathHashCount();
+
+  if (hash_size == 0 || hash_size > 3) {
+    return false;
+  }
+
+  uint8_t own_hash_count = 0;
+  const uint8_t* path = packet->path;
+
+  while (hash_count > 0) {
+    if (self_id.isHashMatch(path, hash_size)) {
+      own_hash_count++;
+    }
+
+    hash_count--;
+    path += hash_size;
+  }
+
+  return own_hash_count >= max_counters[hash_size];
+}
+
+
 bool MyMesh::allowPacketForward(
   const mesh::Packet* packet
 ) {
@@ -983,10 +1016,52 @@ bool MyMesh::allowPacketForward(
   }
 
 
+  // Official simple_repeater flood hop limits. These protections are
+  // independent from RegionMap, so they also apply to legacy/no-region mode.
+  if (
+    packet->isRouteFlood() &&
+    mesh::isFloodHopLimitExceeded(
+      packet,
+      _prefs.repeat.flood_max,
+      _prefs.repeat.flood_max_unscoped,
+      _prefs.repeat.flood_max_advert
+    )
+  ) {
+    MESH_DEBUG_PRINTLN(
+      "HiveFW Repeater: flood hop limit exceeded"
+    );
+    return false;
+  }
+
+
+  // Official simple_repeater loop detection. This counts how many times our
+  // own identity hash already occurs in the incoming flood path.
+  if (
+    packet->isRouteFlood() &&
+    _prefs.repeat.loop_detect != LOOP_DETECT_OFF
+  ) {
+    const uint8_t* maximums = HIVEFW_LOOP_MAX_STRICT;
+
+    if (_prefs.repeat.loop_detect == LOOP_DETECT_MINIMAL) {
+      maximums = HIVEFW_LOOP_MAX_MINIMAL;
+    } else if (_prefs.repeat.loop_detect == LOOP_DETECT_MODERATE) {
+      maximums = HIVEFW_LOOP_MAX_MODERATE;
+    }
+
+    if (isRepeaterLooped(packet, maximums)) {
+      MESH_DEBUG_PRINTLN(
+        "HiveFW Repeater: flood loop detected"
+      );
+      return false;
+    }
+  }
+
+
   // Compatibilidade V1.08 -> V1.09:
   //
   // enquanto ainda não existir uma configuração RegionMap
-  // explícita, preservar o comportamento anterior.
+  // explícita, preservar o comportamento anterior para Regions. Flood limits
+  // e Loop Detect acima continuam ativos.
   if (!region_policy_configured) {
     return true;
   }
@@ -2342,6 +2417,10 @@ void MyMesh::begin(bool has_display) {
   _prefs.tx_power_dbm = constrain(_prefs.tx_power_dbm, -9, MAX_LORA_TX_POWER);
   _prefs.gps_enabled = constrain(_prefs.gps_enabled, 0, 1);  // Ensure boolean 0 or 1
   _prefs.gps_interval = constrain(_prefs.gps_interval, 0, 86400);  // Max 24 hours
+  _prefs.repeat.flood_max = constrain(_prefs.repeat.flood_max, 0, 64);
+  _prefs.repeat.flood_max_unscoped = constrain(_prefs.repeat.flood_max_unscoped, 0, 64);
+  _prefs.repeat.flood_max_advert = constrain(_prefs.repeat.flood_max_advert, 0, 64);
+  _prefs.repeat.loop_detect = constrain(_prefs.repeat.loop_detect, 0, 3);
 
 #ifdef BLE_PIN_CODE // 123456 by default
   if (_prefs.ble_pin == 0) {
@@ -3360,6 +3439,22 @@ void MyMesh::handleCmdFrame(size_t len) {
     );
     appendCustomVar("apps_channel", apps_channel_value);
 
+    // Compact Repeater routing configuration:
+    // flood_max / flood_max_unscoped / flood_max_advert / loop_detect
+    // Kept compact because the Companion custom-var response has a 140-byte
+    // payload budget shared with Smart Advert and CAD diagnostics.
+    char route_value[20];
+    snprintf(
+      route_value,
+      sizeof(route_value),
+      "%u/%u/%u/%u",
+      (unsigned)_prefs.repeat.flood_max,
+      (unsigned)_prefs.repeat.flood_max_unscoped,
+      (unsigned)_prefs.repeat.flood_max_advert,
+      (unsigned)_prefs.repeat.loop_detect
+    );
+    appendCustomVar("route", route_value);
+
     const uint32_t smart_adv_now = getRTCClock()->getCurrentTime();
     const uint32_t smart_adv_last = loadPersistedAutoAdvertEpoch();
     const uint32_t smart_adv_next =
@@ -3421,6 +3516,35 @@ void MyMesh::handleCmdFrame(size_t len) {
       if (strcmp(sp, "auto_advert") == 0) {
         if (strcmp(np, "0") == 0 || strcmp(np, "1") == 0) {
           setAutoAdvertEnabled(np[0] == '1');
+          success = true;
+        }
+      } else if (strcmp(sp, "route") == 0) {
+        unsigned int flood_max = 0;
+        unsigned int flood_max_unscoped = 0;
+        unsigned int flood_max_advert = 0;
+        unsigned int loop_detect = 0;
+        char trailing = 0;
+
+        if (
+          sscanf(
+            np,
+            "%u/%u/%u/%u%c",
+            &flood_max,
+            &flood_max_unscoped,
+            &flood_max_advert,
+            &loop_detect,
+            &trailing
+          ) == 4 &&
+          flood_max <= 64 &&
+          flood_max_unscoped <= 64 &&
+          flood_max_advert <= 64 &&
+          loop_detect <= LOOP_DETECT_STRICT
+        ) {
+          _prefs.repeat.flood_max = (uint8_t)flood_max;
+          _prefs.repeat.flood_max_unscoped = (uint8_t)flood_max_unscoped;
+          _prefs.repeat.flood_max_advert = (uint8_t)flood_max_advert;
+          _prefs.repeat.loop_detect = (uint8_t)loop_detect;
+          savePrefs();
           success = true;
         }
       } else if (strcmp(sp, "duty_cycle") == 0) {
