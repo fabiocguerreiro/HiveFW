@@ -3650,7 +3650,7 @@ class HiveFWPanel extends BasePanel {
           border-radius:10px!important;
         }
         .hero-tile-head{
-          font-size:8px!important;
+          font-size:10px!important;
           letter-spacing:.035em!important;
           line-height:1.12!important;
           white-space:normal!important;
@@ -3667,8 +3667,8 @@ class HiveFWPanel extends BasePanel {
           text-overflow:ellipsis;
         }
         .hero-tile-value .secondary{
-          font-size:8px!important;
-          line-height:1.15!important;
+          font-size:10px!important;
+          line-height:1.2!important;
           opacity:.8;
           white-space:nowrap;
           overflow:hidden;
@@ -3678,7 +3678,7 @@ class HiveFWPanel extends BasePanel {
           padding:8px 9px!important;
         }
         .hero-tile.hive-metric-compact .hero-tile-head{
-          font-size:8px!important;
+          font-size:10px!important;
         }
         .hero-tile.hive-metric-compact .hero-tile-value .primary{
           font-size:15px!important;
@@ -3827,25 +3827,25 @@ class HiveFWPanel extends BasePanel {
     const used=Number(status.battery?.used_kb), total=Number(status.battery?.total_kb);
     if(Number.isFinite(used)&&Number.isFinite(total)&&total>0){
       const pct=Math.max(0,Math.min(100,used/total*100));
-      hero.appendChild(makeTile("Storage",`${pct.toFixed(0)}%`,`· ${used} / ${total} KB`,pct,0,100,pct>=90?"bad":pct>=70?"warn":"good","storage",clickEntity("storage")));
+      hero.appendChild(makeTile("Armazenamento",`${pct.toFixed(0)}%`,`· ${used} / ${total} KB`,pct,0,100,pct>=90?"bad":pct>=70?"warn":"good","storage",clickEntity("storage")));
     }
 
     const info=status.device_info||{};
     const model=info.model||status.model;
     if(model){
-      hero.appendChild(makeTile("Hardware",String(model),info.firmware_build?`· ${info.firmware_build}`:"",100,0,100,"info","hardware",clickEntity("firmware","model")));
+      hero.appendChild(makeTile("Equipamento",String(model),info.firmware_build?`· ${info.firmware_build}`:"",100,0,100,"info","hardware",clickEntity("firmware","model")));
     }
 
     if(info.protocol_version!=null || info.path_hash_mode!=null){
       const pathLabels=["1 byte","2 bytes","3 bytes"];
       const protocol=info.protocol_version!=null?`v${info.protocol_version}`:"—";
       const path=info.path_hash_mode==null?"—":(pathLabels[Number(info.path_hash_mode)]||String(info.path_hash_mode));
-      hero.appendChild(makeTile("Protocol / Path",protocol,`· ${path}`,100,0,100,"info","protocol",clickEntity("path_hash_mode","protocol_version"),"compact"));
+      hero.appendChild(makeTile("Protocolo / Caminho",protocol,`· ${path}`,100,0,100,"info","protocol",clickEntity("path_hash_mode","protocol_version"),"compact"));
     }
 
     if(info.max_contacts!=null || info.max_channels!=null){
       hero.appendChild(makeTile(
-        "Capacity",
+        "Capacidade",
         `${info.max_contacts??"—"} / ${info.max_channels??"—"}`,
         "contacts / channels",
         100,0,100,"info","capacity",clickEntity("max_contacts","max_channels"),"compact"
@@ -3859,7 +3859,7 @@ class HiveFWPanel extends BasePanel {
         return lo===hi?lo.toFixed(3):`${lo.toFixed(3)}–${hi.toFixed(3)}`;
       });
       hero.appendChild(makeTile(
-        "Repeater frequencies",
+        "Frequências Repeater",
         `${values[0]} MHz`,
         values.length>1?`· ${values.slice(1).join(" · ")} MHz`:"",
         100,0,100,"info","repeat-frequencies",clickEntity("frequency"),"compact"
@@ -3892,7 +3892,7 @@ class HiveFWPanel extends BasePanel {
       ].filter(Boolean).join(" · ");
       const rfEntityId=noiseMetric.entityId||rssiMetric.entityId||snrMetric.entityId;
       hero.appendChild(makeTile(
-        "Noise floor",primary,details?"· "+details:"",100,0,100,rfBand,"rf-health",
+        "Ruído de fundo",primary,details?"· "+details:"",100,0,100,rfBand,"rf-health",
         clickEntityId(rfEntityId)
       ));
     }
@@ -3921,7 +3921,7 @@ class HiveFWPanel extends BasePanel {
       );
       const airtimeEntityId=airtimeUtil.entityId||rxAirtimeUtil.entityId||txAirtime.entityId||rxAirtime.entityId;
       hero.appendChild(makeTile(
-        "Airtime",primary,secondary,Math.min(maxUtil,100),0,100,
+        "Tempo de rádio",primary,secondary,Math.min(maxUtil,100),0,100,
         maxUtil>=50?"warn":"info","airtime-health",clickEntityId(airtimeEntityId)
       ));
     }
