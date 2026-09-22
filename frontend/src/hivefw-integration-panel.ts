@@ -9,6 +9,7 @@ import { UnreadController } from './chat/unread-controller';
 import './pages/chat-page';
 import './pages/nodes-page';
 import './pages/neighbors-page';
+import './pages/status-page';
 import './pages/settings-page';
 import './components/trace-dialog';
 import './components/target-picker';
@@ -20,8 +21,8 @@ export class MeshCorePanel extends LitElement {
   @property({ type: Object }) panel?: Record<string, unknown>;
 
   @state() private _config: PanelConfig | null = null;
-  @state() private _activeTab: 'chat' | 'nodes' | 'neighbors' | 'settings' = 'settings';
-  // Managed-device administration is consolidated under Dispositivo.
+  @state() private _activeTab: 'state' | 'chat' | 'nodes' | 'neighbors' | 'settings' = 'state';
+  // Device state is separated from configuration so the panel can scale cleanly.
   @state() private _devices: MeshCoreDevice[] = [];
   @state() private _contacts: Contact[] = [];
   @state() private _channels: Channel[] = [];
@@ -774,9 +775,9 @@ export class MeshCorePanel extends LitElement {
 
         <div class="tab-bar">
           <button
-            class=${this._activeTab === 'settings' ? 'active' : ''}
-            @click=${() => (this._activeTab = 'settings')}>
-            Dispositivo
+            class=${this._activeTab === 'state' ? 'active' : ''}
+            @click=${() => (this._activeTab = 'state')}>
+            Estado
           </button>
           <button
             class=${this._activeTab === 'chat' ? 'active' : ''}
@@ -792,6 +793,11 @@ export class MeshCorePanel extends LitElement {
             class=${this._activeTab === 'neighbors' ? 'active' : ''}
             @click=${() => (this._activeTab = 'neighbors')}>
             Vizinhos
+          </button>
+          <button
+            class=${this._activeTab === 'settings' ? 'active' : ''}
+            @click=${() => (this._activeTab = 'settings')}>
+            Definições
           </button>
         </div>
 
@@ -851,6 +857,16 @@ export class MeshCorePanel extends LitElement {
             .hass=${this.hass}
             .config=${this._config}
             .narrow=${this.narrow}></meshcore-neighbors-page>`;
+      case 'state':
+        return html`
+          <meshcore-status-page
+            .hass=${this.hass}
+            .config=${this._config}
+            .selectedDevice=${this._selectedDevice}
+            .contactCount=${this._contacts.length}
+            .channelCount=${this._channels.length}
+            .narrow=${this.narrow}
+            @companion-trace-requested=${this._onCompanionTraceRequested}></meshcore-status-page>`;
       case 'settings':
         return html`
           <meshcore-settings-page

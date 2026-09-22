@@ -8,6 +8,7 @@ import type {
   HiveNeighborsResponse,
   HiveNeighborDiscoveryResponse,
   LocalRepeaterStatus,
+  LocalRegionsResponse,
   StoredMessage,
   FloodScopes,
 } from './types';
@@ -574,6 +575,43 @@ export async function getLocalRepeaterStatus(
   };
   if (entryId) msg.entry_id = entryId;
   return hass.callWS<LocalRepeaterStatus>(msg);
+}
+
+
+/**
+ * Read the local HiveFW Repeater RegionMap over the Companion transport.
+ * This is local-only and never generates LoRa traffic.
+ */
+export async function getLocalRegions(
+  hass: HomeAssistant,
+  entryId?: string,
+): Promise<LocalRegionsResponse> {
+  const msg: Record<string, unknown> = {
+    type: 'hivefw_integration/get_local_regions',
+  };
+  if (entryId) msg.entry_id = entryId;
+  return hass.callWS<LocalRegionsResponse>(msg);
+}
+
+/**
+ * Apply one explicit local RegionMap operation and return the refreshed map.
+ * No Region is created or changed unless this function is called.
+ */
+export async function setLocalRegion(
+  hass: HomeAssistant,
+  operation: 'save' | 'put' | 'remove' | 'allow' | 'deny' | 'home' | 'default' | 'clear_default',
+  name = '',
+  parent = '',
+  entryId?: string,
+): Promise<LocalRegionsResponse & { success: boolean; operation: string }> {
+  const msg: Record<string, unknown> = {
+    type: 'hivefw_integration/set_local_region',
+    operation,
+    name,
+    parent,
+  };
+  if (entryId) msg.entry_id = entryId;
+  return hass.callWS<LocalRegionsResponse & { success: boolean; operation: string }>(msg);
 }
 
 export interface FirmwareOtaStatus {

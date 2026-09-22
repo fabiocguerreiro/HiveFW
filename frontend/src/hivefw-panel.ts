@@ -28,7 +28,7 @@ class HiveFWPanel extends BasePanel {
   constructor() {
     super();
 
-    this._activeTab = "settings";
+    this._activeTab = "state";
 
     this.__repeaterStatus = null;
     this.__repeaterLoading = false;
@@ -272,13 +272,11 @@ class HiveFWPanel extends BasePanel {
 
     this.__ensureRepeaterStyles(root);
     this.__ensureTabs(root);
-    if (this._activeTab === "settings") {
+    if (this._activeTab === "state") {
       this.__startSmartAdvertCountdown();
     } else {
       this.__stopSmartAdvertCountdown();
     }
-    this.__enhanceManualOtaCard(root);
-    this.__renderOtaLiveProgress(root);
 
     const entryId = this.__entryId() || null;
     if (this.__nodesMapLoadedEntry !== null && this.__nodesMapLoadedEntry !== entryId) {
@@ -302,8 +300,10 @@ class HiveFWPanel extends BasePanel {
     if (this._activeTab !== "console") {
       this.__removeConsoleOverlay();
     }
-    if (this._activeTab !== "settings") {
+    if (this._activeTab !== "state") {
       this.__closeMetricEditor();
+    }
+    if (this._activeTab !== "settings") {
       this.__closeRxLog();
     }
 
@@ -341,7 +341,22 @@ class HiveFWPanel extends BasePanel {
       return;
     }
 
-        if (this._activeTab === "settings") {
+    if (this._activeTab === "state") {
+      if (entryId !== this.__repeaterLoadedEntry) {
+        this.__repeaterStatus = null;
+        this.__repeaterError = null;
+        this.__repeaterMessage = null;
+        this.__repeaterEdit = {};
+        this.__repeaterLoadedEntry = entryId;
+      }
+      this.__enhanceStatePage();
+      if (!this.__repeaterStatus && !this.__repeaterLoading) {
+        void this.__loadRepeaterStatus();
+      }
+      return;
+    }
+
+    if (this._activeTab === "settings") {
       if (entryId !== this.__repeaterLoadedEntry) {
         this.__repeaterStatus = null;
         this.__repeaterError = null;
@@ -351,6 +366,7 @@ class HiveFWPanel extends BasePanel {
       }
       this.__enhanceSettingsPage();
       this.__enhanceManualOtaCard(root);
+      this.__renderOtaLiveProgress(root);
       if (!this.__repeaterStatus && !this.__repeaterLoading) {
         void this.__loadRepeaterStatus();
       }
@@ -1257,16 +1273,17 @@ class HiveFWPanel extends BasePanel {
       labels.includes(button.textContent?.trim())
     );
 
-    const settings = byLabel("Settings", "Dispositivo");
+    const state = byLabel("Estado");
+    const settings = byLabel("Settings", "Dispositivo", "Definições");
     const chat = byLabel("Chat", "Chat & Canais");
     const nodes = byLabel("Nodes", "Nós");
     const devices = byLabel("Devices");
     let neighbors = byLabel("Vizinhos");
-    let consoleTab = byLabel("Console");
+    let consoleTab = byLabel("Console", "Consola");
 
-    if (settings) {
-      settings.textContent = "Dispositivo";
-      settings.style.order = "1";
+    if (state) {
+      state.textContent = "Estado";
+      state.style.order = "1";
     }
     if (chat) {
       chat.textContent = "Chat & Canais";
@@ -1275,6 +1292,10 @@ class HiveFWPanel extends BasePanel {
     if (nodes) {
       nodes.textContent = "Nós";
       nodes.style.order = "3";
+    }
+    if (settings) {
+      settings.textContent = "Definições";
+      settings.style.order = "5";
     }
 
     // The committed production bundle still contains the old Devices tab.
@@ -1321,14 +1342,15 @@ class HiveFWPanel extends BasePanel {
     if (!consoleTab) {
       consoleTab = document.createElement("button");
       consoleTab.dataset.hiveConsoleTab = "1";
-      consoleTab.textContent = "Console";
+      consoleTab.textContent = "Consola";
       consoleTab.addEventListener("click", () => {
         this._activeTab = "console";
         this.requestUpdate();
       });
       tabBar.appendChild(consoleTab);
     }
-    consoleTab.style.order = "5";
+    consoleTab.textContent = "Consola";
+    consoleTab.style.order = "6";
     consoleTab.classList.toggle("active", this._activeTab === "console");
 
     const iconize = (button, iconName) => {
@@ -1342,10 +1364,11 @@ class HiveFWPanel extends BasePanel {
       icon.setAttribute("icon", iconName);
     };
 
-    iconize(settings, "mdi:tune-variant");
+    iconize(state, "mdi:monitor-dashboard");
     iconize(chat, "mdi:message-text-outline");
     iconize(nodes, "mdi:map-marker-multiple-outline");
     iconize(neighbors, "mdi:access-point-network");
+    iconize(settings, "mdi:cog-outline");
     iconize(consoleTab, "mdi:console-line");
   }
 
@@ -2681,6 +2704,30 @@ class HiveFWPanel extends BasePanel {
     body.querySelector(".hive-rxlog-action")?.remove();
   }
 
+  __enhanceStatePage() {
+    const statusPage = this.shadowRoot?.querySelector("meshcore-status-page");
+    const sroot = statusPage?.shadowRoot;
+    if (!sroot) return;
+
+    this.__enhanceCompanionHero(sroot);
+
+    const summary = sroot.querySelector("meshcore-node-summary");
+    const nroot = summary?.shadowRoot;
+    const hero = nroot?.querySelector(".hero-row");
+    if (summary && nroot && hero) {
+      let edit = sroot.querySelector(".hivefw-status-edit-metrics");
+      if (!edit) {
+        edit = document.createElement("button");
+        edit.type = "button";
+        edit.className = "minor hivefw-status-edit-metrics";
+        edit.textContent = "Editar métricas";
+        edit.addEventListener("click", () => this.__openMetricEditor(summary, nroot, hero));
+        const header = sroot.querySelector(".companion-header");
+        header?.appendChild(edit);
+      }
+    }
+  }
+
   __enhanceSettingsPage() {
     const settingsPage = this.shadowRoot?.querySelector("meshcore-settings-page");
     const sroot = settingsPage?.shadowRoot;
@@ -2771,10 +2818,6 @@ class HiveFWPanel extends BasePanel {
     ) {
       void this.__loadWifiPortalInfo();
     }
-
-    this.__enhanceCompanionHero(sroot);
-    this.__ensureMetricSettingsMenu(settingsPage,sroot);
-    this.__ensureRebootAction(sroot);
 
     this.__settingsObserver?.takeRecords();
     this.__settingsObserver?.observe(sroot, { childList: true, subtree: true });
@@ -4404,7 +4447,7 @@ class HiveFWPanel extends BasePanel {
     login.addEventListener("click",async()=>{
       accessResult.textContent="A testar auto-login…";
       const result=await this.__remoteAdminCommand("get name",consoleOut);
-      accessResult.textContent=result?.success===false?"Acesso recusado":"Comando autenticado concluído; consulta o console.";
+      accessResult.textContent=result?.success===false?"Acesso recusado":"Comando autenticado concluído; consulta a Consola.";
     });
     const trace=makeButton("Path + Trace");
     trace.addEventListener("click",()=>void this.__remoteAdminTrace(device,accessResult));
@@ -4445,7 +4488,7 @@ class HiveFWPanel extends BasePanel {
 
     const consoleCard=document.createElement("section");
     consoleCard.style.cssText="margin-top:10px;padding:11px;border:1px solid var(--divider-color,#ddd);border-radius:10px;";
-    const consoleTitle=document.createElement("strong");consoleTitle.textContent="Console administrativo remoto";consoleTitle.style.cssText="display:block;margin-bottom:7px;font-size:12px;";
+    const consoleTitle=document.createElement("strong");consoleTitle.textContent="Consola administrativa remota";consoleTitle.style.cssText="display:block;margin-bottom:7px;font-size:12px;";
     const form=document.createElement("div");form.style.cssText="display:flex;gap:7px;";
     const input=document.createElement("input");
     input.type="text";input.placeholder="Comando CLI remoto…";
@@ -6987,9 +7030,9 @@ class HiveFWPanel extends BasePanel {
 
   __updateSmartAdvertCountdown() {
     const remaining = this.__smartAdvertRemainingSeconds();
-    const settingsHost = this.shadowRoot?.querySelector("meshcore-settings-page");
-    const settingsRoot = settingsHost?.shadowRoot;
-    const summary = settingsRoot?.querySelector("meshcore-node-summary");
+    const statusHost = this.shadowRoot?.querySelector("meshcore-status-page");
+    const statusRoot = statusHost?.shadowRoot;
+    const summary = statusRoot?.querySelector("meshcore-node-summary");
     const tile = summary?.shadowRoot?.querySelector(
       '.hero-tile[data-repeater-extra="smart-advert"]'
     );
@@ -7006,7 +7049,7 @@ class HiveFWPanel extends BasePanel {
     // the card picks up the newly persisted last/next epochs. This is local
     // transport only and creates no LoRa traffic.
     if (
-      this._activeTab === "settings" &&
+      this._activeTab === "state" &&
       Number.isFinite(remaining) &&
       remaining <= 0 &&
       !this.__repeaterLoading
@@ -7138,7 +7181,7 @@ class HiveFWPanel extends BasePanel {
       this.__consoleHistoryIndex = this.__consoleCommandHistory.length;
       this.__consoleError = null;
     } catch (error) {
-      this.__consoleError = error?.message || "Não foi possível carregar o histórico da Console.";
+      this.__consoleError = error?.message || "Não foi possível carregar o histórico da Consola.";
     }
     if (this._activeTab === "console" && this.__consoleOverlay) {
       this.__renderConsole(this.__consoleOverlay);
@@ -7185,7 +7228,7 @@ class HiveFWPanel extends BasePanel {
       this.__consoleHistory = [];
       this.__consoleError = null;
     } catch (error) {
-      this.__consoleError = error?.message || "Não foi possível limpar a Console.";
+      this.__consoleError = error?.message || "Não foi possível limpar a Consola.";
     } finally {
       this.__consoleBusy = false;
       if (this._activeTab === "console" && this.__consoleOverlay) {
@@ -7218,10 +7261,10 @@ class HiveFWPanel extends BasePanel {
     const heading = document.createElement("div");
     const eyebrow = document.createElement("div");
     eyebrow.className = "mcr-eyebrow";
-    eyebrow.textContent = "⌨  HIVEFW · CONSOLE";
+    eyebrow.textContent = "⌨  HIVEFW · CONSOLA";
     const title = document.createElement("h1");
     title.className = "mcr-title";
-    title.textContent = "Console";
+    title.textContent = "Consola";
     const subtitle = document.createElement("p");
     subtitle.className = "mcr-subtitle";
     subtitle.textContent =
@@ -7472,7 +7515,7 @@ class HiveFWPanel extends BasePanel {
     const hint = document.createElement("div");
     hint.className = "hivefw-console-hint";
     hint.textContent =
-      "A Console usa o parser nativo do HiveFW. Comandos destrutivos ou de configuração são executados exatamente como escritos; usa-os apenas quando pretendes alterar o rádio.";
+      "A Consola usa o parser nativo do HiveFW. Comandos destrutivos ou de configuração são executados exatamente como escritos; usa-os apenas quando pretendes alterar o rádio.";
     commandCard.append(inputTitle, row, hint);
     if (this.__consoleError) {
       const error = document.createElement("div");
@@ -7565,6 +7608,7 @@ class HiveFWPanel extends BasePanel {
   }
 
   __rerenderRepeater() {
+    if (this._activeTab === "state") this.__enhanceStatePage();
     if (this._activeTab === "settings") this.__enhanceSettingsPage();
   }
 
