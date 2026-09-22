@@ -1901,6 +1901,7 @@ void MyMesh::onAnonDataRecv(
   if (
     !_prefs.isRepeatEn() ||
     packet->getPayloadType() != PAYLOAD_TYPE_ANON_REQ ||
+    data == NULL ||
     len < 5
   ) {
     return;
@@ -1908,43 +1909,136 @@ void MyMesh::onAnonDataRecv(
 
   uint32_t sender_timestamp = 0;
   memcpy(&sender_timestamp, data, 4);
-
-  // Point 4 implements the Repeater login server. Binary anonymous OWNER /
-  // REGIONS / CLOCK requests are intentionally left for roadmap point 6.
-  if (!(data[4] == 0 || data[4] >= ' ')) {
-    return;
-  }
-
   data[len] = 0;
 
-  uint8_t reply_data[16];
-  const uint8_t reply_len =
-    handleRepeaterLoginReq(
-      sender,
-      secret,
-      sender_timestamp,
-      &data[4],
-      packet->isRouteFlood(),
-      reply_data
-    );
+  uint8_t reply_data[MAX_PACKET_PAYLOAD];
+  uint8_t reply_len = 0;
+  uint8_t reply_path[MAX_PATH_SIZE];
+  uint8_t reply_path_len = 0xFF;
+
+  const uint8_t request_type = data[4];
+
+  if (request_type == 0 || request_type >= ' ') {
+    // Login remains available over DIRECT or FLOOD and is handled by the
+    // point-4 ACL server.
+    reply_len =
+      handleRepeaterLoginReq(
+        sender,
+        secret,
+        sender_timestamp,
+        &data[4],
+        packet->isRouteFlood(),
+        reply_data
+      );
+  } else {
+    // OWNER / REGIONS / BASIC-CLOCK are intentionally DIRECT-only, matching
+    // simple_repeater. Their request body is {type}{reply_path_len}{reply_path}.
+    if (
+      packet->isRouteFlood() ||
+      len < 6 ||
+      !anon_limiter.allow(getRTCClock()->getCurrentTime())
+    ) {
+      return;
+    }
+
+    reply_path_len = data[5];
+
+    if (!mesh::Packet::isValidPathLen(reply_path_len)) {
+      return;
+    }
+
+    const uint8_t hash_size =
+      (reply_path_len >> 6) + 1;
+    const uint8_t hop_count =
+      reply_path_len & 0x3F;
+    const size_t raw_path_len =
+      (size_t)hash_size * hop_count;
+
+    if (len < 6 + raw_path_len) {
+      return;
+    }
+
+    if (raw_path_len > 0) {
+      memcpy(
+        reply_path,
+        &data[6],
+        raw_path_len
+      );
+    }
+
+    memcpy(reply_data, &sender_timestamp, 4);
+
+    const uint32_t now =
+      getRTCClock()->getCurrentTime();
+
+    memcpy(&reply_data[4], &now, 4);
+
+    if (request_type == ANON_REQ_TYPE_REGIONS) {
+      const int names_len =
+        region_map.exportNamesTo(
+          (char*)&reply_data[8],
+          sizeof(reply_data) - 12,
+          REGION_DENY_FLOOD
+        );
+
+      reply_len =
+        8 + (names_len > 0 ? names_len : 0);
+    } else if (request_type == ANON_REQ_TYPE_OWNER) {
+      const int written =
+        snprintf(
+          (char*)&reply_data[8],
+          sizeof(reply_data) - 8,
+          "%s\n%s",
+          _prefs.node_name,
+          _prefs.owner_info
+        );
+
+      if (written < 0) {
+        return;
+      }
+
+      const size_t owner_len =
+        min(
+          (size_t)written,
+          sizeof(reply_data) - 9
+        );
+
+      reply_len =
+        (uint8_t)(8 + owner_len);
+    } else if (request_type == ANON_REQ_TYPE_BASIC) {
+      reply_data[8] = 0;
+
+      if (!_prefs.isRepeatEn()) {
+        reply_data[8] |= 0x80;
+      }
+
+      reply_len = 9;
+    } else {
+      return;
+    }
+  }
 
   if (reply_len == 0) {
     return;
   }
 
   ContactInfo* contact =
-    lookupContactByPubKey(sender.pub_key, PUB_KEY_SIZE);
+    lookupContactByPubKey(
+      sender.pub_key,
+      PUB_KEY_SIZE
+    );
 
   if (packet->isRouteFlood()) {
-    mesh::Packet* path = createPathReturn(
-      sender,
-      secret,
-      packet->path,
-      packet->path_len,
-      PAYLOAD_TYPE_RESPONSE,
-      reply_data,
-      reply_len
-    );
+    mesh::Packet* path =
+      createPathReturn(
+        sender,
+        secret,
+        packet->path,
+        packet->path_len,
+        PAYLOAD_TYPE_RESPONSE,
+        reply_data,
+        reply_len
+      );
 
     if (path != NULL) {
       sendRepeaterFloodReply(
@@ -1953,22 +2047,31 @@ void MyMesh::onAnonDataRecv(
         packet->getPathHashSize()
       );
     }
+
     return;
   }
 
-  mesh::Packet* reply = createDatagram(
-    PAYLOAD_TYPE_RESPONSE,
-    sender,
-    secret,
-    reply_data,
-    reply_len
-  );
+  mesh::Packet* reply =
+    createDatagram(
+      PAYLOAD_TYPE_RESPONSE,
+      sender,
+      secret,
+      reply_data,
+      reply_len
+    );
 
   if (reply == NULL) {
     return;
   }
 
-  if (
+  if (reply_path_len != 0xFF) {
+    sendDirect(
+      reply,
+      reply_path,
+      reply_path_len,
+      HIVEFW_REPEATER_RESPONSE_DELAY
+    );
+  } else if (
     contact != NULL &&
     contact->out_path_len != OUT_PATH_UNKNOWN
   ) {
