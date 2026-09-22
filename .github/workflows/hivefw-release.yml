@@ -33,6 +33,26 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
 
+      - name: Create tag for explicit release commit
+        if: github.ref_type == 'branch' && github.ref_name == 'main' && github.event_name == 'push' && startsWith(github.event.head_commit.message, 'Release HiveFW ')
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          VERSION="$(tr -d '[:space:]' < VERSION)"
+          VERSION="${VERSION#V}"
+          VERSION="${VERSION#v}"
+          TAG="v${VERSION}"
+
+          git fetch --tags --force
+
+          if git rev-parse "${TAG}" >/dev/null 2>&1; then
+            echo "Tag ${TAG} already exists; leaving it untouched."
+          else
+            git tag "${TAG}" "${GITHUB_SHA}"
+            git push origin "${TAG}"
+          fi
+
       - name: Setup build environment
         uses: ./.github/actions/setup-build-environment
 
