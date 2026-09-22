@@ -7037,6 +7037,7 @@ class HiveFWPanel extends BasePanel {
     const tuning = status.tuning || {};
     const routing = status.routing || {};
     const radioGuard = status.radio_guard || {};
+    const serverAuth = status.server_auth || {};
 
     this.__repeaterEdit = {
       repeat: !!status.repeat,
@@ -7059,6 +7060,10 @@ class HiveFWPanel extends BasePanel {
       repeater_rx_delay: Number(radioGuard.rx_delay ?? tuning.rx_delay ?? 0),
       flood_tx_delay: Number(radioGuard.flood_tx_delay ?? 0.5),
       direct_tx_delay: Number(radioGuard.direct_tx_delay ?? 0.3),
+      admin_password: "",
+      guest_password: "",
+      admin_password_set: !!serverAuth.admin_password_set,
+      guest_password_set: !!serverAuth.guest_password_set,
       latitude: location.latitude ?? 0,
       longitude: location.longitude ?? 0,
     };
@@ -7684,6 +7689,7 @@ class HiveFWPanel extends BasePanel {
       this.__renderRadioCard(status),
       this.__renderFloodLoopCard(status),
       this.__renderRadioGuardCard(status),
+      this.__renderServerAccessCard(status),
       this.__renderRoutingCard(status),
       this.__renderStatsCard(status),
       this.__renderLocationCard(status),
@@ -8001,6 +8007,140 @@ class HiveFWPanel extends BasePanel {
   }
 
 
+  __renderServerAccessCard(status) {
+    const auth = status.server_auth || {};
+    const card = this.__card(
+      "Acesso remoto Repeater",
+      "Servidor de login compatível com o simple_repeater. As passwords são write-only e nunca são devolvidas pelo rádio."
+    );
+
+    if (!auth.supported) {
+      const note = document.createElement("div");
+      note.className = "mcr-note";
+      note.textContent =
+        "Esta versão do firmware ainda não expõe o servidor de login Repeater.";
+      card.appendChild(note);
+      return card;
+    }
+
+    const states = document.createElement("div");
+    states.className = "mcr-stat-list";
+    for (const [label, value] of [
+      ["Admin password", auth.admin_password_set ? "Configurada" : "Não configurada"],
+      ["Guest password", auth.guest_password_set ? "Configurada" : "Não configurada"],
+      ["Entradas ACL", auth.acl_count ?? "—"],
+    ]) {
+      const row = document.createElement("div");
+      row.className = "mcr-stat";
+      const name = document.createElement("div");
+      name.className = "mcr-stat-name";
+      name.textContent = String(label);
+      const current = document.createElement("div");
+      current.className = "mcr-stat-value";
+      current.textContent = String(value);
+      row.append(name, current);
+      states.appendChild(row);
+    }
+    card.appendChild(states);
+
+    const grid = document.createElement("div");
+    grid.className = "mcr-form-grid";
+    grid.append(
+      this.__passwordField(
+        "Nova password admin",
+        this.__repeaterEdit.admin_password,
+        (v) => this.__repeaterEdit.admin_password = v
+      ),
+      this.__passwordField(
+        "Nova password guest",
+        this.__repeaterEdit.guest_password,
+        (v) => this.__repeaterEdit.guest_password = v
+      )
+    );
+    card.appendChild(grid);
+
+    const actions = document.createElement("div");
+    actions.className = "mcr-actions";
+
+    const saveAdmin = this.__button("Guardar admin", "primary");
+    saveAdmin.disabled =
+      this.__repeaterLoading ||
+      !String(this.__repeaterEdit.admin_password || "").length;
+    saveAdmin.addEventListener("click", () => {
+      void this.__saveRepeaterSettings(
+        { admin_password: String(this.__repeaterEdit.admin_password || "") },
+        "Password admin atualizada."
+      );
+    });
+
+    const clearAdmin = this.__button("Limpar admin");
+    clearAdmin.disabled = this.__repeaterLoading || !auth.admin_password_set;
+    clearAdmin.addEventListener("click", () => {
+      if (window.confirm("Desativar a password admin do servidor Repeater?")) {
+        void this.__saveRepeaterSettings(
+          { admin_password: "" },
+          "Password admin removida."
+        );
+      }
+    });
+
+    const saveGuest = this.__button("Guardar guest", "primary");
+    saveGuest.disabled =
+      this.__repeaterLoading ||
+      !String(this.__repeaterEdit.guest_password || "").length;
+    saveGuest.addEventListener("click", () => {
+      void this.__saveRepeaterSettings(
+        { guest_password: String(this.__repeaterEdit.guest_password || "") },
+        "Password guest atualizada."
+      );
+    });
+
+    const clearGuest = this.__button("Limpar guest");
+    clearGuest.disabled = this.__repeaterLoading || !auth.guest_password_set;
+    clearGuest.addEventListener("click", () => {
+      if (window.confirm("Desativar a password guest do servidor Repeater?")) {
+        void this.__saveRepeaterSettings(
+          { guest_password: "" },
+          "Password guest removida."
+        );
+      }
+    });
+
+    const clearAcl = this.__button("Limpar ACL", "danger");
+    clearAcl.disabled =
+      this.__repeaterLoading || !(Number(auth.acl_count) > 0);
+    clearAcl.addEventListener("click", () => {
+      if (
+        window.confirm(
+          "Remover todos os clientes autorizados da ACL Repeater? As passwords configuradas são mantidas."
+        )
+      ) {
+        void this.__saveRepeaterSettings(
+          { clear_acl: true },
+          "ACL Repeater limpa."
+        );
+      }
+    });
+
+    actions.append(
+      saveAdmin,
+      clearAdmin,
+      saveGuest,
+      clearGuest,
+      clearAcl
+    );
+    card.appendChild(actions);
+
+    const note = document.createElement("div");
+    note.className = "mcr-note";
+    note.textContent =
+      "Sem password admin ou guest configurada não são aceites novos logins por essa via. Clientes persistidos na ACL podem voltar a autenticar-se pela sua identidade. Limpar a ACL não altera as passwords.";
+    card.appendChild(note);
+
+    return card;
+  }
+
+
   __renderRoutingCard(status) {
     const card = this.__card(
       "ACKs & Airtime",
@@ -8198,7 +8338,7 @@ class HiveFWPanel extends BasePanel {
     const note = document.createElement("div");
     note.className = "mcr-note";
     note.textContent =
-      "Disponível agora: modo Repeater, rádio, Flood Limits, Loop Detect, CAD, interference threshold, AGC reset, RX/TX delays, Duty Cycle, Path Hash, Multi ACKs, Regions, localização, adverts, reboot e estatísticas. Ainda faltam as camadas de rate limiting, ACL/login e os restantes serviços de servidor Repeater previstos no roadmap.";
+      "Disponível agora: modo Repeater, rádio, Flood Limits, Loop Detect, CAD, interference threshold, AGC reset, RX/TX delays, Duty Cycle, Path Hash, Multi ACKs, Regions, rate limiting de Discovery, ACL/login Repeater, localização, adverts, reboot e estatísticas. Ainda faltam os serviços GET_STATUS/TELEMETRY/NEIGHBOURS/ACCESS_LIST e OWNER/REGIONS/CLOCK anónimos + remote CLI previstos no roadmap.";
     card.appendChild(note);
     return card;
   }
@@ -8228,6 +8368,26 @@ class HiveFWPanel extends BasePanel {
     button.textContent = label;
     return button;
   }
+
+  __passwordField(label, value, onChange) {
+    const field = document.createElement("div");
+    field.className = "mcr-field";
+
+    const l = document.createElement("label");
+    l.textContent = label;
+
+    const input = document.createElement("input");
+    input.className = "mcr-input";
+    input.type = "password";
+    input.maxLength = 15;
+    input.autocomplete = "new-password";
+    input.value = value == null ? "" : String(value);
+    input.addEventListener("input", () => onChange(input.value));
+
+    field.append(l, input);
+    return field;
+  }
+
 
   __numberField(label, value, step, onChange) {
     const field = document.createElement("div");
