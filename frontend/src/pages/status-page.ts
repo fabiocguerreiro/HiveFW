@@ -1,7 +1,7 @@
 import { LitElement, html, css, nothing } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
-import type { HomeAssistant, PanelConfig, MeshCoreDevice, LocalRepeaterStatus } from '../types';
-import { executeLocal, getLocalRepeaterStatus } from '../api';
+import type { HomeAssistant, PanelConfig, MeshCoreDevice, LocalRepeaterStatus, DeviceConfig } from '../types';
+import { executeLocal, getLocalRepeaterStatus, getDeviceConfig } from '../api';
 import { loadMeshcoreEntityRegistry, type EntityInfo } from '../utils/classify-entity';
 import type { CompanionDeviceDescriptor } from '../components/node-summary';
 import '../components/node-summary';
@@ -16,6 +16,7 @@ export class StatusPage extends LitElement {
   @property({ type: Number }) channelCount = 0;
 
   @state() private _repeaterStatus: LocalRepeaterStatus | null = null;
+  @state() private _deviceConfig: DeviceConfig | null = null;
   @state() private _deviceEntities: Record<string, EntityInfo[]> = {};
   @state() private _meshcoreDeviceMap: Record<string, string> = {};
   @state() private _hiddenSensors: Record<string, string[]> = {};
@@ -35,7 +36,7 @@ export class StatusPage extends LitElement {
     .section-icon{width:36px;height:36px;display:grid;place-items:center;border-radius:10px;background:color-mix(in srgb,var(--primary-color) 12%,transparent);color:var(--primary-color);flex:0 0 auto}
     .device-name{font-size:16px;font-weight:700;color:var(--primary-text-color)}
     .device-meta{display:flex;flex-wrap:wrap;gap:5px 12px;margin-top:4px;font-size:10px;color:var(--secondary-text-color)}
-    .device-meta span{overflow-wrap:anywhere}
+    .device-meta span{overflow-wrap:anywhere;word-break:break-word}
     .actions-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
     button{font:inherit;cursor:pointer}
     .action,.danger,.minor{min-height:38px;padding:8px 12px;border-radius:8px}
@@ -70,13 +71,15 @@ export class StatusPage extends LitElement {
   private async _loadData() {
     if (!this.hass) return;
     try {
-      const [{ meshcoreDeviceMap, deviceEntities }, repeaterStatus] = await Promise.all([
+      const [{ meshcoreDeviceMap, deviceEntities }, repeaterStatus, deviceConfig] = await Promise.all([
         loadMeshcoreEntityRegistry(this.hass),
         getLocalRepeaterStatus(this.hass, this.config?.entry_id).catch(() => null),
+        getDeviceConfig(this.hass, this.config?.entry_id).catch(() => null),
       ]);
       this._meshcoreDeviceMap = meshcoreDeviceMap;
       this._deviceEntities = deviceEntities;
       this._repeaterStatus = repeaterStatus;
+      this._deviceConfig = deviceConfig;
     } catch {
       this._repeaterStatus = null;
     }
@@ -153,9 +156,6 @@ export class StatusPage extends LitElement {
     if(!d)return html`<div class="page"><div class="wrap">Sem Companion selecionado.</div></div>`;
     const entities=this._entities();
     const hidden=this._hiddenSensors[this._deviceKey()]||[];
-    const nodeInfo=entities.find((e)=>e.entity_id.includes('node_count'));
-    const nodeState=nodeInfo?this.hass?.states[nodeInfo.entity_id]?.state:undefined;
-    const addedNodes=nodeState&&nodeState!=='unknown'&&nodeState!=='unavailable'?nodeState:undefined;
     return html`
       <div class="page"><div class="wrap">
         <div class="device-section">
@@ -165,9 +165,17 @@ export class StatusPage extends LitElement {
               <div>
                 <div class="device-name">${d.name}</div>
                 <div class="device-meta">
-                  <span>HiveFW Companion-Repeater</span><span>Firmware: ${d.firmware||'unknown'}</span>
-                  <span>Key: ${d.pubkey_prefix}</span><span>Nós conhecidos: ${this.contactCount}</span><span>Canais: ${this.channelCount}</span>
-                  ${addedNodes!==undefined?html`<span>Added nodes: ${addedNodes}</span>`:nothing}
+                  <span>HiveFW Companion-Repeater</span>
+                  <span>Firmware: ${d.firmware || this._deviceConfig?.firmware_version || 'unknown'}</span>
+                  <span>Modelo: ${this._deviceConfig?.hardware_model || this._repeaterStatus?.model || '—'}</span>
+                  <span>Public Key: ${this._deviceConfig?.pubkey || d.pubkey || d.pubkey_prefix}</span>
+                  ${this._deviceConfig?.connection_type ? html`
+                    <span>
+                      Ligação: ${this._deviceConfig.connection_type.toUpperCase()}
+                      ${this._deviceConfig.connection_address ? html` — ${this._deviceConfig.connection_address}` : nothing}
+                    </span>
+                  ` : nothing}
+                  <span>Nós conhecidos: ${this.contactCount}</span>
                 </div>
               </div>
             </div>
