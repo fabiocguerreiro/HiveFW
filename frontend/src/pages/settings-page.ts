@@ -130,6 +130,9 @@ export class SettingsPage extends LitElement {
   @state() private _dutyCycleValue = 10;
   @state() private _dutyCycleReadValue: number | null = null;
   @state() private _dutyCycleBusy: 'read' | 'apply' | null = null;
+  @state() private _adminPasswordDraft = '';
+  @state() private _guestPasswordDraft = '';
+  @state() private _repeaterAccessBusy: 'admin' | 'guest' | 'acl' | null = null;
   @state() private _commandDialogOpen = false;
   @state() private _confirmAction: ConfirmAction | null = null;
   @state() private _confirmDialogOpen = false;
