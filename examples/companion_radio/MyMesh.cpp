@@ -1242,22 +1242,258 @@ void MyMesh::onChannelDataRecv(const mesh::GroupChannel &channel, mesh::Packet *
 
 uint8_t MyMesh::onContactRequest(const ContactInfo &contact, uint32_t sender_timestamp, const uint8_t *data,
                                  uint8_t len, uint8_t *reply) {
-  // Reserved/transient contacts created by the Repeater login server must
-  // still exist in the ACL. This makes "Limpar ACL" revoke those sessions
-  // immediately without changing normal Companion contact behaviour.
-  if (
-    contact.type == ADV_TYPE_NONE &&
-    (
-      !_prefs.isRepeatEn() ||
-      repeater_acl.getClient(contact.id.pub_key, PUB_KEY_SIZE) == NULL
-    )
-  ) {
+  if (data == NULL || reply == NULL || len == 0) {
     return 0;
   }
 
+  ClientInfo* repeater_client = NULL;
+  const bool is_repeater_session = contact.type == ADV_TYPE_NONE;
+
+  // Repeater login sessions use reserved transient Companion contacts. Keep
+  // them tied to the point-4 ACL so clearing the ACL revokes access at once.
+  if (is_repeater_session) {
+    if (!_prefs.isRepeatEn()) {
+      return 0;
+    }
+
+    repeater_client =
+      repeater_acl.getClient(contact.id.pub_key, PUB_KEY_SIZE);
+
+    if (repeater_client == NULL) {
+      return 0;
+    }
+
+    repeater_client->last_activity =
+      getRTCClock()->getCurrentTime();
+  }
+
+  // MeshCore simple_repeater compatible status request.
+  if (is_repeater_session && data[0] == REQ_TYPE_GET_STATUS) {
+    RepeaterStats stats;
+    memset(&stats, 0, sizeof(stats));
+
+    stats.batt_milli_volts = board.getBattMilliVolts();
+    stats.curr_tx_queue_len = (uint16_t)_mgr->getOutboundTotal();
+    stats.noise_floor = (int16_t)_radio->getNoiseFloor();
+    stats.last_rssi = (int16_t)radio_driver.getLastRSSI();
+    stats.n_packets_recv = radio_driver.getPacketsRecv();
+    stats.n_packets_sent = radio_driver.getPacketsSent();
+    stats.total_air_time_secs = getTotalAirTime() / 1000;
+    stats.total_up_time_secs = _ms->getMillis() / 1000;
+    stats.n_sent_flood = getNumSentFlood();
+    stats.n_sent_direct = getNumSentDirect();
+    stats.n_recv_flood = getNumRecvFlood();
+    stats.n_recv_direct = getNumRecvDirect();
+    stats.err_events = _err_flags;
+    stats.last_snr = (int16_t)(radio_driver.getLastSNR() * 4);
+
+    SimpleMeshTables* mesh_tables =
+      (SimpleMeshTables*)getTables();
+
+    if (mesh_tables != NULL) {
+      stats.n_direct_dups = mesh_tables->getNumDirectDups();
+      stats.n_flood_dups = mesh_tables->getNumFloodDups();
+    }
+
+    stats.total_rx_air_time_secs = getReceiveAirTime() / 1000;
+    stats.n_recv_errors = radio_driver.getPacketsRecvErrors();
+
+    memcpy(reply, &sender_timestamp, 4);
+    memcpy(&reply[4], &stats, sizeof(stats));
+    return 4 + sizeof(stats);
+  }
+
+  // Admin-only ACL enumeration. Response is:
+  // tag(4) + repeated pubkey-prefix(6) + permissions(1).
+  if (is_repeater_session && data[0] == REQ_TYPE_GET_ACCESS_LIST) {
+    if (
+      repeater_client == NULL ||
+      !repeater_client->isAdmin() ||
+      len < 3 ||
+      data[1] != 0 ||
+      data[2] != 0
+    ) {
+      return 0;
+    }
+
+    int ofs = 4;
+    memcpy(reply, &sender_timestamp, 4);
+
+    for (
+      int i = 0;
+      i < repeater_acl.getNumClients() &&
+      ofs + 7 <= MAX_PACKET_PAYLOAD;
+      i++
+    ) {
+      ClientInfo* client =
+        repeater_acl.getClientByIdx(i);
+
+      if (client == NULL || client->permissions == 0) {
+        continue;
+      }
+
+      memcpy(&reply[ofs], client->id.pub_key, 6);
+      ofs += 6;
+      reply[ofs++] = client->permissions;
+    }
+
+    return ofs;
+  }
+
+  // Authenticated remote NEIGHBOURS uses the same cumulative zero-hop table
+  // already exposed locally to the Home Assistant Vizinhos page. It does not
+  // run Discovery and does not maintain a second cache.
+  if (is_repeater_session && data[0] == REQ_TYPE_GET_NEIGHBOURS) {
+    if (len < 11 || data[1] != 0) {
+      return 0;
+    }
+
+    const uint8_t requested_count = data[2];
+    uint16_t offset = 0;
+    memcpy(&offset, &data[3], 2);
+
+    const uint8_t order_by = data[5];
+    uint8_t pubkey_prefix_length = data[6];
+
+    if (pubkey_prefix_length > PUB_KEY_SIZE) {
+      pubkey_prefix_length = PUB_KEY_SIZE;
+    }
+
+    const RepeaterNeighbour* sorted[MAX_REPEATER_NEIGHBOURS];
+    uint16_t neighbours_count = 0;
+
+    for (int i = 0; i < MAX_REPEATER_NEIGHBOURS; i++) {
+      if (repeater_neighbours[i].heard_timestamp > 0) {
+        sorted[neighbours_count++] =
+          &repeater_neighbours[i];
+      }
+    }
+
+    if (order_by <= 3) {
+      for (uint16_t i = 0; i < neighbours_count; i++) {
+        for (uint16_t j = i + 1; j < neighbours_count; j++) {
+          bool swap_entries;
+
+          if (order_by == 0) {
+            swap_entries =
+              sorted[j]->heard_timestamp >
+              sorted[i]->heard_timestamp;
+          } else if (order_by == 1) {
+            swap_entries =
+              sorted[j]->heard_timestamp <
+              sorted[i]->heard_timestamp;
+          } else if (order_by == 2) {
+            swap_entries =
+              sorted[j]->snr > sorted[i]->snr;
+          } else {
+            swap_entries =
+              sorted[j]->snr < sorted[i]->snr;
+          }
+
+          if (swap_entries) {
+            const RepeaterNeighbour* tmp = sorted[i];
+            sorted[i] = sorted[j];
+            sorted[j] = tmp;
+          }
+        }
+      }
+    }
+
+    memcpy(reply, &sender_timestamp, 4);
+
+    int reply_offset = 8;
+    uint16_t results_count = 0;
+    const uint32_t now = getRTCClock()->getCurrentTime();
+    const int entry_size = pubkey_prefix_length + 5;
+
+    for (
+      uint16_t index = 0;
+      index < requested_count &&
+      (uint32_t)index + offset < neighbours_count;
+      index++
+    ) {
+      if (reply_offset + entry_size > MAX_PACKET_PAYLOAD) {
+        break;
+      }
+
+      const RepeaterNeighbour* neighbour =
+        sorted[index + offset];
+
+      const uint32_t heard_seconds_ago =
+        now >= neighbour->heard_timestamp
+          ? now - neighbour->heard_timestamp
+          : 0;
+
+      memcpy(
+        &reply[reply_offset],
+        neighbour->id.pub_key,
+        pubkey_prefix_length
+      );
+      reply_offset += pubkey_prefix_length;
+
+      memcpy(
+        &reply[reply_offset],
+        &heard_seconds_ago,
+        4
+      );
+      reply_offset += 4;
+
+      reply[reply_offset++] = (uint8_t)neighbour->snr;
+      results_count++;
+    }
+
+    memcpy(&reply[4], &neighbours_count, 2);
+    memcpy(&reply[6], &results_count, 2);
+
+    return reply_offset;
+  }
+
   if (data[0] == REQ_TYPE_GET_TELEMETRY_DATA) {
+    if (len < 2) {
+      return 0;
+    }
+
+    // Repeater sessions follow simple_repeater semantics. Guests get only
+    // base telemetry; higher roles may query additional sensor classes.
+    if (is_repeater_session) {
+      uint8_t perm_mask = ~(data[1]);
+
+      if (
+        repeater_client == NULL ||
+        (
+          repeater_client->permissions &
+          PERM_ACL_ROLE_MASK
+        ) == PERM_ACL_GUEST
+      ) {
+        perm_mask = 0x00;
+      }
+
+      telemetry.reset();
+      telemetry.addVoltage(
+        TELEM_CHANNEL_SELF,
+        (float)board.getBattMilliVolts() / 1000.0f
+      );
+
+      sensors.querySensors(perm_mask, telemetry);
+
+      float temperature = board.getMCUTemperature();
+      if (!isnan(temperature)) {
+        telemetry.addTemperature(
+          TELEM_CHANNEL_SELF,
+          temperature
+        );
+      }
+
+      memcpy(reply, &sender_timestamp, 4);
+
+      uint8_t tlen = telemetry.getSize();
+      memcpy(&reply[4], telemetry.getBuffer(), tlen);
+      return 4 + tlen;
+    }
+
+    // Existing Companion telemetry behaviour stays unchanged.
     uint8_t permissions = 0;
-    uint8_t cp = contact.flags >> 1; // LSB used as 'favourite' bit (so only use upper bits)
+    uint8_t cp = contact.flags >> 1;
 
     if (_prefs.telemetry_mode_base == TELEM_MODE_ALLOW_ALL) {
       permissions = TELEM_PERM_BASE;
@@ -1277,29 +1513,35 @@ uint8_t MyMesh::onContactRequest(const ContactInfo &contact, uint32_t sender_tim
       permissions |= cp & TELEM_PERM_ENVIRONMENT;
     }
 
-    uint8_t perm_mask = ~(data[1]);    // NEW: first reserved byte (of 4), is now inverse mask to apply to permissions
+    uint8_t perm_mask = ~(data[1]);
     permissions &= perm_mask;
 
-    if (permissions & TELEM_PERM_BASE) { // only respond if base permission bit is set
+    if (permissions & TELEM_PERM_BASE) {
       telemetry.reset();
-      telemetry.addVoltage(TELEM_CHANNEL_SELF, (float)board.getBattMilliVolts() / 1000.0f);
-      // query other sensors -- target specific
+      telemetry.addVoltage(
+        TELEM_CHANNEL_SELF,
+        (float)board.getBattMilliVolts() / 1000.0f
+      );
+
       sensors.querySensors(permissions, telemetry);
 
       float temperature = board.getMCUTemperature();
-      if(!isnan(temperature)) { // Supported boards with built-in temperature sensor. ESP32-C3 may return NAN
-        telemetry.addTemperature(TELEM_CHANNEL_SELF, temperature); // Built-in MCU Temperature
+      if (!isnan(temperature)) {
+        telemetry.addTemperature(
+          TELEM_CHANNEL_SELF,
+          temperature
+        );
       }
 
-      memcpy(reply, &sender_timestamp,
-             4); // reflect sender_timestamp back in response packet (kind of like a 'tag')
+      memcpy(reply, &sender_timestamp, 4);
 
       uint8_t tlen = telemetry.getSize();
       memcpy(&reply[4], telemetry.getBuffer(), tlen);
       return 4 + tlen;
     }
   }
-  return 0; // unknown
+
+  return 0;
 }
 
 void MyMesh::onContactResponse(const ContactInfo &contact, const uint8_t *data, uint8_t len) {
