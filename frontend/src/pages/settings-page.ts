@@ -2193,7 +2193,7 @@ export class SettingsPage extends LitElement {
             <div class="form-group-inline">
               <label class="form-label">Operação</label>
               <select class="form-select" .value=${this._localRegionAction}
-                @change=${(e: Event) => { this._localRegionAction = (e.target as HTMLSelectElement).value as typeof this._localRegionAction; }}>
+                @change=${(e: Event) => { this._localRegionAction = (e.target as HTMLSelectElement).value as 'put' | 'remove' | 'allow' | 'deny' | 'home' | 'default' | 'clear_default'; }}>
                 <option value="put">Criar / atualizar Region</option>
                 <option value="allow">Permitir flood</option>
                 <option value="deny">Bloquear flood</option>
@@ -2289,7 +2289,7 @@ export class SettingsPage extends LitElement {
           <div class="form-group-inline">
             <label class="form-label">Operação</label>
             <select class="form-select" .value=${this._regionAction}
-              @change=${(e: Event) => { this._regionAction = (e.target as HTMLSelectElement).value as typeof this._regionAction; }}>
+              @change=${(e: Event) => { this._regionAction = (e.target as HTMLSelectElement).value as 'allowf' | 'denyf' | 'home' | 'default' | 'put' | 'remove'; }}>
               <option value="allowf">Allow flood</option>
               <option value="denyf">Deny flood</option>
               <option value="home">Home region</option>
