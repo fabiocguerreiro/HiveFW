@@ -4,7 +4,7 @@ import type { HomeAssistant, PanelConfig, Contact, Channel, MeshCoreDevice } fro
 import type { TraceResult } from './api';
 import { panelStyles } from './styles';
 import { HIVEFW_PRESET, DEFAULT_PANEL_CONFIG } from './constants';
-import { getDevices, getContacts, getChannels, getUnreadAndLastRead, markConversationRead, removeContact, addContact, traceContact, type TracePathMode } from './api';
+import { getDevices, getContacts, getChannels, refreshChannels, getUnreadAndLastRead, markConversationRead, removeContact, addContact, traceContact, type TracePathMode } from './api';
 import { UnreadController } from './chat/unread-controller';
 import './pages/chat-page';
 import './pages/nodes-page';
@@ -833,7 +833,8 @@ export class MeshCorePanel extends LitElement {
             .narrow=${this.narrow}
             @active-entity-changed=${this._onActiveEntityChanged}
             @contacts-changed=${() => this._loadDeviceData()}
-            @channels-changed=${() => this._loadDeviceData()}></hivefw-integration-page>`;
+            @channels-changed=${() => this._loadDeviceData()}
+            @refresh-channels-requested=${() => this._refreshChannelsFromRadio()}></hivefw-integration-page>`;
       case 'nodes':
         return html`
           <meshcore-nodes-page
@@ -945,6 +946,20 @@ export class MeshCorePanel extends LitElement {
       console.error('HiveFW panel load error:', err);
     } finally {
       this._loading = false;
+    }
+  }
+
+  private async _refreshChannelsFromRadio() {
+    if (!this.hass || !this._selectedEntryId) return;
+
+    try {
+      const result = await refreshChannels(this.hass, this._selectedEntryId);
+      await this._loadDeviceData();
+      console.info(
+        `HiveFW channels refreshed: ${result.configured_channels}/${result.max_channels}`,
+      );
+    } catch (err) {
+      console.error('Failed to refresh channels from radio:', err);
     }
   }
 

@@ -186,6 +186,7 @@ class MeshCoreDataUpdateCoordinator(DataUpdateCoordinator):
         self._hardware_model = None
         self._max_channels = 4  # Default to 4 channels, updated from DEVICE_INFO
         self._channel_info = {}  # Dict keyed by channel_idx to store channel info
+        self._channel_info_listener_initialized = False
         
         # Create a central device_info dict that all entities can reference
         self.device_info = {
@@ -830,6 +831,9 @@ class MeshCoreDataUpdateCoordinator(DataUpdateCoordinator):
     
     def _setup_channel_info_listener(self) -> None:
         """Set up CHANNEL_INFO event listener to capture channel information."""
+        if self._channel_info_listener_initialized:
+            return
+
         def handle_channel_info(event: Event):
             try:
                 channel_idx = event.payload.get("channel_idx")
@@ -844,7 +848,74 @@ class MeshCoreDataUpdateCoordinator(DataUpdateCoordinator):
             EventType.CHANNEL_INFO,
             handle_channel_info,
         )
+        self._channel_info_listener_initialized = True
         self.logger.debug("Registered CHANNEL_INFO event listener")
+
+    async def refresh_channel_info(self) -> dict:
+        """Force a fresh DEVICE_INFO query and re-read every channel slot.
+
+        This is intentionally local Companion traffic only. It is used by the
+        Chat & Channels refresh button to recover from startup races where the
+        coordinator may still be sitting on the four-channel fallback before
+        the radio's DEVICE_INFO response has populated max_channels.
+        """
+        if not self.api.connected or not self.api.mesh_core:
+            raise ConnectionError("HiveFW radio is not connected")
+
+        self.logger.info("Refreshing channel inventory from radio")
+
+        device_query_result = await self.api.mesh_core.commands.send_device_query()
+        if (
+            device_query_result
+            and device_query_result.type is EventType.DEVICE_INFO
+        ):
+            payload = device_query_result.payload or {}
+            reported_max = payload.get("max_channels")
+            try:
+                reported_max = int(reported_max)
+            except (TypeError, ValueError):
+                reported_max = 0
+
+            if reported_max > 0:
+                self._max_channels = reported_max
+
+            self._firmware_version = payload.get("ver") or self._firmware_version
+            self._hardware_model = payload.get("model") or self._hardware_model
+
+            if self._firmware_version:
+                self.device_info["sw_version"] = self._firmware_version
+            if self._hardware_model:
+                self.device_info["model"] = self._hardware_model
+
+            self._device_info_initialized = True
+        else:
+            self.logger.warning(
+                "Channel refresh did not receive DEVICE_INFO; retaining max_channels=%s",
+                self._max_channels,
+            )
+
+        self._setup_channel_info_listener()
+        self._channel_info.clear()
+        await self.fetch_all_channel_info()
+        self.async_update_listeners()
+
+        configured = sum(
+            1
+            for info in self._channel_info.values()
+            if info.get("channel_name")
+            and info.get("channel_name") != "(unused)"
+        )
+
+        self.logger.info(
+            "Channel inventory refreshed: %s configured / %s slots",
+            configured,
+            self._max_channels,
+        )
+        return {
+            "max_channels": self._max_channels,
+            "fetched_slots": len(self._channel_info),
+            "configured_channels": configured,
+        }
     
     async def fetch_all_channel_info(self) -> None:
         """Fetch channel info for all channels on startup."""

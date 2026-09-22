@@ -137,6 +137,28 @@ export async function getChannels(
   }
 }
 
+export interface RefreshChannelsResponse {
+  success: boolean;
+  max_channels: number;
+  fetched_slots: number;
+  configured_channels: number;
+}
+
+/**
+ * Force the integration to re-query DEVICE_INFO and every channel slot from
+ * the attached radio. This uses the local Companion transport only.
+ */
+export async function refreshChannels(
+  hass: HomeAssistant,
+  entryId?: string,
+): Promise<RefreshChannelsResponse> {
+  const msg: Record<string, unknown> = {
+    type: 'hivefw_integration/refresh_channels',
+  };
+  if (entryId) msg.entry_id = entryId;
+  return hass.callWS<RefreshChannelsResponse>(msg);
+}
+
 /**
  * Send a message to a channel.
  *

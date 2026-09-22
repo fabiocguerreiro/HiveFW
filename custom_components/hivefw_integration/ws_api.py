@@ -652,6 +652,7 @@ def async_register_ws_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_get_devices)
     websocket_api.async_register_command(hass, ws_get_contacts)
     websocket_api.async_register_command(hass, ws_get_channels)
+    websocket_api.async_register_command(hass, ws_refresh_channels)
     websocket_api.async_register_command(hass, ws_get_flood_scopes)
     websocket_api.async_register_command(hass, ws_set_flood_scopes)
     websocket_api.async_register_command(hass, ws_get_remote_regions)
@@ -1769,6 +1770,39 @@ def ws_get_channels(hass, connection, msg):
             channel_entry["scope"] = scope
         channels.append(channel_entry)
     connection.send_result(msg["id"], {"channels": channels})
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hivefw_integration/refresh_channels",
+        vol.Optional("entry_id"): str,
+    }
+)
+@websocket_api.async_response
+async def ws_refresh_channels(hass, connection, msg):
+    """Force a fresh DEVICE_INFO + complete channel-slot read from the radio."""
+    coordinator = _get_coordinator(hass, msg.get("entry_id"))
+    if not coordinator:
+        connection.send_error(msg["id"], "not_found", "No HiveFW coordinator found")
+        return
+
+    try:
+        result = await coordinator.refresh_channel_info()
+    except ConnectionError as ex:
+        connection.send_error(msg["id"], "not_connected", str(ex))
+        return
+    except Exception as ex:
+        _LOGGER.exception("Failed to refresh channels from radio")
+        connection.send_error(msg["id"], "refresh_failed", str(ex))
+        return
+
+    connection.send_result(
+        msg["id"],
+        {
+            "success": True,
+            **result,
+        },
+    )
 
 
 # ─── meshcore/get_flood_scopes ──────────────────────────────────────────
