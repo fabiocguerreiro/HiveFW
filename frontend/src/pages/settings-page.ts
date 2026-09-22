@@ -384,6 +384,13 @@ export class SettingsPage extends LitElement {
         margin-bottom: 10px;
       }
 
+      .repeater-region-form {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 8px 10px;
+        margin-bottom: 8px;
+      }
+
       .managed-device-row {
         display: grid;
         grid-template-columns: auto minmax(0, 1fr) auto;
@@ -435,7 +442,8 @@ export class SettingsPage extends LitElement {
 
       @media (max-width: 870px) {
         .managed-device-list,
-        .repeater-setup-grid {
+        .repeater-setup-grid,
+        .repeater-region-form {
           grid-template-columns: 1fr;
         }
       }
@@ -2181,7 +2189,7 @@ export class SettingsPage extends LitElement {
               </tbody>
             </table>
           </div>
-          <div class="section-row" style="margin-bottom:8px;">
+          <div class="repeater-region-form">
             <div class="form-group-inline">
               <label class="form-label">Operação</label>
               <select class="form-select" .value=${this._localRegionAction}
@@ -2249,10 +2257,14 @@ export class SettingsPage extends LitElement {
       </label>
       <button class="apply-button" style="width:100%;" ?disabled=${this._scopeSaving}
         @click=${this._saveFloodScopes}>
-        ${this._scopeSaving ? 'A guardar…' : 'Guardar Scopes'}
+        ${this._scopeSaving ? 'A guardar…' : 'Guardar Scopes HA'}
       </button>
 
       <div style="height:1px;background:var(--divider-color);margin:14px 0;"></div>
+      <div style="font-size:12px;font-weight:600;margin-bottom:4px;">Repeaters remotos</div>
+      <div style="font-size:10px;color:var(--secondary-text-color);line-height:1.45;margin-bottom:10px;">
+        Gestão de Regions de outros Repeaters autenticados. Estas operações usam RF e geram tráfego LoRa.
+      </div>
 
       ${repeaters.length ? html`
         <div class="form-group-inline">
