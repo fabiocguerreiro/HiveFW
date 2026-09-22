@@ -127,7 +127,7 @@ Implementar pela ordem definida para o Repeater HiveFW:
 - [x] 1. Flood Limits + Loop Detect;
 - [x] 2. CAD / interference / AGC + delays configuráveis;
 - [x] 3. Discovery rate limiting;
-- [ ] 4. ACL + servidor de login Repeater;
+- [x] 4. ACL + servidor de login Repeater;
 - [ ] 5. GET_STATUS / TELEMETRY / NEIGHBOURS / ACCESS_LIST;
 - [ ] 6. OWNER / REGIONS / CLOCK anónimos + remote CLI.
 
