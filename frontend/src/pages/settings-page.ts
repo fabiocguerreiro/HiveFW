@@ -2139,7 +2139,91 @@ export class SettingsPage extends LitElement {
 
   private _renderRegionsScopes() {
     const repeaters = this._managedDevices.repeaters || [];
+    const local = this._localRegions;
+    const localActionNeedsName = this._localRegionAction !== 'clear_default';
+    const localActionNeedsParent = this._localRegionAction === 'put';
     return html`
+      <div style="font-size:11px;color:var(--secondary-text-color);line-height:1.5;margin-bottom:12px;">
+        A RegionMap abaixo é a configuração RF real do HiveFW. Nada é criado ou alterado automaticamente:
+        o estado atual do rádio é preservado até aplicares uma operação.
+      </div>
+      <div style="padding:12px;border:1px solid var(--divider-color);border-radius:8px;background:var(--secondary-background-color);margin-bottom:12px;">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:10px;">
+          <div>
+            <div style="font-size:13px;font-weight:600;">RegionMap local</div>
+            <div style="font-size:10px;color:var(--secondary-text-color);margin-top:2px;">Companion local · não gera tráfego LoRa</div>
+          </div>
+          <button class="action-btn" ?disabled=${this._localRegionBusy} @click=${this._refreshLocalRegions}>
+            ${this._localRegionBusy ? 'A ler…' : 'Atualizar'}
+          </button>
+        </div>
+        ${local?.supported ? html`
+          <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;">
+            <span class="managed-devices-chip">${local.count} regions</span>
+            <span class="managed-devices-chip">Home: ${local.home || '*'}</span>
+            <span class="managed-devices-chip">Default: ${local.default || '<null>'}</span>
+          </div>
+          <div style="overflow:auto;border:1px solid var(--divider-color);border-radius:7px;margin-bottom:10px;">
+            <table style="width:100%;border-collapse:collapse;font-size:11px;">
+              <thead><tr style="background:var(--primary-background-color);text-align:left;">
+                <th style="padding:7px 8px;">Region</th><th style="padding:7px 8px;">Parent</th>
+                <th style="padding:7px 8px;">Flood</th><th style="padding:7px 8px;">Flags</th>
+              </tr></thead>
+              <tbody>
+                ${local.regions.map((region) => html`
+                  <tr style="border-top:1px solid var(--divider-color);">
+                    <td style="padding:7px 8px;font-family:monospace;">${region.name}</td>
+                    <td style="padding:7px 8px;font-family:monospace;color:var(--secondary-text-color);">${region.parent || '—'}</td>
+                    <td style="padding:7px 8px;">${region.allow_flood ? 'Permitido' : 'Bloqueado'}</td>
+                    <td style="padding:7px 8px;color:var(--secondary-text-color);">${region.home ? 'HOME ' : ''}${region.default ? 'DEFAULT' : ''}</td>
+                  </tr>
+                `)}
+              </tbody>
+            </table>
+          </div>
+          <div class="section-row" style="margin-bottom:8px;">
+            <div class="form-group-inline">
+              <label class="form-label">Operação</label>
+              <select class="form-select" .value=${this._localRegionAction}
+                @change=${(e: Event) => { this._localRegionAction = (e.target as HTMLSelectElement).value as typeof this._localRegionAction; }}>
+                <option value="put">Criar / atualizar Region</option>
+                <option value="allow">Permitir flood</option>
+                <option value="deny">Bloquear flood</option>
+                <option value="home">Definir HOME</option>
+                <option value="default">Definir Default scope</option>
+                <option value="clear_default">Limpar Default scope</option>
+                <option value="remove">Remover Region</option>
+              </select>
+            </div>
+            <div class="form-group-inline">
+              <label class="form-label">Region</label>
+              <input class="form-input" type="text" maxlength="30" placeholder="ex.: #pt-setubal"
+                .value=${this._localRegionName} ?disabled=${!localActionNeedsName}
+                @input=${(e: Event) => { this._localRegionName = (e.target as HTMLInputElement).value; }} />
+            </div>
+            <div class="form-group-inline">
+              <label class="form-label">Parent</label>
+              <input class="form-input" type="text" maxlength="30" placeholder="ex.: #pt-lisboa-vale-do-tejo"
+                .value=${this._localRegionParent} ?disabled=${!localActionNeedsParent}
+                @input=${(e: Event) => { this._localRegionParent = (e.target as HTMLInputElement).value; }} />
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button class="apply-button" style="flex:1;min-width:150px;margin:0;"
+              ?disabled=${this._localRegionBusy || (localActionNeedsName && !this._localRegionName.trim())}
+              @click=${this._applyLocalRegion}>${this._localRegionBusy ? 'A aplicar…' : 'Aplicar operação'}</button>
+            <button class="action-btn" style="flex:1;min-width:150px;" ?disabled=${this._localRegionBusy}
+              @click=${this._saveLocalRegions}>Guardar Regions</button>
+          </div>
+          <div style="font-size:10px;color:var(--secondary-text-color);margin-top:7px;line-height:1.45;">
+            Criar/remover/allow/deny/HOME ficam em RAM até “Guardar Regions”. Default scope segue o comportamento oficial e é persistido imediatamente.
+          </div>
+        ` : html`
+          <div style="font-size:11px;color:var(--secondary-text-color);line-height:1.45;">
+            ${local?.error || 'Este firmware ainda não expõe a RegionMap local pelo Companion Protocol.'}
+          </div>
+        `}
+      </div>
       <div style="font-size:11px;color:var(--secondary-text-color);line-height:1.45;margin-bottom:10px;">
         Scopes são locais ao Home Assistant/Companion e não geram tráfego LoRa.
         Regions abaixo são de Repeaters remotos geridos pelo meshcore-ha e só são
