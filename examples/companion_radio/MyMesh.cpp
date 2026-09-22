@@ -1329,6 +1329,16 @@ bool MyMesh::handleRepeaterRemoteCommand(
     return true;
   }
 
+  if (strcmp(command, "get guest.password") == 0) {
+    snprintf(
+      reply,
+      reply_size,
+      "%s",
+      _prefs.getRepeaterGuestPassword()
+    );
+    return true;
+  }
+
   if (strcmp(command, "get owner.info") == 0) {
     size_t out = 0;
     for (
@@ -1922,6 +1932,112 @@ bool MyMesh::handleRepeaterRemoteCommand(
 
   if (strcmp(command, "region") == 0) {
     exportRepeaterRegions(reply, reply_size);
+    return true;
+  }
+
+  if (strncmp(command, "region def ", 11) == 0) {
+    char* payload = command + 11;
+
+    while (*payload == ' ' || *payload == '\t') {
+      payload++;
+    }
+
+    if (*payload == '\0') {
+      snprintf(reply, reply_size, "Err - empty def");
+      return true;
+    }
+
+    RegionEntry* cursor =
+      &region_map.getWildcard();
+
+    char* saveptr = NULL;
+    char* token =
+      strtok_r(payload, " \t", &saveptr);
+
+    while (token != NULL) {
+      char* pipe = strchr(token, '|');
+      char* comma = strchr(token, ',');
+      char* split = NULL;
+
+      if (pipe != NULL && comma != NULL) {
+        split = pipe < comma ? pipe : comma;
+      } else {
+        split = pipe != NULL ? pipe : comma;
+      }
+
+      char* jump = NULL;
+
+      if (split != NULL) {
+        *split = '\0';
+        jump = split + 1;
+      }
+
+      if (token[0] == '\0') {
+        snprintf(reply, reply_size, "Err - empty region name");
+        return true;
+      }
+
+      RegionEntry* region =
+        region_map.putRegion(
+          token,
+          cursor->id
+        );
+
+      if (region == NULL) {
+        snprintf(
+          reply,
+          reply_size,
+          "Err - put failed: %s",
+          token
+        );
+        return true;
+      }
+
+      region->flags = 0;
+      cursor = region;
+
+      if (jump != NULL) {
+        if (jump[0] == '\0') {
+          snprintf(reply, reply_size, "Err - empty jump");
+          return true;
+        }
+
+        RegionEntry* target =
+          region_map.findByNamePrefix(jump);
+
+        if (target == NULL) {
+          snprintf(
+            reply,
+            reply_size,
+            "Err - unknown jump: %s",
+            jump
+          );
+          return true;
+        }
+
+        cursor = target;
+      }
+
+      token =
+        strtok_r(NULL, " \t", &saveptr);
+    }
+
+    region_policy_configured = true;
+    exportRepeaterRegions(reply, reply_size);
+    return true;
+  }
+
+  if (strcmp(command, "region load") == 0) {
+    region_policy_configured =
+      region_map.load(_store->getPrimaryFS());
+
+    if (region_policy_configured) {
+      syncDefaultScopeFromRegionMap(false);
+      exportRepeaterRegions(reply, reply_size);
+    } else {
+      snprintf(reply, reply_size, "Err - load failed");
+    }
+
     return true;
   }
 
