@@ -57,7 +57,9 @@ extern bool hivefw_set_ota_token(const char* token);
 #define CMD_GET_HIVE_NEIGHBOURS       44   // HiveFW local neighbour-table page
 #define CMD_GET_REPEATER_RF_CONFIG     45   // HiveFW local CAD/interference/AGC/delays
 #define CMD_GET_REPEATER_AUTH_CONFIG   46   // HiveFW local Repeater login/ACL status
-// NOTE: CMD range 47..49 parked for future local extensions
+#define CMD_GET_REPEATER_REGION        47   // HiveFW local RegionMap entry/status
+#define CMD_SET_REPEATER_REGION        48   // HiveFW local RegionMap mutation
+// NOTE: CMD 49 remains parked for future local extensions
 #define CMD_SEND_BINARY_REQ           50
 #define CMD_FACTORY_RESET             51
 #define CMD_SEND_PATH_DISCOVERY_REQ   52
@@ -5731,6 +5733,155 @@ void MyMesh::handleCmdFrame(size_t len) {
       writeErrFrame(ERR_CODE_BAD_STATE);
     } else {
       _serial->writeFrame(out_frame, 1 + written);
+    }
+
+  } else if (cmd_frame[0] == CMD_GET_REPEATER_REGION && len >= 2) {
+    // Local-only RegionMap reader. One entry per request keeps the response
+    // compact and avoids any dependence on the standard custom-var budget.
+    const int index = (int)cmd_frame[1];
+    const int total = getRepeaterRegionCount();
+    const RegionEntry* region = getRepeaterRegionByIndex(index);
+
+    if (region == NULL || index < 0 || index >= total) {
+      writeErrFrame(ERR_CODE_ILLEGAL_ARG);
+      return;
+    }
+
+    const RegionEntry* parent = NULL;
+    if (!region->isWildcard()) {
+      parent = region_map.findById(region->parent);
+    }
+
+    RegionEntry* home = getRepeaterHomeRegion();
+    RegionEntry* def = getRepeaterDefaultRegion();
+
+    out_frame[0] = RESP_CODE_CUSTOM_VARS;
+    const int written = snprintf(
+      (char*)&out_frame[1],
+      sizeof(out_frame) - 1,
+      "idx:%d,total:%d,name:%s,parent:%s,allow:%u,home:%u,default:%u",
+      index,
+      total,
+      region->name,
+      parent != NULL ? parent->name : "",
+      (region->flags & REGION_DENY_FLOOD) == 0 ? 1U : 0U,
+      home == region ? 1U : 0U,
+      def == region ? 1U : 0U
+    );
+
+    if (
+      written < 0 ||
+      written >= (int)(sizeof(out_frame) - 1)
+    ) {
+      writeErrFrame(ERR_CODE_BAD_STATE);
+    } else {
+      _serial->writeFrame(out_frame, 1 + written);
+    }
+
+  } else if (cmd_frame[0] == CMD_SET_REPEATER_REGION && len >= 2) {
+    // Binary local RegionMap mutation surface. Nothing is applied unless the
+    // caller explicitly sends an operation; no default Regions are created.
+    //
+    // Frame:
+    //   [48][op][name_len][name...][parent_len][parent...]
+    //
+    // op 0 save
+    // op 1 put
+    // op 2 remove
+    // op 3 allow flood
+    // op 4 deny flood
+    // op 5 set home
+    // op 6 set default
+    // op 7 clear default
+    const uint8_t op = cmd_frame[1];
+
+    if (op == 0) {
+      if (saveRepeaterRegions()) {
+        writeOKFrame();
+      } else {
+        writeErrFrame(ERR_CODE_BAD_STATE);
+      }
+      return;
+    }
+
+    if (op == 7) {
+      if (clearRepeaterDefaultRegion()) {
+        writeOKFrame();
+      } else {
+        writeErrFrame(ERR_CODE_BAD_STATE);
+      }
+      return;
+    }
+
+    if (len < 3) {
+      writeErrFrame(ERR_CODE_ILLEGAL_ARG);
+      return;
+    }
+
+    const uint8_t name_len = cmd_frame[2];
+    if (
+      name_len == 0 ||
+      (size_t)(3 + name_len) > len ||
+      name_len >= 64
+    ) {
+      writeErrFrame(ERR_CODE_ILLEGAL_ARG);
+      return;
+    }
+
+    char name[64];
+    memcpy(name, &cmd_frame[3], name_len);
+    name[name_len] = '\0';
+
+    const size_t parent_len_pos = 3 + name_len;
+    uint8_t parent_len = 0;
+    const char* parent = NULL;
+    char parent_buf[64];
+
+    if (parent_len_pos < len) {
+      parent_len = cmd_frame[parent_len_pos];
+      if (
+        parent_len >= sizeof(parent_buf) ||
+        parent_len_pos + 1 + parent_len > len
+      ) {
+        writeErrFrame(ERR_CODE_ILLEGAL_ARG);
+        return;
+      }
+      if (parent_len > 0) {
+        memcpy(parent_buf, &cmd_frame[parent_len_pos + 1], parent_len);
+        parent_buf[parent_len] = '\0';
+        parent = parent_buf;
+      }
+    }
+
+    bool success = false;
+    switch (op) {
+      case 1:
+        success = putRepeaterRegion(name, parent);
+        break;
+      case 2:
+        success = removeRepeaterRegion(name);
+        break;
+      case 3:
+        success = setRepeaterRegionFloodAllowed(name, true);
+        break;
+      case 4:
+        success = setRepeaterRegionFloodAllowed(name, false);
+        break;
+      case 5:
+        success = setRepeaterHomeRegion(name);
+        break;
+      case 6:
+        success = setRepeaterDefaultRegion(name);
+        break;
+      default:
+        writeErrFrame(ERR_CODE_ILLEGAL_ARG);
+        return;
+    }
+
+    if (success) {
+      writeOKFrame();
+    } else {
+      writeErrFrame(ERR_CODE_ILLEGAL_ARG);
     }
 
   } else if (cmd_frame[0] == CMD_GET_ADVERT_PATH && len >= PUB_KEY_SIZE+2) {
