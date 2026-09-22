@@ -437,6 +437,24 @@ export interface HiveNeighborDiscoveryResponse {
   error?: string;
 }
 
+export interface LocalRegionEntry {
+  index: number;
+  name: string;
+  parent?: string | null;
+  allow_flood: boolean;
+  home: boolean;
+  default: boolean;
+}
+
+export interface LocalRegionsResponse {
+  supported: boolean;
+  count: number;
+  home?: string | null;
+  default?: string | null;
+  regions: LocalRegionEntry[];
+  error?: string;
+}
+
 export interface LocalRepeaterStatus {
   supported: boolean;
   repeat: boolean;
