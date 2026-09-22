@@ -40,7 +40,8 @@ export class StatusPage extends LitElement {
     button{font:inherit;cursor:pointer}
     .action,.danger,.minor{min-height:38px;padding:8px 12px;border-radius:8px}
     .action{border:0;background:var(--primary-color);color:var(--text-primary-color,#fff);font-weight:600}
-    .danger{border:1px solid var(--error-color);background:transparent;color:var(--error-color);font-weight:600}
+    .danger{border:1px solid var(--error-color,#db4437);background:var(--error-color,#db4437);color:#fff;font-weight:700}
+    .danger:hover:not(:disabled){filter:brightness(.92)}
     .minor{border:1px solid var(--divider-color);background:var(--secondary-background-color);color:var(--primary-text-color)}
     button:disabled{opacity:.55;cursor:not-allowed}
     .toast{position:fixed;right:20px;bottom:20px;z-index:20;max-width:min(420px,calc(100vw - 40px));padding:10px 14px;border-radius:9px;background:var(--card-background-color);box-shadow:0 4px 20px rgba(0,0,0,.2)}
