@@ -2535,11 +2535,11 @@ export class SettingsPage extends LitElement {
               ${this._repeaterAccessBusy === 'acl' ? 'A limpar...' : 'Limpar ACL'}
             </button>
           </div>
-        \` : html`
+        ` : html`
           <div style="font-size:11px;color:var(--secondary-text-color);line-height:1.45;">
             Este firmware não expõe a configuração local do servidor Repeater.
           </div>
-        \`}
+        `}
       </div>
 
       <div
