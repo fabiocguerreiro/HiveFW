@@ -20,8 +20,8 @@ export class MeshCorePanel extends LitElement {
   @property({ type: Object }) panel?: Record<string, unknown>;
 
   @state() private _config: PanelConfig | null = null;
-  @state() private _activeTab: 'chat' | 'nodes' | 'neighbors' | 'settings' = 'settings';
-  // Managed-device administration is consolidated under Dispositivo.
+  @state() private _activeTab: 'state' | 'chat' | 'nodes' | 'neighbors' | 'settings' = 'state';
+  // Device state is separated from configuration so the panel can scale cleanly.
   @state() private _devices: MeshCoreDevice[] = [];
   @state() private _contacts: Contact[] = [];
   @state() private _channels: Channel[] = [];
@@ -774,9 +774,9 @@ export class MeshCorePanel extends LitElement {
 
         <div class="tab-bar">
           <button
-            class=${this._activeTab === 'settings' ? 'active' : ''}
-            @click=${() => (this._activeTab = 'settings')}>
-            Dispositivo
+            class=${this._activeTab === 'state' ? 'active' : ''}
+            @click=${() => (this._activeTab = 'state')}>
+            Estado
           </button>
           <button
             class=${this._activeTab === 'chat' ? 'active' : ''}
@@ -792,6 +792,11 @@ export class MeshCorePanel extends LitElement {
             class=${this._activeTab === 'neighbors' ? 'active' : ''}
             @click=${() => (this._activeTab = 'neighbors')}>
             Vizinhos
+          </button>
+          <button
+            class=${this._activeTab === 'settings' ? 'active' : ''}
+            @click=${() => (this._activeTab = 'settings')}>
+            Definições
           </button>
         </div>
 
@@ -851,6 +856,18 @@ export class MeshCorePanel extends LitElement {
             .hass=${this.hass}
             .config=${this._config}
             .narrow=${this.narrow}></meshcore-neighbors-page>`;
+      case 'state':
+        return html`
+          <meshcore-settings-page
+            .hass=${this.hass}
+            .config=${this._config}
+            .selectedDevice=${this._selectedDevice}
+            .contactCount=${this._contacts.length}
+            .channelCount=${this._channels.length}
+            .viewMode=${'state'}
+            .narrow=${this.narrow}
+            @companion-trace-requested=${this._onCompanionTraceRequested}
+            @device-renamed=${this._onDeviceRenamed}></meshcore-settings-page>`;
       case 'settings':
         return html`
           <meshcore-settings-page
@@ -859,6 +876,7 @@ export class MeshCorePanel extends LitElement {
             .selectedDevice=${this._selectedDevice}
             .contactCount=${this._contacts.length}
             .channelCount=${this._channels.length}
+            .viewMode=${'settings'}
             .narrow=${this.narrow}
             @companion-trace-requested=${this._onCompanionTraceRequested}
             @device-renamed=${this._onDeviceRenamed}></meshcore-settings-page>`;
