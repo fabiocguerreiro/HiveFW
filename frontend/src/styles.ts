@@ -8,6 +8,10 @@ export const panelStyles = css`
     display: block;
     width: 100%;
     height: 100vh;
+    /* HiveFW high-contrast cockpit: secondary/muted text is intentionally
+       promoted to white so labels and metadata remain readable in the
+       integration's dark UI. */
+    --secondary-text-color: #fff;
     --chat-bg: var(--chat-card-bg, var(--card-background-color, #fff));
     --bubble-incoming-bg: var(
       --chat-card-bubble-incoming-bg,

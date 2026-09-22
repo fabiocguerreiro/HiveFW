@@ -863,7 +863,8 @@ export class MeshCorePanel extends LitElement {
             .hass=${this.hass}
             .config=${this._config}
             .selectedDevice=${this._selectedDevice}
-            .contactCount=${this._contacts.length}
+            .knownNodeCount=${this._contacts.length}
+            .contactCount=${this._contacts.filter((c) => c.added_to_node).length}
             .channelCount=${this._channels.length}
             .narrow=${this.narrow}
             @companion-trace-requested=${this._onCompanionTraceRequested}></meshcore-status-page>`;

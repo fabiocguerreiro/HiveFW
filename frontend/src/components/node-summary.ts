@@ -29,6 +29,9 @@ export interface CompanionDeviceDescriptor {
   pubkey_prefix: string;
   connected: boolean;
   firmware?: string;
+  hardware_model?: string;
+  connection_type?: string;
+  connection_address?: string;
   entry_id?: string;
 }
 
@@ -71,6 +74,9 @@ export class NodeSummary extends LitElement {
   @property({ type: Object }) device?: NodeSummaryDevice;
   @property({ type: Array }) entities: EntityInfo[] = [];
   @property({ type: Number }) hiddenCount = 0;
+  @property({ type: Number }) knownNodeCount = 0;
+  @property({ type: Number }) contactCount = 0;
+  @property({ type: Number }) channelCount = 0;
   /** Fallback location for nodes that don't expose lat/lon as sensor
    *  entities (typical for managed repeaters/clients — their location
    *  comes from the user's contact list via Contact.adv_lat/adv_lon).
@@ -579,8 +585,11 @@ export class NodeSummary extends LitElement {
       ${this._renderSignalTile()}
       ${this._renderDeviceClockTile()}
 
-      ${this._renderProtocolInfoTile()}
       ${this._renderHardwareInfoTile()}
+      ${this._renderFirmwareInfoTile()}
+      ${this._renderConnectionInfoTile()}
+      ${this._renderKnownNodesTile()}
+      ${this._renderProtocolInfoTile()}
       ${this._renderRepeatFrequenciesTile()}
       ${this._renderQueueTile(consumed)}
 
@@ -595,18 +604,77 @@ export class NodeSummary extends LitElement {
 
   private _renderHardwareInfoTile() {
     const info = this.repeaterStatus?.device_info;
-    const model = info?.model || this.repeaterStatus?.model;
+    const model = this.device?.type === 'companion'
+      ? (this.device.hardware_model || info?.model || this.repeaterStatus?.model)
+      : (info?.model || this.repeaterStatus?.model);
     if (!model) return nothing;
-    const build = info?.firmware_build;
+    const name = this.device?.name;
     return html`
       <div class="hero-tile" data-repeater-extra="hardware">
         <div class="hero-tile-head">
-          <span>Hardware</span>
+          <span>Identidade</span>
           <span class="status-dot info"></span>
         </div>
         <div class="hero-tile-value">
-          <span class="primary compact">${model}</span>
-          ${build ? html`<span class="secondary">· ${build}</span>` : nothing}
+          ${name ? html`<span class="primary compact">${name}</span>` : nothing}
+          <span class="secondary">${model}</span>
+        </div>
+        <meshcore-stat-bar .value=${100} .min=${0} .max=${100} .band=${'info'}></meshcore-stat-bar>
+      </div>
+    `;
+  }
+
+  private _renderFirmwareInfoTile() {
+    if (this.device?.type !== 'companion') return nothing;
+    const info = this.repeaterStatus?.device_info;
+    const version = this.device.firmware || info?.version || this.repeaterStatus?.firmware;
+    const build = info?.firmware_build;
+    if (!version && !build) return nothing;
+    return html`
+      <div class="hero-tile" data-repeater-extra="firmware">
+        <div class="hero-tile-head">
+          <span>Firmware</span>
+          <span class="status-dot info"></span>
+        </div>
+        <div class="hero-tile-value">
+          <span class="primary compact">HiveFW${version ? html` · ${version}` : nothing}</span>
+          ${build ? html`<span class="secondary">Compilado: ${build}</span>` : nothing}
+        </div>
+        <meshcore-stat-bar .value=${100} .min=${0} .max=${100} .band=${'info'}></meshcore-stat-bar>
+      </div>
+    `;
+  }
+
+  private _renderConnectionInfoTile() {
+    if (this.device?.type !== 'companion') return nothing;
+    const type = this.device.connection_type?.toUpperCase();
+    const address = this.device.connection_address;
+    if (!type && !address) return nothing;
+    return html`
+      <div class="hero-tile" data-repeater-extra="connection">
+        <div class="hero-tile-head">
+          <span>Ligação</span>
+          <span class="status-dot ${this.device.connected ? 'good' : 'bad'}"></span>
+        </div>
+        <div class="hero-tile-value">
+          <span class="primary compact">${type || '—'}</span>
+          ${address ? html`<span class="secondary">${address}</span>` : nothing}
+        </div>
+        <meshcore-stat-bar .value=${this.device.connected ? 100 : 0} .min=${0} .max=${100} .band=${this.device.connected ? 'good' : 'bad'}></meshcore-stat-bar>
+      </div>
+    `;
+  }
+
+  private _renderKnownNodesTile() {
+    if (this.device?.type !== 'companion') return nothing;
+    return html`
+      <div class="hero-tile" data-repeater-extra="known-nodes">
+        <div class="hero-tile-head">
+          <span>Nós conhecidos</span>
+          <span class="status-dot info"></span>
+        </div>
+        <div class="hero-tile-value">
+          <span class="primary">${this.knownNodeCount}</span>
         </div>
         <meshcore-stat-bar .value=${100} .min=${0} .max=${100} .band=${'info'}></meshcore-stat-bar>
       </div>
@@ -646,8 +714,8 @@ export class NodeSummary extends LitElement {
           <span class="status-dot info"></span>
         </div>
         <div class="hero-tile-value">
-          <span class="primary">${info.max_contacts ?? '—'} / ${info.max_channels ?? '—'}</span>
-          <span class="secondary">contacts / channels</span>
+          <span class="primary compact">Contactos: ${this.contactCount}/${info.max_contacts ?? '—'}</span>
+          <span class="secondary">Canais: ${this.channelCount}/${info.max_channels ?? '—'}</span>
         </div>
         <meshcore-stat-bar .value=${100} .min=${0} .max=${100} .band=${'info'}></meshcore-stat-bar>
       </div>

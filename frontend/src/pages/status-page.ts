@@ -12,6 +12,7 @@ export class StatusPage extends LitElement {
   @property({ type: Object }) config?: PanelConfig;
   @property({ type: Boolean }) narrow = false;
   @property({ type: Object }) selectedDevice?: MeshCoreDevice;
+  @property({ type: Number }) knownNodeCount = 0;
   @property({ type: Number }) contactCount = 0;
   @property({ type: Number }) channelCount = 0;
 
@@ -111,7 +112,17 @@ export class StatusPage extends LitElement {
   }
 
   private _descriptor(d: MeshCoreDevice): CompanionDeviceDescriptor {
-    return { type:'companion', name:d.name, pubkey_prefix:d.pubkey_prefix, connected:d.connected, firmware:d.firmware, entry_id:d.entry_id };
+    return {
+      type: 'companion',
+      name: d.name,
+      pubkey_prefix: d.pubkey_prefix,
+      connected: d.connected,
+      firmware: d.firmware || this._deviceConfig?.firmware_version,
+      hardware_model: this._deviceConfig?.hardware_model,
+      connection_type: this._deviceConfig?.connection_type,
+      connection_address: this._deviceConfig?.connection_address,
+      entry_id: d.entry_id,
+    };
   }
 
   private _loadHiddenSensors() {
@@ -165,17 +176,7 @@ export class StatusPage extends LitElement {
               <div>
                 <div class="device-name">${d.name}</div>
                 <div class="device-meta">
-                  <span>HiveFW Companion-Repeater</span>
-                  <span>Firmware: ${d.firmware || this._deviceConfig?.firmware_version || 'unknown'}</span>
-                  <span>Modelo: ${this._deviceConfig?.hardware_model || this._repeaterStatus?.model || '—'}</span>
                   <span>Public Key: ${this._deviceConfig?.pubkey || d.pubkey || d.pubkey_prefix}</span>
-                  ${this._deviceConfig?.connection_type ? html`
-                    <span>
-                      Ligação: ${this._deviceConfig.connection_type.toUpperCase()}
-                      ${this._deviceConfig.connection_address ? html` — ${this._deviceConfig.connection_address}` : nothing}
-                    </span>
-                  ` : nothing}
-                  <span>Nós conhecidos: ${this.contactCount}</span>
                 </div>
               </div>
             </div>
@@ -188,6 +189,9 @@ export class StatusPage extends LitElement {
             .device=${this._descriptor(d)}
             .entities=${entities}
             .hiddenCount=${hidden.length}
+            .knownNodeCount=${this.knownNodeCount}
+            .contactCount=${this.contactCount}
+            .channelCount=${this.channelCount}
             .repeaterStatus=${this._repeaterStatus}
             @tile-context-menu=${(e:CustomEvent)=>{this._contextMenu={...e.detail,deviceKey:this._deviceKey()};}}>
           </meshcore-node-summary>`:nothing}
