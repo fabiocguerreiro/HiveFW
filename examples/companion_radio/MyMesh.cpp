@@ -127,10 +127,6 @@ extern bool hivefw_set_ota_token(const char* token);
 #define CTL_TYPE_NODE_DISCOVER_RESP  0x90
 #endif
 
-#ifndef ANON_REQ_TYPE_OWNER
-#define ANON_REQ_TYPE_OWNER 0x02
-#endif
-
 #define PUBLIC_GROUP_PSK                "izOH6cXN6mrJ5e26oRXNcg=="
 
 // these are _pushed_ to client app at any time
@@ -2820,6 +2816,7 @@ MyMesh::MyMesh(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMe
     : BaseChatMesh(radio, *new ArduinoMillis(), rng, rtc, *new StaticPoolPacketManager(16), tables),
       region_map(region_key_store),
       discover_limiter(4, 120),  // simple_repeater: max 4 replies per 120 s
+      anon_limiter(4, 180),      // simple_repeater: max 4 anonymous replies per 180 s
       _serial(NULL), telemetry(MAX_PACKET_PAYLOAD - 4), _store(&store), _ui(ui), _iter(0) {
   _iter_started = false;
   _cli_rescue = false;
@@ -2834,6 +2831,7 @@ MyMesh::MyMesh(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMe
   next_ack_idx = 0;
   sign_data = NULL;
   dirty_contacts_expiry = 0;
+  remote_reboot_at = 0;
   next_smart_advert = 0;
   memset(advert_paths, 0, sizeof(advert_paths));
   memset(repeater_neighbours, 0, sizeof(repeater_neighbours));
