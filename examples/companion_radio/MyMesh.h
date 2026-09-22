@@ -28,6 +28,7 @@
 
 #include "DataStore.h"
 #include "NodePrefs.h"
+#include "RateLimiter.h"
 
 #include <RTClib.h>
 #include <helpers/ArduinoHelpers.h>
@@ -428,6 +429,7 @@ private:
   uint32_t pending_login;
   uint32_t pending_status;
   uint32_t pending_telemetry, pending_discovery;   // pending _TELEMETRY_REQ
+  RateLimiter discover_limiter;
   uint32_t pending_discover_tag;
   unsigned long pending_discover_until;
 

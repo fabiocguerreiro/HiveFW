@@ -119,7 +119,7 @@ Funcionalidades comuns:
 - RX delay, Flood TX delay e Direct TX delay configuráveis;
 - Regions / Flood Scopes;
 - descoberta de Repeaters;
-- Node Discovery;
+- Node Discovery com rate limiting equivalente ao simple_repeater: máximo de 4 respostas por janela de 120 segundos;
 - contadores de adverts TX/RX;
 - telemetria e informação do Companion;
 - UI HiveFW nos equipamentos com display.

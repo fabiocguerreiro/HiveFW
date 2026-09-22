@@ -1628,7 +1628,8 @@ void MyMesh::onControlDataRecv(mesh::Packet *packet) {
 
 
     if (type == CTL_TYPE_NODE_DISCOVER_REQ &&
-        packet->payload_len >= 6) {
+        packet->payload_len >= 6 &&
+        discover_limiter.allow(getRTCClock()->getCurrentTime())) {
 
       int i = 1;
       uint8_t filter = packet->payload[i++];
@@ -2301,6 +2302,7 @@ size_t MyMesh::exportRepeaterRegions(
 MyMesh::MyMesh(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMeshTables &tables, DataStore& store, AbstractUITask* ui)
     : BaseChatMesh(radio, *new ArduinoMillis(), rng, rtc, *new StaticPoolPacketManager(16), tables),
       region_map(region_key_store),
+      discover_limiter(4, 120),  // simple_repeater: max 4 replies per 120 s
       _serial(NULL), telemetry(MAX_PACKET_PAYLOAD - 4), _store(&store), _ui(ui), _iter(0) {
   _iter_started = false;
   _cli_rescue = false;
