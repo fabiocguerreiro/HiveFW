@@ -1273,16 +1273,17 @@ class HiveFWPanel extends BasePanel {
       labels.includes(button.textContent?.trim())
     );
 
-    const settings = byLabel("Settings", "Dispositivo");
+    const state = byLabel("Estado");
+    const settings = byLabel("Settings", "Dispositivo", "Definições");
     const chat = byLabel("Chat", "Chat & Canais");
     const nodes = byLabel("Nodes", "Nós");
     const devices = byLabel("Devices");
     let neighbors = byLabel("Vizinhos");
-    let consoleTab = byLabel("Console");
+    let consoleTab = byLabel("Console", "Consola");
 
-    if (settings) {
-      settings.textContent = "Dispositivo";
-      settings.style.order = "1";
+    if (state) {
+      state.textContent = "Estado";
+      state.style.order = "1";
     }
     if (chat) {
       chat.textContent = "Chat & Canais";
@@ -1291,6 +1292,10 @@ class HiveFWPanel extends BasePanel {
     if (nodes) {
       nodes.textContent = "Nós";
       nodes.style.order = "3";
+    }
+    if (settings) {
+      settings.textContent = "Definições";
+      settings.style.order = "5";
     }
 
     // The committed production bundle still contains the old Devices tab.
@@ -1337,14 +1342,15 @@ class HiveFWPanel extends BasePanel {
     if (!consoleTab) {
       consoleTab = document.createElement("button");
       consoleTab.dataset.hiveConsoleTab = "1";
-      consoleTab.textContent = "Console";
+      consoleTab.textContent = "Consola";
       consoleTab.addEventListener("click", () => {
         this._activeTab = "console";
         this.requestUpdate();
       });
       tabBar.appendChild(consoleTab);
     }
-    consoleTab.style.order = "5";
+    consoleTab.textContent = "Consola";
+    consoleTab.style.order = "6";
     consoleTab.classList.toggle("active", this._activeTab === "console");
 
     const iconize = (button, iconName) => {
@@ -1358,10 +1364,11 @@ class HiveFWPanel extends BasePanel {
       icon.setAttribute("icon", iconName);
     };
 
-    iconize(settings, "mdi:tune-variant");
+    iconize(state, "mdi:monitor-dashboard");
     iconize(chat, "mdi:message-text-outline");
     iconize(nodes, "mdi:map-marker-multiple-outline");
     iconize(neighbors, "mdi:access-point-network");
+    iconize(settings, "mdi:cog-outline");
     iconize(consoleTab, "mdi:console-line");
   }
 
