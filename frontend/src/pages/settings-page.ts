@@ -1936,7 +1936,6 @@ export class SettingsPage extends LitElement {
       'bandwidth',
       'spreading_factor',
       'coding_rate',
-      'path_hash_mode',
     ]);
 
     return html`
@@ -2008,19 +2007,6 @@ export class SettingsPage extends LitElement {
             ${[5, 6, 7, 8].map((cr) => {
               const current = this._editValues['coding_rate'] ?? this._deviceConfig!.coding_rate ?? 5;
               return html`<option value=${cr} ?selected=${Number(current) === cr}>${cr}</option>`;
-            })}
-          </select>
-        </div>
-        <div class="form-group-inline">
-          <label class="form-label">Path Hash Mode</label>
-          <select
-            class="form-select"
-            @change=${(e: Event) => {
-              this._editValues['path_hash_mode'] = Number((e.target as HTMLSelectElement).value);
-            }}>
-            ${[[0, '0 - 1 byte'], [1, '1 - 2 byte'], [2, '2 - 3 byte']].map(([val, label]) => {
-              const current = this._editValues['path_hash_mode'] ?? this._deviceConfig!.path_hash_mode ?? 0;
-              return html`<option value=${val} ?selected=${Number(current) === val}>${label}</option>`;
             })}
           </select>
         </div>
@@ -2363,6 +2349,7 @@ export class SettingsPage extends LitElement {
     const agcResetInterval = Number(this._editValues['agc_reset_interval'] ?? radioGuard?.agc_reset_interval ?? 0);
     const floodTxDelay = Number(this._editValues['flood_tx_delay'] ?? radioGuard?.flood_tx_delay ?? 0.5);
     const directTxDelay = Number(this._editValues['direct_tx_delay'] ?? radioGuard?.direct_tx_delay ?? 0.3);
+    const pathHashMode = Number(this._editValues['path_hash_mode'] ?? status.radio.path_hash_mode ?? this._deviceConfig?.path_hash_mode ?? 0);
 
     return html`
       <div class="section-row">
@@ -2380,17 +2367,18 @@ export class SettingsPage extends LitElement {
           </select>
         </div>
         <div class="form-group-inline">
-          <label class="form-label">RX Delay</label>
-          <input
-            class="form-input"
-            type="number"
-            step="0.001"
-            .value=${String(rxDelay)}
-            @input=${(e: Event) => {
-              this._editValues['rx_delay'] = Number((e.target as HTMLInputElement).value);
+          <label class="form-label">Path Hash Mode</label>
+          <select
+            class="form-select"
+            .value=${String(pathHashMode)}
+            @change=${(e: Event) => {
+              this._editValues['path_hash_mode'] = Number((e.target as HTMLSelectElement).value);
               this._editValues = { ...this._editValues };
-            }}
-          />
+            }}>
+            <option value="0">0 - 1 byte</option>
+            <option value="1">1 - 2 bytes</option>
+            <option value="2">2 - 3 bytes</option>
+          </select>
         </div>
       </div>
 
@@ -3015,7 +3003,7 @@ export class SettingsPage extends LitElement {
         keysToApply = ['name'];
         break;
       case 'radio-settings':
-        keysToApply = ['tx_power', 'frequency', 'bandwidth', 'spreading_factor', 'coding_rate', 'path_hash_mode'];
+        keysToApply = ['tx_power', 'frequency', 'bandwidth', 'spreading_factor', 'coding_rate'];
         break;
     }
 
