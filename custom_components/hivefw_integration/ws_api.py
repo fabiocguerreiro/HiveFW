@@ -2907,6 +2907,8 @@ def _encode_region_name(value: str, *, allow_empty: bool = False) -> bytes:
     raw = str(value or "").strip().encode("utf-8")
     if not raw and allow_empty:
         return b""
+    if raw == b"*":
+        return raw
     if not raw or len(raw) > 30:
         raise ValueError("region name must contain 1..30 UTF-8 bytes")
     if any(
