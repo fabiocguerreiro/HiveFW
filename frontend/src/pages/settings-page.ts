@@ -2352,6 +2352,17 @@ export class SettingsPage extends LitElement {
     const autoAdvert = Boolean(this._editValues['auto_advert'] ?? status.auto_advert);
     const multiAcks = Number(this._editValues['multi_acks'] ?? status.radio.multi_acks ?? 0);
     const rxDelay = Number(this._editValues['rx_delay'] ?? status.tuning.rx_delay ?? 0);
+    const routing = status.routing;
+    const radioGuard = status.radio_guard;
+    const floodMax = Number(this._editValues['flood_max'] ?? routing?.flood_max ?? 64);
+    const floodMaxUnscoped = Number(this._editValues['flood_max_unscoped'] ?? routing?.flood_max_unscoped ?? 64);
+    const floodMaxAdvert = Number(this._editValues['flood_max_advert'] ?? routing?.flood_max_advert ?? 8);
+    const loopDetect = Number(this._editValues['loop_detect'] ?? routing?.loop_detect ?? 0);
+    const cadEnabled = Boolean(this._editValues['cad_enabled'] ?? radioGuard?.cad_enabled ?? false);
+    const interferenceThreshold = Number(this._editValues['interference_threshold'] ?? radioGuard?.interference_threshold ?? 0);
+    const agcResetInterval = Number(this._editValues['agc_reset_interval'] ?? radioGuard?.agc_reset_interval ?? 0);
+    const floodTxDelay = Number(this._editValues['flood_tx_delay'] ?? radioGuard?.flood_tx_delay ?? 0.5);
+    const directTxDelay = Number(this._editValues['direct_tx_delay'] ?? radioGuard?.direct_tx_delay ?? 0.3);
 
     return html`
       <div class="section-row">
@@ -2432,6 +2443,138 @@ export class SettingsPage extends LitElement {
           />
           ${autoAdvert ? 'Ativo' : 'Desligado'}
         </label>
+      </div>
+
+      <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-bottom:10px;">
+        <div style="padding:12px;border:1px solid var(--divider-color);border-radius:8px;background:var(--secondary-background-color);">
+          <div style="font-size:13px;font-weight:600;margin-bottom:4px;">Routing &amp; Flood</div>
+          <div style="font-size:11px;color:var(--secondary-text-color);line-height:1.45;margin-bottom:10px;">
+            Limites oficiais do Repeater para flood e deteção de loops.
+          </div>
+
+          ${routing?.supported ? html`
+            <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 10px;">
+              <div>
+                <label class="form-label">Flood Max</label>
+                <input class="form-input" type="number" min="0" max="64"
+                  .value=${String(floodMax)}
+                  @input=${(e: Event) => {
+                    this._editValues['flood_max'] = Number((e.target as HTMLInputElement).value);
+                    this._editValues = { ...this._editValues };
+                  }} />
+              </div>
+              <div>
+                <label class="form-label">Flood Max Unscoped</label>
+                <input class="form-input" type="number" min="0" max="64"
+                  .value=${String(floodMaxUnscoped)}
+                  @input=${(e: Event) => {
+                    this._editValues['flood_max_unscoped'] = Number((e.target as HTMLInputElement).value);
+                    this._editValues = { ...this._editValues };
+                  }} />
+              </div>
+              <div>
+                <label class="form-label">Flood Max Adverts</label>
+                <input class="form-input" type="number" min="0" max="64"
+                  .value=${String(floodMaxAdvert)}
+                  @input=${(e: Event) => {
+                    this._editValues['flood_max_advert'] = Number((e.target as HTMLInputElement).value);
+                    this._editValues = { ...this._editValues };
+                  }} />
+              </div>
+              <div>
+                <label class="form-label">Loop Detect</label>
+                <select class="form-select"
+                  .value=${String(loopDetect)}
+                  @change=${(e: Event) => {
+                    this._editValues['loop_detect'] = Number((e.target as HTMLSelectElement).value);
+                    this._editValues = { ...this._editValues };
+                  }}>
+                  <option value="0">Off</option>
+                  <option value="1">Minimal</option>
+                  <option value="2">Moderate</option>
+                  <option value="3">Strict</option>
+                </select>
+              </div>
+            </div>
+          ` : html`
+            <div style="font-size:11px;color:var(--secondary-text-color);">
+              Este firmware não expõe Flood Limits / Loop Detect pelo Companion.
+            </div>
+          `}
+        </div>
+
+        <div style="padding:12px;border:1px solid var(--divider-color);border-radius:8px;background:var(--secondary-background-color);">
+          <div style="font-size:13px;font-weight:600;margin-bottom:4px;">RF &amp; Retransmissão</div>
+          <div style="font-size:11px;color:var(--secondary-text-color);line-height:1.45;margin-bottom:10px;">
+            Proteção contra canal ocupado, AGC e timings de retransmissão do Repeater.
+          </div>
+
+          ${radioGuard?.supported ? html`
+            <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 10px;">
+              <div>
+                <label class="form-label">CAD</label>
+                <select class="form-select"
+                  .value=${cadEnabled ? '1' : '0'}
+                  @change=${(e: Event) => {
+                    this._editValues['cad_enabled'] = (e.target as HTMLSelectElement).value === '1';
+                    this._editValues = { ...this._editValues };
+                  }}>
+                  <option value="0">Desligado</option>
+                  <option value="1">Ligado</option>
+                </select>
+              </div>
+              <div>
+                <label class="form-label">Interference Threshold</label>
+                <input class="form-input" type="number" min="0" max="255"
+                  .value=${String(interferenceThreshold)}
+                  @input=${(e: Event) => {
+                    this._editValues['interference_threshold'] = Number((e.target as HTMLInputElement).value);
+                    this._editValues = { ...this._editValues };
+                  }} />
+              </div>
+              <div>
+                <label class="form-label">AGC Reset (s)</label>
+                <input class="form-input" type="number" min="0" max="1020" step="4"
+                  .value=${String(agcResetInterval)}
+                  @input=${(e: Event) => {
+                    this._editValues['agc_reset_interval'] = Number((e.target as HTMLInputElement).value);
+                    this._editValues = { ...this._editValues };
+                  }} />
+              </div>
+              <div>
+                <label class="form-label">RX Delay</label>
+                <input class="form-input" type="number" min="0" max="20" step="0.001"
+                  .value=${String(rxDelay)}
+                  @input=${(e: Event) => {
+                    this._editValues['rx_delay'] = Number((e.target as HTMLInputElement).value);
+                    this._editValues = { ...this._editValues };
+                  }} />
+              </div>
+              <div>
+                <label class="form-label">Flood TX Delay</label>
+                <input class="form-input" type="number" min="0" max="2" step="0.001"
+                  .value=${String(floodTxDelay)}
+                  @input=${(e: Event) => {
+                    this._editValues['flood_tx_delay'] = Number((e.target as HTMLInputElement).value);
+                    this._editValues = { ...this._editValues };
+                  }} />
+              </div>
+              <div>
+                <label class="form-label">Direct TX Delay</label>
+                <input class="form-input" type="number" min="0" max="2" step="0.001"
+                  .value=${String(directTxDelay)}
+                  @input=${(e: Event) => {
+                    this._editValues['direct_tx_delay'] = Number((e.target as HTMLInputElement).value);
+                    this._editValues = { ...this._editValues };
+                  }} />
+              </div>
+            </div>
+          ` : html`
+            <div style="font-size:11px;color:var(--secondary-text-color);">
+              Este firmware não expõe CAD / AGC / delays avançados pelo Companion.
+            </div>
+          `}
+        </div>
       </div>
 
       <div
