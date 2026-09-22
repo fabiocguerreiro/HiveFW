@@ -167,7 +167,7 @@ Quando o modo Repeater está ativo, o HiveFW pode funcionar também como servido
 - a integração permite limpar a ACL sem alterar as passwords configuradas;
 - a configuração local pela integração usa BLE/TCP/USB e não gera tráfego LoRa; o login remoto propriamente dito é tráfego MeshCore.
 
-Os serviços remotos autenticados `GET_STATUS`, `TELEMETRY`, `NEIGHBOURS`, `ACCESS_LIST` e a remote CLI são fases separadas da paridade Repeater e são implementados nos pontos seguintes do roadmap.
+O servidor Repeater suporta `GET_STATUS`, `TELEMETRY`, `NEIGHBOURS`, `ACCESS_LIST`, `GET_OWNER_INFO` e remote CLI autenticada. `NEIGHBOURS` reutiliza a mesma tabela zero-hop da integração; a remote CLI é restrita a sessões Admin autenticadas e inclui proteção contra replay.
 
 ### Diagnóstico CAD
 
@@ -411,17 +411,17 @@ têm de corresponder. O CI rejeita versões divergentes.
 A primeira linha unificada é:
 
 ```text
-HiveFW 1.12.0
+HiveFW 1.13.0
 ```
 
-**O merge do repositório não publica uma Release.** A publicação só acontece explicitamente através de uma tag de versão.
+**Um merge normal não publica uma Release.** Uma commit explícita `Release HiveFW X.Y.Z` cria a tag `vX.Y.Z`; a tag dispara o workflow que compila e publica a Release. Uma tag criada manualmente continua igualmente suportada.
 
 ## Releases
 
 Uma futura tag:
 
 ```text
-v1.12.0
+v1.13.0
 ```
 
 produz a Release:
