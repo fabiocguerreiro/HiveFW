@@ -3,6 +3,7 @@ set -euo pipefail
 
 SUPPORTED_TARGETS=(
   "Heltec_v3_companion_radio_wifi"
+  "Heltec_v3_companion_radio_ble"
   "Heltec_t114_companion_radio_ble"
 )
 
@@ -15,6 +16,7 @@ Usage:
 
 Supported targets:
   Heltec_v3_companion_radio_wifi
+  Heltec_v3_companion_radio_ble
   Heltec_t114_companion_radio_ble
 
 Environment:
