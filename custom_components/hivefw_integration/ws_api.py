@@ -661,6 +661,8 @@ def async_register_ws_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_get_managed_devices)
     websocket_api.async_register_command(hass, ws_get_device_config)
     websocket_api.async_register_command(hass, ws_get_local_repeater_status)
+    websocket_api.async_register_command(hass, ws_get_local_regions)
+    websocket_api.async_register_command(hass, ws_set_local_region)
     websocket_api.async_register_command(hass, ws_get_duty_cycle)
     websocket_api.async_register_command(hass, ws_set_duty_cycle)
     websocket_api.async_register_command(hass, ws_get_firmware_ota_status)
@@ -2409,6 +2411,102 @@ async def ws_get_local_repeater_status(hass, connection, msg):
         )
 
 
+# ─── HiveFW local Repeater RegionMap ────────────────────────────────────
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hivefw_integration/get_local_regions",
+        vol.Optional("entry_id"): str,
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_get_local_regions(hass, connection, msg):
+    """Read the local HiveFW RegionMap. This never creates LoRa traffic."""
+    coordinator = _get_coordinator(hass, msg.get("entry_id"))
+    if not coordinator or not coordinator.api.mesh_core:
+        connection.send_error(msg["id"], "not_found", "No HiveFW coordinator found")
+        return
+
+    regions, reason = await _read_local_repeater_regions(
+        coordinator.api.mesh_core.commands
+    )
+    if regions is None:
+        connection.send_result(
+            msg["id"],
+            {
+                "supported": False,
+                "count": 0,
+                "home": None,
+                "default": None,
+                "regions": [],
+                "error": reason or "unsupported",
+            },
+        )
+        return
+
+    connection.send_result(msg["id"], regions)
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hivefw_integration/set_local_region",
+        vol.Optional("entry_id"): str,
+        vol.Required("operation"): vol.In(
+            ["save", "put", "remove", "allow", "deny", "home", "default", "clear_default"]
+        ),
+        vol.Optional("name", default=""): str,
+        vol.Optional("parent", default=""): str,
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_set_local_region(hass, connection, msg):
+    """Apply one explicit local RegionMap operation and return fresh state."""
+    coordinator = _get_coordinator(hass, msg.get("entry_id"))
+    if not coordinator or not coordinator.api.mesh_core:
+        connection.send_error(msg["id"], "not_found", "No HiveFW coordinator found")
+        return
+
+    operation = msg["operation"]
+    name = msg.get("name", "")
+    parent = msg.get("parent", "")
+    if operation not in {"save", "clear_default"} and not name.strip():
+        connection.send_error(msg["id"], "invalid", "Region name is required")
+        return
+
+    reason = await _mutate_local_repeater_region(
+        coordinator.api.mesh_core.commands,
+        operation,
+        name,
+        parent,
+    )
+    if reason is not None:
+        connection.send_error(msg["id"], "region_command_failed", reason)
+        return
+
+    regions, read_reason = await _read_local_repeater_regions(
+        coordinator.api.mesh_core.commands
+    )
+    if regions is None:
+        connection.send_error(
+            msg["id"],
+            "region_readback_failed",
+            read_reason or "no response",
+        )
+        return
+
+    connection.send_result(
+        msg["id"],
+        {
+            "success": True,
+            "operation": operation,
+            **regions,
+        },
+    )
+
+
 # ─── HiveFW Repeater Duty Cycle ─────────────────────────────────────────
 # Dedicated read/write surface. This intentionally bypasses the generic
 # device-config handler so Duty Cycle can be diagnosed and controlled in
@@ -2802,6 +2900,148 @@ async def _read_repeater_auth_config(commands):
         return None, "invalid Repeater ACL count"
 
     return config, None
+
+
+def _encode_region_name(value: str, *, allow_empty: bool = False) -> bytes:
+    """Validate one RegionMap name using the firmware's 30-byte limit."""
+    raw = str(value or "").strip().encode("utf-8")
+    if not raw and allow_empty:
+        return b""
+    if not raw or len(raw) > 30:
+        raise ValueError("region name must contain 1..30 UTF-8 bytes")
+    if any(
+        not (
+            byte in (ord("-"), ord("$"), ord("#"))
+            or ord("0") <= byte <= ord("9")
+            or byte >= ord("A")
+        )
+        for byte in raw
+    ):
+        raise ValueError("region name contains characters rejected by MeshCore")
+    return raw
+
+
+async def _read_local_repeater_regions(commands):
+    """Read the local HiveFW RegionMap without transmitting over LoRa."""
+    from meshcore.events import EventType
+
+    entries = []
+    total = None
+    for index in range(33):  # wildcard + MAX_REGION_ENTRIES (32)
+        try:
+            result = await commands.send(
+                bytes((0x2F, index & 0xFF)),
+                [EventType.CUSTOM_VARS, EventType.ERROR],
+            )
+        except Exception as ex:
+            return None, str(ex)
+
+        reason = _device_config_failure_reason(result)
+        if reason is not None:
+            if index == 0:
+                return None, reason
+            return None, f"RegionMap entry {index}: {reason}"
+
+        payload = getattr(result, "payload", {}) or {}
+        try:
+            returned_index = int(payload.get("idx", -1))
+            returned_total = int(payload.get("total", -1))
+            name = str(payload.get("name", ""))
+            parent = str(payload.get("parent", ""))
+            allow_flood = int(payload.get("allow", -1)) == 1
+            is_home = int(payload.get("home", -1)) == 1
+            is_default = int(payload.get("default", -1)) == 1
+        except (TypeError, ValueError):
+            return None, "invalid RegionMap response"
+
+        if returned_index != index or not 1 <= returned_total <= 33 or not name:
+            return None, "invalid RegionMap response"
+
+        if total is None:
+            total = returned_total
+        elif total != returned_total:
+            return None, "RegionMap changed while being read"
+
+        entries.append(
+            {
+                "index": returned_index,
+                "name": name,
+                "parent": parent or None,
+                "allow_flood": allow_flood,
+                "home": is_home,
+                "default": is_default,
+            }
+        )
+
+        if len(entries) >= total:
+            break
+
+    if total is None or len(entries) != total:
+        return None, "incomplete RegionMap response"
+
+    home = next((entry["name"] for entry in entries if entry["home"]), None)
+    default = next((entry["name"] for entry in entries if entry["default"]), None)
+    return {
+        "supported": True,
+        "count": len(entries),
+        "home": home,
+        "default": default,
+        "regions": entries,
+    }, None
+
+
+async def _mutate_local_repeater_region(
+    commands,
+    operation: str,
+    name: str = "",
+    parent: str = "",
+):
+    """Apply one explicit local RegionMap mutation over Companion transport."""
+    from meshcore.events import EventType
+
+    opcodes = {
+        "save": 0,
+        "put": 1,
+        "remove": 2,
+        "allow": 3,
+        "deny": 4,
+        "home": 5,
+        "default": 6,
+        "clear_default": 7,
+    }
+    if operation not in opcodes:
+        return "unsupported RegionMap operation"
+
+    op = opcodes[operation]
+    if operation in {"save", "clear_default"}:
+        frame = bytes((0x30, op))
+    else:
+        try:
+            name_raw = _encode_region_name(name)
+            parent_raw = (
+                _encode_region_name(parent, allow_empty=True)
+                if operation == "put"
+                else b""
+            )
+        except ValueError as ex:
+            return str(ex)
+
+        frame = (
+            bytes((0x30, op, len(name_raw)))
+            + name_raw
+            + bytes((len(parent_raw),))
+            + parent_raw
+        )
+
+    try:
+        result = await commands.send(
+            frame,
+            [EventType.OK, EventType.ERROR],
+        )
+    except Exception as ex:
+        return str(ex)
+
+    return _device_config_failure_reason(result)
 
 
 async def _read_repeater_rf_config(commands):
