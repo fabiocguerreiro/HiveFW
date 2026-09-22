@@ -28,7 +28,7 @@ export class StatusPage extends LitElement {
   static styles = css`
     :host{display:block;width:100%;height:100%;overflow:auto;background:var(--primary-background-color)}
     .page{box-sizing:border-box;width:100%;padding:20px}
-    .wrap{width:min(1400px,100%);margin:0 auto}
+    .wrap{width:100%;max-width:none;margin:0}
     .device-section{box-sizing:border-box;width:100%;padding:16px;border:1px solid var(--divider-color);border-radius:12px;background:var(--card-background-color)}
     .companion-header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:14px}
     .section-title{display:flex;align-items:flex-start;gap:10px;min-width:0}
