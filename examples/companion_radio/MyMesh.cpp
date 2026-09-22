@@ -1034,9 +1034,9 @@ bool MyMesh::allowPacketForward(
     packet->isRouteFlood() &&
     mesh::isFloodHopLimitExceeded(
       packet,
-      _prefs.repeat.flood_max,
-      _prefs.repeat.flood_max_unscoped,
-      _prefs.repeat.flood_max_advert
+      _prefs.getFloodMax(),
+      _prefs.getFloodMaxUnscoped(),
+      _prefs.getFloodMaxAdvert()
     )
   ) {
     MESH_DEBUG_PRINTLN(
@@ -1050,13 +1050,13 @@ bool MyMesh::allowPacketForward(
   // own identity hash already occurs in the incoming flood path.
   if (
     packet->isRouteFlood() &&
-    _prefs.repeat.loop_detect != LOOP_DETECT_OFF
+    _prefs.getLoopDetect() != LOOP_DETECT_OFF
   ) {
     const uint8_t* maximums = HIVEFW_LOOP_MAX_STRICT;
 
-    if (_prefs.repeat.loop_detect == LOOP_DETECT_MINIMAL) {
+    if (_prefs.getLoopDetect() == LOOP_DETECT_MINIMAL) {
       maximums = HIVEFW_LOOP_MAX_MINIMAL;
-    } else if (_prefs.repeat.loop_detect == LOOP_DETECT_MODERATE) {
+    } else if (_prefs.getLoopDetect() == LOOP_DETECT_MODERATE) {
       maximums = HIVEFW_LOOP_MAX_MODERATE;
     }
 
@@ -2439,10 +2439,10 @@ void MyMesh::begin(bool has_display) {
   _prefs.tx_power_dbm = constrain(_prefs.tx_power_dbm, -9, MAX_LORA_TX_POWER);
   _prefs.gps_enabled = constrain(_prefs.gps_enabled, 0, 1);  // Ensure boolean 0 or 1
   _prefs.gps_interval = constrain(_prefs.gps_interval, 0, 86400);  // Max 24 hours
-  _prefs.repeat.flood_max = constrain(_prefs.repeat.flood_max, 0, 64);
-  _prefs.repeat.flood_max_unscoped = constrain(_prefs.repeat.flood_max_unscoped, 0, 64);
-  _prefs.repeat.flood_max_advert = constrain(_prefs.repeat.flood_max_advert, 0, 64);
-  _prefs.repeat.loop_detect = constrain(_prefs.repeat.loop_detect, 0, 3);
+  _prefs.setFloodMax(constrain(_prefs.getFloodMax(), 0, 64));
+  _prefs.setFloodMaxUnscoped(constrain(_prefs.getFloodMaxUnscoped(), 0, 64));
+  _prefs.setFloodMaxAdvert(constrain(_prefs.getFloodMaxAdvert(), 0, 64));
+  _prefs.setLoopDetect(constrain(_prefs.getLoopDetect(), 0, 3));
 
 #ifdef BLE_PIN_CODE // 123456 by default
   if (_prefs.ble_pin == 0) {
@@ -3470,10 +3470,10 @@ void MyMesh::handleCmdFrame(size_t len) {
       route_value,
       sizeof(route_value),
       "%u/%u/%u/%u",
-      (unsigned)_prefs.repeat.flood_max,
-      (unsigned)_prefs.repeat.flood_max_unscoped,
-      (unsigned)_prefs.repeat.flood_max_advert,
-      (unsigned)_prefs.repeat.loop_detect
+      (unsigned)_prefs.getFloodMax(),
+      (unsigned)_prefs.getFloodMaxUnscoped(),
+      (unsigned)_prefs.getFloodMaxAdvert(),
+      (unsigned)_prefs.getLoopDetect()
     );
     appendCustomVar("route", route_value);
 
@@ -3562,10 +3562,10 @@ void MyMesh::handleCmdFrame(size_t len) {
           flood_max_advert <= 64 &&
           loop_detect <= LOOP_DETECT_STRICT
         ) {
-          _prefs.repeat.flood_max = (uint8_t)flood_max;
-          _prefs.repeat.flood_max_unscoped = (uint8_t)flood_max_unscoped;
-          _prefs.repeat.flood_max_advert = (uint8_t)flood_max_advert;
-          _prefs.repeat.loop_detect = (uint8_t)loop_detect;
+          _prefs.setFloodMax((uint8_t)flood_max);
+          _prefs.setFloodMaxUnscoped((uint8_t)flood_max_unscoped);
+          _prefs.setFloodMaxAdvert((uint8_t)flood_max_advert);
+          _prefs.setLoopDetect((uint8_t)loop_detect);
           savePrefs();
           success = true;
         }

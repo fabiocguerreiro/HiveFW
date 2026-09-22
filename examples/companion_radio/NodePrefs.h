@@ -253,4 +253,16 @@ public:
   void setAutoAdvertStateVersion(uint8_t version) {
     repeat.auto_advert_state_version = version;
   }
+
+  uint8_t getFloodMax() const { return repeat.flood_max; }
+  void setFloodMax(uint8_t value) { repeat.flood_max = value; }
+
+  uint8_t getFloodMaxUnscoped() const { return repeat.flood_max_unscoped; }
+  void setFloodMaxUnscoped(uint8_t value) { repeat.flood_max_unscoped = value; }
+
+  uint8_t getFloodMaxAdvert() const { return repeat.flood_max_advert; }
+  void setFloodMaxAdvert(uint8_t value) { repeat.flood_max_advert = value; }
+
+  uint8_t getLoopDetect() const { return repeat.loop_detect; }
+  void setLoopDetect(uint8_t value) { repeat.loop_detect = value; }
 };
