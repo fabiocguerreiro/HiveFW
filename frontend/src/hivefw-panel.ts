@@ -28,7 +28,7 @@ class HiveFWPanel extends BasePanel {
   constructor() {
     super();
 
-    this._activeTab = "settings";
+    this._activeTab = "state";
 
     this.__repeaterStatus = null;
     this.__repeaterLoading = false;
@@ -272,13 +272,11 @@ class HiveFWPanel extends BasePanel {
 
     this.__ensureRepeaterStyles(root);
     this.__ensureTabs(root);
-    if (this._activeTab === "settings") {
+    if (this._activeTab === "state") {
       this.__startSmartAdvertCountdown();
     } else {
       this.__stopSmartAdvertCountdown();
     }
-    this.__enhanceManualOtaCard(root);
-    this.__renderOtaLiveProgress(root);
 
     const entryId = this.__entryId() || null;
     if (this.__nodesMapLoadedEntry !== null && this.__nodesMapLoadedEntry !== entryId) {
@@ -302,8 +300,10 @@ class HiveFWPanel extends BasePanel {
     if (this._activeTab !== "console") {
       this.__removeConsoleOverlay();
     }
-    if (this._activeTab !== "settings") {
+    if (this._activeTab !== "state") {
       this.__closeMetricEditor();
+    }
+    if (this._activeTab !== "settings") {
       this.__closeRxLog();
     }
 
@@ -341,7 +341,22 @@ class HiveFWPanel extends BasePanel {
       return;
     }
 
-        if (this._activeTab === "settings") {
+    if (this._activeTab === "state") {
+      if (entryId !== this.__repeaterLoadedEntry) {
+        this.__repeaterStatus = null;
+        this.__repeaterError = null;
+        this.__repeaterMessage = null;
+        this.__repeaterEdit = {};
+        this.__repeaterLoadedEntry = entryId;
+      }
+      this.__enhanceStatePage();
+      if (!this.__repeaterStatus && !this.__repeaterLoading) {
+        void this.__loadRepeaterStatus();
+      }
+      return;
+    }
+
+    if (this._activeTab === "settings") {
       if (entryId !== this.__repeaterLoadedEntry) {
         this.__repeaterStatus = null;
         this.__repeaterError = null;
@@ -351,6 +366,7 @@ class HiveFWPanel extends BasePanel {
       }
       this.__enhanceSettingsPage();
       this.__enhanceManualOtaCard(root);
+      this.__renderOtaLiveProgress(root);
       if (!this.__repeaterStatus && !this.__repeaterLoading) {
         void this.__loadRepeaterStatus();
       }
