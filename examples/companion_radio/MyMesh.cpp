@@ -55,7 +55,8 @@ extern bool hivefw_set_ota_token(const char* token);
 #define CMD_GET_ADVERT_PATH           42
 #define CMD_GET_TUNING_PARAMS         43
 #define CMD_GET_HIVE_NEIGHBOURS       44   // HiveFW local neighbour-table page
-// NOTE: CMD range 45..49 parked, potentially for WiFi operations
+#define CMD_GET_REPEATER_RF_CONFIG     45   // HiveFW local CAD/interference/AGC/delays
+// NOTE: CMD range 46..49 parked for future local extensions
 #define CMD_SEND_BINARY_REQ           50
 #define CMD_FACTORY_RESET             51
 #define CMD_SEND_PATH_DISCOVERY_REQ   52
@@ -290,10 +291,13 @@ float MyMesh::getAirtimeBudgetFactor() const {
 }
 
 int MyMesh::getInterferenceThreshold() const {
-  return 0; // disabled for now, until currentRSSI() problem is resolved
+  return _prefs.interference_threshold;
 }
 bool MyMesh::getCADEnabled() const {
-  return false; // hardware CAD before TX (disabled by default, until configurable)
+  return _prefs.cad_enabled != 0;
+}
+int MyMesh::getAGCResetInterval() const {
+  return ((int)_prefs.agc_reset_interval) * 4000;
 }
 
 int MyMesh::calcRxDelay(float score, uint32_t air_time) const {
@@ -302,11 +306,19 @@ int MyMesh::calcRxDelay(float score, uint32_t air_time) const {
 }
 
 uint32_t MyMesh::getRetransmitDelay(const mesh::Packet *packet) {
-  uint32_t t = (_radio->getEstAirtimeFor(packet->getPathByteLen() + packet->payload_len + 2) * 0.5f);
+  uint32_t t = (
+    _radio->getEstAirtimeFor(
+      packet->getPathByteLen() + packet->payload_len + 2
+    ) * _prefs.tx_delay_factor
+  );
   return getRNG()->nextInt(0, 5*t + 1);
 }
 uint32_t MyMesh::getDirectRetransmitDelay(const mesh::Packet *packet) {
-  uint32_t t = (_radio->getEstAirtimeFor(packet->getPathByteLen() + packet->payload_len + 2) * 0.2f);
+  uint32_t t = (
+    _radio->getEstAirtimeFor(
+      packet->getPathByteLen() + packet->payload_len + 2
+    ) * _prefs.direct_tx_delay_factor
+  );
   return getRNG()->nextInt(0, 5*t + 1);
 }
 
@@ -2324,7 +2336,12 @@ MyMesh::MyMesh(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMe
   _prefs.gps_interval = 0;      // No automatic GPS updates by default
   _prefs.radio_fem_rxgain = 1;
   _prefs.radio_fem_txgain = 0;
-  //_prefs.rx_delay_base = 10.0f;  enable once new algo fixed
+  _prefs.rx_delay_base = 0.0f;
+  _prefs.tx_delay_factor = 0.5f;
+  _prefs.direct_tx_delay_factor = 0.3f;
+  _prefs.interference_threshold = 0;
+  _prefs.agc_reset_interval = 0;
+  _prefs.cad_enabled = 0;
   _prefs.setRepeatEn(false);
 #if defined(USE_SX1262) || defined(USE_SX1268)
 #ifdef SX126X_RX_BOOSTED_GAIN
@@ -2409,6 +2426,9 @@ void MyMesh::begin(bool has_display) {
 
   // sanitise bad pref values
   _prefs.rx_delay_base = constrain(_prefs.rx_delay_base, 0, 20.0f);
+  _prefs.tx_delay_factor = constrain(_prefs.tx_delay_factor, 0, 2.0f);
+  _prefs.direct_tx_delay_factor = constrain(_prefs.direct_tx_delay_factor, 0, 2.0f);
+  _prefs.cad_enabled = constrain(_prefs.cad_enabled, 0, 1);
   _prefs.airtime_factor = constrain(_prefs.airtime_factor, 0, 9.0f);
   _prefs.freq = constrain(_prefs.freq, 150.0f, 2500.0f);
   _prefs.bw = constrain(_prefs.bw, 7.8f, 500.0f);
@@ -3547,6 +3567,65 @@ void MyMesh::handleCmdFrame(size_t len) {
           savePrefs();
           success = true;
         }
+      } else if (strcmp(sp, "cad") == 0) {
+        if (strcmp(np, "0") == 0 || strcmp(np, "1") == 0) {
+          _prefs.cad_enabled = np[0] == '1' ? 1 : 0;
+          savePrefs();
+          success = true;
+        }
+      } else if (strcmp(sp, "int_thr") == 0) {
+        char *endp = nullptr;
+        long threshold = strtol(np, &endp, 10);
+        if (
+          endp != np &&
+          *endp == '\0' &&
+          threshold >= 0 &&
+          threshold <= 255
+        ) {
+          _prefs.interference_threshold = (uint8_t)threshold;
+          savePrefs();
+          success = true;
+        }
+      } else if (strcmp(sp, "agc_s") == 0) {
+        char *endp = nullptr;
+        long seconds = strtol(np, &endp, 10);
+        if (
+          endp != np &&
+          *endp == '\0' &&
+          seconds >= 0 &&
+          seconds <= 1020
+        ) {
+          // Match CommonCLI: round down to a multiple of four seconds.
+          _prefs.agc_reset_interval = (uint8_t)(seconds / 4);
+          savePrefs();
+          success = true;
+        }
+      } else if (
+        strcmp(sp, "rxdelay") == 0 ||
+        strcmp(sp, "f_txdelay") == 0 ||
+        strcmp(sp, "d_txdelay") == 0
+      ) {
+        char *endp = nullptr;
+        float value = strtof(np, &endp);
+        const bool is_rx = strcmp(sp, "rxdelay") == 0;
+        const float maximum = is_rx ? 20.0f : 2.0f;
+
+        if (
+          endp != np &&
+          *endp == '\0' &&
+          value >= 0.0f &&
+          value <= maximum
+        ) {
+          if (is_rx) {
+            _prefs.rx_delay_base = value;
+          } else if (strcmp(sp, "f_txdelay") == 0) {
+            _prefs.tx_delay_factor = value;
+          } else {
+            _prefs.direct_tx_delay_factor = value;
+          }
+          savePrefs();
+          success = true;
+        }
       } else if (strcmp(sp, "duty_cycle") == 0) {
         char *endp = nullptr;
         long duty = strtol(np, &endp, 10);
@@ -3723,6 +3802,32 @@ void MyMesh::handleCmdFrame(size_t len) {
 
     dp += written;
     _serial->writeFrame(out_frame, dp - (char*)out_frame);
+
+  } else if (cmd_frame[0] == CMD_GET_REPEATER_RF_CONFIG) {
+    // Dedicated local response so these settings do not consume the
+    // standard CMD_GET_CUSTOM_VARS 140-byte payload budget.
+    out_frame[0] = RESP_CODE_CUSTOM_VARS;
+
+    int written = snprintf(
+      (char*)&out_frame[1],
+      sizeof(out_frame) - 1,
+      "cad:%u,int_thr:%u,agc_s:%u,rxdelay:%.3f,f_txdelay:%.3f,d_txdelay:%.3f",
+      (unsigned)_prefs.cad_enabled,
+      (unsigned)_prefs.interference_threshold,
+      (unsigned)(_prefs.agc_reset_interval * 4U),
+      (double)_prefs.rx_delay_base,
+      (double)_prefs.tx_delay_factor,
+      (double)_prefs.direct_tx_delay_factor
+    );
+
+    if (
+      written < 0 ||
+      written >= (int)(sizeof(out_frame) - 1)
+    ) {
+      writeErrFrame(ERR_CODE_BAD_STATE);
+    } else {
+      _serial->writeFrame(out_frame, 1 + written);
+    }
 
   } else if (cmd_frame[0] == CMD_GET_ADVERT_PATH && len >= PUB_KEY_SIZE+2) {
     // FUTURE use:  uint8_t reserved = cmd_frame[1];

@@ -2188,6 +2188,17 @@ async def ws_get_local_repeater_status(hass, connection, msg):
         telemetry = await _payload(commands.get_self_telemetry) or {}
         repeat_freqs = await _payload(commands.get_allowed_repeat_freq) or {}
         custom_vars = await _payload(commands.get_custom_vars) or {}
+        rf_config, _rf_config_error = await _read_repeater_rf_config(commands)
+        if rf_config is None:
+            rf_config = {
+                "supported": False,
+                "cad_enabled": False,
+                "interference_threshold": None,
+                "agc_reset_interval": None,
+                "rx_delay": None,
+                "flood_tx_delay": None,
+                "direct_tx_delay": None,
+            }
         core = await _payload(commands.get_stats_core) or {}
         radio = await _payload(commands.get_stats_radio) or {}
         packets = await _payload(commands.get_stats_packets) or {}
@@ -2361,6 +2372,7 @@ async def ws_get_local_repeater_status(hass, connection, msg):
                 "battery": battery,
                 "tuning": tuning_view,
                 "routing": routing,
+                "radio_guard": rf_config,
                 "clock": {
                     "timestamp": device_clock.get("time"),
                     "drift_seconds": (
@@ -2701,6 +2713,49 @@ def _migrate_entity_ids_name_suffix(
         len(migrated), old_suffix, new_suffix,
     )
     return migrated
+
+
+async def _read_repeater_rf_config(commands):
+    """Read HiveFW CAD/interference/AGC/delay prefs over local transport.
+
+    Command 0x2D is HiveFW-local. It returns CUSTOM_VARS but never creates
+    LoRa traffic, and deliberately avoids the standard custom-var payload
+    budget that already carries Smart Advert/CAD diagnostics.
+    """
+    from meshcore.events import EventType
+
+    result = await commands.send(
+        bytes((0x2D,)),
+        [EventType.CUSTOM_VARS, EventType.ERROR],
+    )
+    reason = _device_config_failure_reason(result)
+    if reason is not None:
+        return None, reason
+
+    payload = getattr(result, "payload", {}) or {}
+    try:
+        config = {
+            "supported": True,
+            "cad_enabled": int(payload.get("cad", -1)) == 1,
+            "interference_threshold": int(payload.get("int_thr", -1)),
+            "agc_reset_interval": int(payload.get("agc_s", -1)),
+            "rx_delay": float(payload.get("rxdelay", "nan")),
+            "flood_tx_delay": float(payload.get("f_txdelay", "nan")),
+            "direct_tx_delay": float(payload.get("d_txdelay", "nan")),
+        }
+    except (TypeError, ValueError):
+        return None, "invalid RF configuration response"
+
+    if not (
+        0 <= config["interference_threshold"] <= 255
+        and 0 <= config["agc_reset_interval"] <= 1020
+        and 0.0 <= config["rx_delay"] <= 20.0
+        and 0.0 <= config["flood_tx_delay"] <= 2.0
+        and 0.0 <= config["direct_tx_delay"] <= 2.0
+    ):
+        return None, "out-of-range RF configuration response"
+
+    return config, None
 
 
 def _device_config_failure_reason(result):
@@ -3163,8 +3218,166 @@ async def ws_set_device_config(hass, connection, msg):
                 key for key in routing_keys if key in settings
             )
 
-        # Companion tuning values are floats in the UI but thousandths on wire.
-        if "rx_delay" in settings or "airtime_factor" in settings:
+        # Repeater CAD / interference / AGC / timing controls. These map
+        # directly to the current simple_repeater radio policy and are applied
+        # live; no reboot is required.
+        rf_keys = {
+            "cad_enabled",
+            "interference_threshold",
+            "agc_reset_interval",
+            "rx_delay",
+            "flood_tx_delay",
+            "direct_tx_delay",
+        }
+        if rf_keys & set(settings.keys()):
+            current_rf, reason = await _read_repeater_rf_config(
+                coordinator.api.mesh_core.commands
+            )
+            if current_rf is None:
+                _send_device_config_failure(
+                    connection,
+                    msg["id"],
+                    "CAD/interference/AGC/delays",
+                    reason or "unsupported",
+                    changed,
+                )
+                return
+
+            requested = {
+                "cad_enabled": bool(
+                    settings.get("cad_enabled", current_rf["cad_enabled"])
+                ),
+                "interference_threshold": int(
+                    settings.get(
+                        "interference_threshold",
+                        current_rf["interference_threshold"],
+                    )
+                ),
+                "agc_reset_interval": int(
+                    settings.get(
+                        "agc_reset_interval",
+                        current_rf["agc_reset_interval"],
+                    )
+                ),
+                "rx_delay": float(
+                    settings.get("rx_delay", current_rf["rx_delay"])
+                ),
+                "flood_tx_delay": float(
+                    settings.get(
+                        "flood_tx_delay",
+                        current_rf["flood_tx_delay"],
+                    )
+                ),
+                "direct_tx_delay": float(
+                    settings.get(
+                        "direct_tx_delay",
+                        current_rf["direct_tx_delay"],
+                    )
+                ),
+            }
+
+            if not 0 <= requested["interference_threshold"] <= 255:
+                _send_device_config_failure(
+                    connection, msg["id"], "interference_threshold",
+                    "must be 0..255", changed
+                )
+                return
+            if not 0 <= requested["agc_reset_interval"] <= 1020:
+                _send_device_config_failure(
+                    connection, msg["id"], "agc_reset_interval",
+                    "must be 0..1020 seconds", changed
+                )
+                return
+            requested["agc_reset_interval"] = (
+                requested["agc_reset_interval"] // 4
+            ) * 4
+            if not 0.0 <= requested["rx_delay"] <= 20.0:
+                _send_device_config_failure(
+                    connection, msg["id"], "rx_delay",
+                    "must be 0..20", changed
+                )
+                return
+            for field in ("flood_tx_delay", "direct_tx_delay"):
+                if not 0.0 <= requested[field] <= 2.0:
+                    _send_device_config_failure(
+                        connection, msg["id"], field,
+                        "must be 0..2", changed
+                    )
+                    return
+
+            wire = {
+                "cad_enabled": ("cad", "1" if requested["cad_enabled"] else "0"),
+                "interference_threshold": (
+                    "int_thr",
+                    str(requested["interference_threshold"]),
+                ),
+                "agc_reset_interval": (
+                    "agc_s",
+                    str(requested["agc_reset_interval"]),
+                ),
+                "rx_delay": ("rxdelay", f'{requested["rx_delay"]:.3f}'),
+                "flood_tx_delay": (
+                    "f_txdelay",
+                    f'{requested["flood_tx_delay"]:.3f}',
+                ),
+                "direct_tx_delay": (
+                    "d_txdelay",
+                    f'{requested["direct_tx_delay"]:.3f}',
+                ),
+            }
+
+            for field in (
+                "cad_enabled",
+                "interference_threshold",
+                "agc_reset_interval",
+                "rx_delay",
+                "flood_tx_delay",
+                "direct_tx_delay",
+            ):
+                if field not in settings:
+                    continue
+                key, value = wire[field]
+                result = await coordinator.api.mesh_core.commands.set_custom_var(
+                    key, value
+                )
+                reason = _device_config_failure_reason(result)
+                if reason is not None:
+                    _send_device_config_failure(
+                        connection, msg["id"], field, reason, changed
+                    )
+                    return
+                changed.append(field)
+
+            verified_rf, reason = await _read_repeater_rf_config(
+                coordinator.api.mesh_core.commands
+            )
+            if verified_rf is None:
+                _send_device_config_failure(
+                    connection, msg["id"], "RF verification",
+                    reason or "no response", changed
+                )
+                return
+
+            for field in rf_keys & set(settings.keys()):
+                expected = requested[field]
+                actual = verified_rf[field]
+                if isinstance(expected, float):
+                    matches = abs(float(actual) - expected) <= 0.0015
+                else:
+                    matches = actual == expected
+                if not matches:
+                    _send_device_config_failure(
+                        connection,
+                        msg["id"],
+                        f"{field} verification",
+                        f"requested {expected}, read {actual}",
+                        changed,
+                    )
+                    return
+
+        # Companion tuning now only owns Airtime Factor. RX delay is part of
+        # the Repeater RF controls above, matching simple_repeater.
+        if "airtime_factor" in settings:
             current = await coordinator.api.mesh_core.commands.get_tuning()
             reason = _device_config_failure_reason(current)
             if reason is not None:
@@ -3173,10 +3386,7 @@ async def ws_set_device_config(hass, connection, msg):
                 )
                 return
             payload = getattr(current, "payload", {}) or {}
-            rx_delay = settings.get(
-                "rx_delay",
-                float(payload.get("rx_delay", 0)) / 1000.0,
-            )
+            rx_delay = float(payload.get("rx_delay", 0)) / 1000.0
             airtime_factor = settings.get(
                 "airtime_factor",
                 float(payload.get("airtime_factor", 0)) / 1000.0,
@@ -3225,8 +3435,6 @@ async def ws_set_device_config(hass, connection, msg):
                 )
                 return
 
-            if "rx_delay" in settings:
-                changed.append("rx_delay")
             if "airtime_factor" in settings:
                 changed.append("airtime_factor")
 

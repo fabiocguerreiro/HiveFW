@@ -7036,6 +7036,7 @@ class HiveFWPanel extends BasePanel {
     const location = status.location || {};
     const tuning = status.tuning || {};
     const routing = status.routing || {};
+    const radioGuard = status.radio_guard || {};
 
     this.__repeaterEdit = {
       repeat: !!status.repeat,
@@ -7052,6 +7053,12 @@ class HiveFWPanel extends BasePanel {
       flood_max_unscoped: Number(routing.flood_max_unscoped ?? 64),
       flood_max_advert: Number(routing.flood_max_advert ?? 8),
       loop_detect: Number(routing.loop_detect ?? 0),
+      cad_enabled: !!radioGuard.cad_enabled,
+      interference_threshold: Number(radioGuard.interference_threshold ?? 0),
+      agc_reset_interval: Number(radioGuard.agc_reset_interval ?? 0),
+      repeater_rx_delay: Number(radioGuard.rx_delay ?? tuning.rx_delay ?? 0),
+      flood_tx_delay: Number(radioGuard.flood_tx_delay ?? 0.5),
+      direct_tx_delay: Number(radioGuard.direct_tx_delay ?? 0.3),
       latitude: location.latitude ?? 0,
       longitude: location.longitude ?? 0,
     };
@@ -7676,6 +7683,7 @@ class HiveFWPanel extends BasePanel {
       this.__renderModeCard(status),
       this.__renderRadioCard(status),
       this.__renderFloodLoopCard(status),
+      this.__renderRadioGuardCard(status),
       this.__renderRoutingCard(status),
       this.__renderStatsCard(status),
       this.__renderLocationCard(status),
@@ -7902,10 +7910,101 @@ class HiveFWPanel extends BasePanel {
   }
 
 
+  __renderRadioGuardCard(status) {
+    const guard = status.radio_guard || {};
+    const card = this.__card(
+      "CAD / Interference / AGC & Delays",
+      "Controlo de acesso ao canal e temporizações equivalentes ao simple_repeater atual. As alterações aplicam-se sem reboot."
+    );
+
+    if (!guard.supported) {
+      const note = document.createElement("div");
+      note.className = "mcr-note";
+      note.textContent =
+        "Esta versão do firmware ainda não expõe a configuração RF avançada.";
+      card.appendChild(note);
+      return card;
+    }
+
+    const grid = document.createElement("div");
+    grid.className = "mcr-form-grid";
+    grid.append(
+      this.__selectField(
+        "CAD",
+        [
+          { value: 0, label: "Off" },
+          { value: 1, label: "On" },
+        ],
+        this.__repeaterEdit.cad_enabled ? 1 : 0,
+        (v) => this.__repeaterEdit.cad_enabled = Number(v) === 1
+      ),
+      this.__numberField(
+        "Interference threshold",
+        this.__repeaterEdit.interference_threshold,
+        "1",
+        (v) => this.__repeaterEdit.interference_threshold = Number(v)
+      ),
+      this.__numberField(
+        "AGC reset · segundos",
+        this.__repeaterEdit.agc_reset_interval,
+        "4",
+        (v) => this.__repeaterEdit.agc_reset_interval = Number(v)
+      ),
+      this.__numberField(
+        "RX delay",
+        this.__repeaterEdit.repeater_rx_delay,
+        "0.001",
+        (v) => this.__repeaterEdit.repeater_rx_delay = Number(v)
+      ),
+      this.__numberField(
+        "Flood TX delay",
+        this.__repeaterEdit.flood_tx_delay,
+        "0.001",
+        (v) => this.__repeaterEdit.flood_tx_delay = Number(v)
+      ),
+      this.__numberField(
+        "Direct TX delay",
+        this.__repeaterEdit.direct_tx_delay,
+        "0.001",
+        (v) => this.__repeaterEdit.direct_tx_delay = Number(v)
+      )
+    );
+    card.appendChild(grid);
+
+    const actions = document.createElement("div");
+    actions.className = "mcr-actions";
+    const save = this.__button("Guardar RF avançado", "primary");
+    save.disabled = this.__repeaterLoading;
+    save.addEventListener("click", () => {
+      void this.__saveRepeaterSettings(
+        {
+          cad_enabled: !!this.__repeaterEdit.cad_enabled,
+          interference_threshold: Number(this.__repeaterEdit.interference_threshold),
+          agc_reset_interval: Number(this.__repeaterEdit.agc_reset_interval),
+          rx_delay: Number(this.__repeaterEdit.repeater_rx_delay),
+          flood_tx_delay: Number(this.__repeaterEdit.flood_tx_delay),
+          direct_tx_delay: Number(this.__repeaterEdit.direct_tx_delay),
+        },
+        "CAD, interference, AGC e delays atualizados."
+      );
+    });
+    actions.appendChild(save);
+    card.appendChild(actions);
+
+    const note = document.createElement("div");
+    note.className = "mcr-note";
+    note.textContent =
+      "Defaults HiveFW/simple_repeater: CAD Off · interference 0 · AGC 0 s · RX delay 0 · Flood TX 0.5 · Direct TX 0.3. AGC é arredondado para baixo em passos de 4 s.";
+    card.appendChild(note);
+
+    return card;
+  }
+
+
   __renderRoutingCard(status) {
     const card = this.__card(
-      "Routing & Tuning",
-      "Opções que o Companion Protocol atual permite ajustar diretamente."
+      "ACKs & Airtime",
+      "Parâmetros Companion que permanecem independentes dos controlos RF do Repeater."
     );
 
     const grid = document.createElement("div");
@@ -7920,12 +8019,6 @@ class HiveFWPanel extends BasePanel {
         ],
         this.__repeaterEdit.multi_acks,
         (v) => this.__repeaterEdit.multi_acks = Number(v)
-      ),
-      this.__numberField(
-        "RX delay",
-        this.__repeaterEdit.rx_delay,
-        "0.001",
-        (v) => this.__repeaterEdit.rx_delay = v
       ),
       this.__numberField(
         "Airtime factor",
@@ -7945,10 +8038,9 @@ class HiveFWPanel extends BasePanel {
       void this.__saveRepeaterSettings(
         {
           multi_acks: Number(this.__repeaterEdit.multi_acks),
-          rx_delay: Number(this.__repeaterEdit.rx_delay),
           airtime_factor: Number(this.__repeaterEdit.airtime_factor),
         },
-        "Routing e tuning atualizados."
+        "ACKs e Airtime atualizados."
       );
     });
     actions.appendChild(save);
@@ -8106,7 +8198,7 @@ class HiveFWPanel extends BasePanel {
     const note = document.createElement("div");
     note.className = "mcr-note";
     note.textContent =
-      "Disponível agora: modo Repeater, RF, TX power, Path Hash, Multi ACKs, tuning, localização, adverts, reboot e estatísticas. O Repeater Setup oficial também possui opções como Regions, advert intervals, flood.max, loop detection, owner info, duty cycle e passwords de servidor; essas opções não são expostas pelo Companion Protocol do HiveFW atualmente e por isso não são alteradas por esta página.";
+      "Disponível agora: modo Repeater, rádio, Flood Limits, Loop Detect, CAD, interference threshold, AGC reset, RX/TX delays, Duty Cycle, Path Hash, Multi ACKs, Regions, localização, adverts, reboot e estatísticas. Ainda faltam as camadas de rate limiting, ACL/login e os restantes serviços de servidor Repeater previstos no roadmap.";
     card.appendChild(note);
     return card;
   }

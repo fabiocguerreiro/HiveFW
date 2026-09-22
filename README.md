@@ -113,6 +113,10 @@ Funcionalidades comuns:
 - Duty Cycle configurável;
 - Flood Limits oficiais: geral, unscoped e advert;
 - Loop Detect configurável: Off / Minimal / Moderate / Strict;
+- CAD hardware configurável antes de TX;
+- interference threshold configurável;
+- AGC reset interval configurável em passos de 4 segundos;
+- RX delay, Flood TX delay e Direct TX delay configuráveis;
 - Regions / Flood Scopes;
 - descoberta de Repeaters;
 - Node Discovery;

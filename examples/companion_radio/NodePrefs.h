@@ -31,6 +31,11 @@ public:
   uint8_t telemetry_mode_loc = 0;
   uint8_t telemetry_mode_env = 0;
   float rx_delay_base = 0;
+  float tx_delay_factor = 0.5f;
+  float direct_tx_delay_factor = 0.3f;
+  uint8_t interference_threshold = 0;
+  uint8_t agc_reset_interval = 0;  // stored in 4-second units
+  uint8_t cad_enabled = 0;
   uint32_t ble_pin = 0;
   uint8_t  advert_loc_policy = 0;
   uint8_t  buzzer_quiet = 0;
@@ -108,8 +113,8 @@ private:
       def("bw", _parent->bw);
       def("sf", _parent->sf);
       def("cr", _parent->cr);
-      //def("cad", _parent->cad_enabled);
-      //def("int_thr", _parent->interference_threshold);
+      def("cad", _parent->cad_enabled);
+      def("int_thr", _parent->interference_threshold);
       def("rxgain", _parent->rx_boosted_gain);
     #if 0
       // NOTE: these cannot be set (yet) so don't load/save until we can.
@@ -120,9 +125,9 @@ private:
       def("tx", _parent->tx_power_dbm);
       def("af", _parent->airtime_factor);
       def("rxdelay", _parent->rx_delay_base);
-      //def("f_txdelay", _parent->tx_delay_factor);   currently hard-coded
-      //def("d_txdelay", _parent->direct_tx_delay_factor);  currently hard-coded
-      //def("agc_int", _parent->agc_reset_interval);
+      def("f_txdelay", _parent->tx_delay_factor);
+      def("d_txdelay", _parent->direct_tx_delay_factor);
+      def("agc_int", _parent->agc_reset_interval);
       def("hash_mode", _parent->path_hash_mode);
       def("multi_ack", _parent->multi_acks);
     }
