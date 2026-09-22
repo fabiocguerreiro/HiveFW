@@ -82,6 +82,29 @@
 #define REQ_TYPE_GET_STATUS             0x01 // same as _GET_STATS
 #define REQ_TYPE_KEEP_ALIVE             0x02
 #define REQ_TYPE_GET_TELEMETRY_DATA     0x03
+#define REQ_TYPE_GET_ACCESS_LIST        0x05
+#define REQ_TYPE_GET_NEIGHBOURS         0x06
+
+struct RepeaterStats {
+  uint16_t batt_milli_volts;
+  uint16_t curr_tx_queue_len;
+  int16_t  noise_floor;
+  int16_t  last_rssi;
+  uint32_t n_packets_recv;
+  uint32_t n_packets_sent;
+  uint32_t total_air_time_secs;
+  uint32_t total_up_time_secs;
+  uint32_t n_sent_flood;
+  uint32_t n_sent_direct;
+  uint32_t n_recv_flood;
+  uint32_t n_recv_direct;
+  uint16_t err_events;
+  int16_t  last_snr;
+  uint16_t n_direct_dups;
+  uint16_t n_flood_dups;
+  uint32_t total_rx_air_time_secs;
+  uint32_t n_recv_errors;
+};
 
 struct AdvertPath {
   // Mantido para CMD_GET_ADVERT_PATH.
