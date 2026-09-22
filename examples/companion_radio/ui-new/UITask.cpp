@@ -16296,24 +16296,13 @@ public:
                     ? 0
                     : (seconds_to_advert + 59UL) / 60UL;
 
-                uint32_t days =
-                  total_minutes / (24UL * 60UL);
-
-                uint32_t hours =
-                  (total_minutes / 60UL) % 24UL;
-
-                uint32_t minutes =
-                  total_minutes % 60UL;
-
-                char advert_eta[40];
+                char advert_eta[32];
 
                 snprintf(
                   advert_eta,
                   sizeof(advert_eta),
-                  "ADV em:\n%lu(D)/%02lu(H)/%02lu(M)",
-                  (unsigned long)days,
-                  (unsigned long)hours,
-                  (unsigned long)minutes
+                  "ADV: Em %lu Min.",
+                  (unsigned long)total_minutes
                 );
 
                 _task->showAlert(
@@ -17636,56 +17625,11 @@ void UITask::loop() {
         _display->setColor(UIColor::popup_txt);  // draw box border
         _display->drawRect(p, y, _display->width() - p*2, y);
 
-        // Alerts may optionally contain one explicit newline. This is used by
-        // the Smart Advert ETA so the full D(D)/HH(H)/MM(M) legend remains
-        // readable on the 128px Companion displays.
-        const char* alert_break = strchr(_alert, '\n');
-
-        if (alert_break != nullptr) {
-          char line1[40];
-          char line2[40];
-
-          size_t line1_len =
-            (size_t)(alert_break - _alert);
-
-          if (line1_len >= sizeof(line1)) {
-            line1_len = sizeof(line1) - 1;
-          }
-
-          memcpy(
-            line1,
-            _alert,
-            line1_len
-          );
-          line1[line1_len] = '\0';
-
-          strncpy(
-            line2,
-            alert_break + 1,
-            sizeof(line2) - 1
-          );
-          line2[sizeof(line2) - 1] = '\0';
-
-          _display->drawTextCentered(
-            _display->width() / 2,
-            y + 4,
-            line1
-          );
-
-          _display->drawTextCentered(
-            _display->width() / 2,
-            y + 13,
-            line2
-          );
-
-        } else {
-
-          _display->drawTextCentered(
-            _display->width() / 2,
-            y + p*3,
-            _alert
-          );
-        }
+        _display->drawTextCentered(
+          _display->width() / 2,
+          y + p*3,
+          _alert
+        );
 
         _next_refresh = _alert_expiry;   // will need refresh when alert is dismissed
       } else {

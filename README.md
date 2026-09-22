@@ -131,7 +131,7 @@ O Smart Advert do Repeater usa um **slot diário determinístico de 24 horas der
 - em reboots normais com Auto Advert já ativo há mais de 5 minutos, a recuperação continua imediata quando passaram 24 horas sem envio;
 - se o advert de recuperação ficar fora do slot normal, um slot demasiado próximo é ignorado e o nó regressa automaticamente ao horário por hash em até 48 horas;
 - no ESP32 o último Auto Advert é também espelhado em NVS;
-- ao alterar o Auto Advert no Companion com display, a confirmação mostra o tempo efetivo até ao próximo envio em `D(D)/HH(H)/MM(M)`, permitindo distinguir a grace period de um slot diário já alinhado.
+- ao alterar o Auto Advert no Companion com display, a confirmação mostra o tempo efetivo até ao próximo envio em minutos (`ADV: Em XX Min.`); o countdown detalhado permanece na integração Home Assistant.
 
 ### Vizinhos zero-hop
 
