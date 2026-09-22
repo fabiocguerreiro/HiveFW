@@ -2697,6 +2697,30 @@ class HiveFWPanel extends BasePanel {
     body.querySelector(".hive-rxlog-action")?.remove();
   }
 
+  __enhanceStatePage() {
+    const statusPage = this.shadowRoot?.querySelector("meshcore-status-page");
+    const sroot = statusPage?.shadowRoot;
+    if (!sroot) return;
+
+    this.__enhanceCompanionHero(sroot);
+
+    const summary = sroot.querySelector("meshcore-node-summary");
+    const nroot = summary?.shadowRoot;
+    const hero = nroot?.querySelector(".hero-row");
+    if (summary && nroot && hero) {
+      let edit = sroot.querySelector(".hivefw-status-edit-metrics");
+      if (!edit) {
+        edit = document.createElement("button");
+        edit.type = "button";
+        edit.className = "minor hivefw-status-edit-metrics";
+        edit.textContent = "Editar métricas";
+        edit.addEventListener("click", () => this.__openMetricEditor(summary, nroot, hero));
+        const header = sroot.querySelector(".companion-header");
+        header?.appendChild(edit);
+      }
+    }
+  }
+
   __enhanceSettingsPage() {
     const settingsPage = this.shadowRoot?.querySelector("meshcore-settings-page");
     const sroot = settingsPage?.shadowRoot;
@@ -2787,10 +2811,6 @@ class HiveFWPanel extends BasePanel {
     ) {
       void this.__loadWifiPortalInfo();
     }
-
-    this.__enhanceCompanionHero(sroot);
-    this.__ensureMetricSettingsMenu(settingsPage,sroot);
-    this.__ensureRebootAction(sroot);
 
     this.__settingsObserver?.takeRecords();
     this.__settingsObserver?.observe(sroot, { childList: true, subtree: true });
