@@ -2224,10 +2224,9 @@ export class SettingsPage extends LitElement {
           </div>
         `}
       </div>
-      <div style="font-size:11px;color:var(--secondary-text-color);line-height:1.45;margin-bottom:10px;">
-        Scopes são locais ao Home Assistant/Companion e não geram tráfego LoRa.
-        Regions abaixo são de Repeaters remotos geridos pelo meshcore-ha e só são
-        consultadas/alteradas quando carregas nos botões.
+      <div style="font-size:12px;font-weight:600;margin-bottom:4px;">Scopes do Home Assistant</div>
+      <div style="font-size:10px;color:var(--secondary-text-color);line-height:1.45;margin-bottom:10px;">
+        Estes scopes são locais à integração. Não alteram a RegionMap nem o forwarding RF do Repeater.
       </div>
 
       <div class="form-group-inline" style="margin-bottom:8px;">
@@ -2308,13 +2307,77 @@ export class SettingsPage extends LitElement {
         </div>
       ` : html`
         <div style="font-size:11px;color:var(--secondary-text-color);">
-          Não há Repeaters remotos geridos. O HiveFW local não expõe edição da árvore
-          de Regions pelo Companion Protocol atual.
+          Não há Repeaters remotos geridos.
         </div>
       `}
     `;
   }
 
+  private async _refreshLocalRegions() {
+    if (!this.hass) return;
+    this._localRegionBusy = true;
+    try {
+      this._localRegions = await getLocalRegions(this.hass, this.config?.entry_id);
+      if (!this._localRegions.supported) {
+        this._showStatusMessage(this._localRegions.error || 'RegionMap local indisponível', 'error');
+      }
+    } catch (error) {
+      this._showStatusMessage('RegionMap local: ' + String(error), 'error');
+    } finally {
+      this._localRegionBusy = false;
+    }
+  }
+
+  private async _applyLocalRegion() {
+    if (!this.hass || !this._localRegions?.supported) return;
+    const operation = this._localRegionAction;
+    const name = operation === 'clear_default' ? '' : this._localRegionName.trim();
+    const parent = operation === 'put' ? this._localRegionParent.trim() : '';
+    if (operation !== 'clear_default' && !name) return;
+
+    this._localRegionBusy = true;
+    try {
+      const result = await setLocalRegion(
+        this.hass,
+        operation,
+        name,
+        parent,
+        this.config?.entry_id,
+      );
+      this._localRegions = result;
+      if (operation === 'put' || operation === 'remove') {
+        this._localRegionName = '';
+        this._localRegionParent = '';
+      }
+      this._showStatusMessage('RegionMap atualizada em ' + (operation === 'default' || operation === 'clear_default' ? 'flash' : 'RAM'), 'success');
+    } catch (error) {
+      const e = error as { code?: string; message?: string };
+      this._showStatusMessage('RegionMap: ' + (e?.message || String(error)), 'error');
+    } finally {
+      this._localRegionBusy = false;
+    }
+  }
+
+  private async _saveLocalRegions() {
+    if (!this.hass || !this._localRegions?.supported) return;
+    this._localRegionBusy = true;
+    try {
+      const result = await setLocalRegion(
+        this.hass,
+        'save',
+        '',
+        '',
+        this.config?.entry_id,
+      );
+      this._localRegions = result;
+      this._showStatusMessage('Regions guardadas no HiveFW', 'success');
+    } catch (error) {
+      const e = error as { code?: string; message?: string };
+      this._showStatusMessage('Guardar Regions: ' + (e?.message || String(error)), 'error');
+    } finally {
+      this._localRegionBusy = false;
+    }
+  }
   private async _saveFloodScopes() {
     if (!this.hass) return;
     this._scopeSaving = true;
