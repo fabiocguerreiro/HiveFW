@@ -7030,9 +7030,9 @@ class HiveFWPanel extends BasePanel {
 
   __updateSmartAdvertCountdown() {
     const remaining = this.__smartAdvertRemainingSeconds();
-    const settingsHost = this.shadowRoot?.querySelector("meshcore-settings-page");
-    const settingsRoot = settingsHost?.shadowRoot;
-    const summary = settingsRoot?.querySelector("meshcore-node-summary");
+    const statusHost = this.shadowRoot?.querySelector("meshcore-status-page");
+    const statusRoot = statusHost?.shadowRoot;
+    const summary = statusRoot?.querySelector("meshcore-node-summary");
     const tile = summary?.shadowRoot?.querySelector(
       '.hero-tile[data-repeater-extra="smart-advert"]'
     );
@@ -7049,7 +7049,7 @@ class HiveFWPanel extends BasePanel {
     // the card picks up the newly persisted last/next epochs. This is local
     // transport only and creates no LoRa traffic.
     if (
-      this._activeTab === "settings" &&
+      this._activeTab === "state" &&
       Number.isFinite(remaining) &&
       remaining <= 0 &&
       !this.__repeaterLoading
@@ -7608,6 +7608,7 @@ class HiveFWPanel extends BasePanel {
   }
 
   __rerenderRepeater() {
+    if (this._activeTab === "state") this.__enhanceStatePage();
     if (this._activeTab === "settings") this.__enhanceSettingsPage();
   }
 
