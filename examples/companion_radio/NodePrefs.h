@@ -277,18 +277,20 @@ public:
   const char* getRepeaterGuestPassword() const { return repeat.guest_password; }
 
   void setRepeaterAdminPassword(const char* value) {
-    StrHelper::strncpy(
+    strncpy(
       repeat.admin_password,
       value ? value : "",
-      sizeof(repeat.admin_password)
+      sizeof(repeat.admin_password) - 1
     );
+    repeat.admin_password[sizeof(repeat.admin_password) - 1] = '\0';
   }
 
   void setRepeaterGuestPassword(const char* value) {
-    StrHelper::strncpy(
+    strncpy(
       repeat.guest_password,
       value ? value : "",
-      sizeof(repeat.guest_password)
+      sizeof(repeat.guest_password) - 1
     );
+    repeat.guest_password[sizeof(repeat.guest_password) - 1] = '\0';
   }
 };
