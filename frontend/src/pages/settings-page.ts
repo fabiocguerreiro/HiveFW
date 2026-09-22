@@ -370,6 +370,13 @@ export class SettingsPage extends LitElement {
         gap: 10px;
       }
 
+      .repeater-setup-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+        margin-bottom: 10px;
+      }
+
       .managed-device-row {
         display: grid;
         grid-template-columns: auto minmax(0, 1fr) auto;
@@ -420,7 +427,8 @@ export class SettingsPage extends LitElement {
       .managed-device-state.offline { color: var(--secondary-text-color); }
 
       @media (max-width: 870px) {
-        .managed-device-list {
+        .managed-device-list,
+        .repeater-setup-grid {
           grid-template-columns: 1fr;
         }
       }
@@ -2382,14 +2390,6 @@ export class SettingsPage extends LitElement {
         </div>
       </div>
 
-      <button
-        class="apply-button"
-        style="width:100%;margin:4px 0 14px;"
-        ?disabled=${this._saving}
-        @click=${this._applyRepeaterSettings}>
-        ${this._saving ? 'A aplicar...' : 'Aplicar'}
-      </button>
-
       <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;padding:10px 12px;border-radius:8px;background:var(--secondary-background-color);">
         <div>
           <div style="font-size:13px;font-weight:600;">Modo Repetidor</div>
@@ -2433,7 +2433,7 @@ export class SettingsPage extends LitElement {
         </label>
       </div>
 
-      <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-bottom:10px;">
+      <div class="repeater-setup-grid">
         <div style="padding:12px;border:1px solid var(--divider-color);border-radius:8px;background:var(--secondary-background-color);">
           <div style="font-size:13px;font-weight:600;margin-bottom:4px;">Routing &amp; Flood</div>
           <div style="font-size:11px;color:var(--secondary-text-color);line-height:1.45;margin-bottom:10px;">
@@ -2564,6 +2564,14 @@ export class SettingsPage extends LitElement {
           `}
         </div>
       </div>
+
+      <button
+        class="apply-button"
+        style="width:100%;margin:0 0 10px;"
+        ?disabled=${this._saving}
+        @click=${this._applyRepeaterSettings}>
+        ${this._saving ? 'A aplicar...' : 'Aplicar configurações do Repeater'}
+      </button>
 
       <div
         style="margin:0 0 10px;padding:12px;border:1px solid var(--divider-color);border-radius:8px;background:var(--secondary-background-color);"
