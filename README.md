@@ -16,8 +16,8 @@ O projeto unificado inclui:
 
 - firmware HiveFW para **Heltec WiFi LoRa 32 V3** e **Heltec T114**;
 - Companion Radio com **Repeater opcional**;
-- Wi-Fi/TCP e portal local no ESP32;
-- BLE Companion no T114;
+- Wi-Fi/TCP no Heltec V3 quando é usada a build Wi-Fi;
+- BLE Companion no Heltec V3 e no T114;
 - integração standalone para Home Assistant — não requer `meshcore-ha` separado;
 - painel HiveFW no Home Assistant;
 - chats, canais, contactos, nós, mapas e atividade;
@@ -26,7 +26,8 @@ O projeto unificado inclui:
 - Smart Advert com cadência mínima de 24 horas e persistência;
 - diagnóstico de CAD e recuperação do RX;
 - backup/restore compatível com o formato original da app MeshCore;
-- Web OTA seguro no Heltec V3;
+- Web OTA seguro no Heltec V3 **apenas na build Wi-Fi/TCP**;
+- build BLE do Heltec V3 com atualização manual por USB;
 - BLE DFU / UF2 no T114;
 - uma única versão HiveFW para firmware e integração.
 
@@ -80,12 +81,12 @@ HiveFW/
 | HiveFW Companion | Sim | Sim |
 | Repeater opcional | Sim | Sim |
 | UI HiveFW | Sim | Sim, modelo com display |
-| Wi-Fi / TCP Companion | **Sim** | Não |
-| BLE Companion | Não | **Sim** |
-| Home Assistant direto | **TCP/Wi-Fi** | **BLE** |
-| Web OTA | **Sim** | Não |
-| BLE DFU | Não é o método principal | **Sim** |
-| UF2 | Não é o método principal | **Sim** |
+| Wi-Fi / TCP Companion | **Sim, build Wi-Fi** | Não |
+| BLE Companion | **Sim, build BLE** | **Sim** |
+| Home Assistant direto | **TCP/Wi-Fi ou BLE** | **BLE** |
+| Web OTA / update pela integração | **Só build Wi-Fi/TCP** | Não |
+| Atualização da build BLE | **USB / flash manual** | **BLE DFU / UF2** |
+| UF2 | Não | **Sim** |
 | Versão HiveFW | **Comum** | **Comum** |
 
 Política e matriz de suporte: [docs/supported_hardware.md](docs/supported_hardware.md).
@@ -94,6 +95,7 @@ Ambientes principais:
 
 ```text
 Heltec_v3_companion_radio_wifi
+Heltec_v3_companion_radio_ble
 Heltec_t114_companion_radio_ble
 ```
 
@@ -164,18 +166,35 @@ Quando o canal permanece continuamente busy durante o timeout, o firmware tenta 
 
 ## Heltec V3 · ESP32-S3
 
-O V3 é o alvo principal para utilização HiveFW por rede local:
+O V3 tem duas builds oficiais e alternativas:
+
+```text
+Heltec_v3_companion_radio_wifi
+Heltec_v3_companion_radio_ble
+```
+
+A build **Wi-Fi/TCP** mantém o funcionamento atual:
 
 - Companion por TCP/Wi-Fi;
-- integração direta com Home Assistant;
+- integração direta com Home Assistant por rede local;
 - credenciais Wi-Fi em NVS;
 - reconexão Wi-Fi;
 - portal local de configuração em `/wifi`;
 - hotspot de provisioning quando ainda não existem credenciais;
 - Web OTA seguro;
 - credencial OTA efémera de 192 bits, mantida apenas em RAM;
-- atualização automática a partir das Releases deste repositório;
+- atualização de firmware através da integração Home Assistant;
 - pacote de recuperação USB que preserva a NVS.
+
+A build **BLE** usa o mesmo modelo Companion + Repeater do T114, mas sobre o ESP32-S3:
+
+- Companion por BLE, incluindo ligação direta à integração Home Assistant por BLE;
+- mesma configuração Repeater, Regions, Smart Advert, diagnóstico e protocolo Companion;
+- não inicializa Wi-Fi, portal `/wifi` nem Web OTA;
+- **não permite atualização de firmware através da integração Home Assistant**;
+- atualização feita manualmente por USB/serial, usando o `.bin` ou `-merged.bin` publicado na Release.
+
+As duas builds usam o mesmo hardware e a mesma versão HiveFW; o transporte Companion é escolhido no momento de compilar/instalar o firmware.
 
 ### Provisioning Wi-Fi
 
