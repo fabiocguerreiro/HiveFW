@@ -161,6 +161,9 @@ private:
   class RepeatPrefs : public ConfigSerializer {  // COPIED from CommonCLI (for now)
   public:
     uint8_t disable_fwd = 1;
+    // MeshCore Repeater CLI compatibility. Kept separate from the ACL roles,
+    // exactly like the official Repeater preference.
+    uint8_t allow_read_only = 0;
     uint8_t auto_advert = 0;
     uint32_t last_auto_advert_epoch = 0;
     uint32_t auto_advert_enabled_epoch = 0;
@@ -179,6 +182,7 @@ private:
   protected:
     void structure() override {
       def("disable", disable_fwd);
+      def("allow_ro", allow_read_only);
       def("auto_adv", auto_advert);
       def("last_adv", last_auto_advert_epoch);
       def("adv_on", auto_advert_enabled_epoch);
