@@ -140,6 +140,8 @@ export class SettingsPage extends LitElement {
   @state() private _guestPasswordDraft = '';
   @state() private _repeaterAccessBusy: 'admin' | 'guest' | 'acl' | 'acl-entry' | null = null;
   @state() private _repeaterReadBusy = false;
+  @state() private _aclNewPublicKey = '';
+  @state() private _aclNewPermissions: 1 | 2 | 3 = 1;
   @state() private _backupBusy:
     | 'companion-export'
     | 'companion-restore'
@@ -2887,7 +2889,45 @@ export class SettingsPage extends LitElement {
                   <div style="min-width:0;">
                     <div style="font:11px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;overflow-wrap:anywhere;">
                       ${entry.pubkey_prefix.toUpperCase()}
-                    </div>
+                      <div style="margin-top:10px;padding-top:10px;border-top:1px dashed var(--divider-color);">
+          <div style="font-size:11px;font-weight:600;margin-bottom:6px;">Adicionar identidade</div>
+          <div style="display:grid;grid-template-columns:minmax(180px,1fr) minmax(120px,150px) auto;gap:7px;align-items:center;">
+            <input
+              class="form-input"
+              type="text"
+              maxlength="64"
+              placeholder="Public key completa (64 hex)"
+              .value=${this._aclNewPublicKey}
+              ?disabled=${this._repeaterAccessBusy !== null}
+              @input=${(e: Event) => {
+                this._aclNewPublicKey =
+                  (e.target as HTMLInputElement).value
+                    .trim()
+                    .replace(/\s+/g, '')
+                    .toLowerCase();
+              }}
+            />
+            <select
+              class="form-select"
+              .value=${String(this._aclNewPermissions)}
+              ?disabled=${this._repeaterAccessBusy !== null}
+              @change=${(e: Event) => {
+                this._aclNewPermissions =
+                  Number((e.target as HTMLSelectElement).value) as 1 | 2 | 3;
+              }}>
+              <option value="1">Read Only</option>
+              <option value="2">Read Write</option>
+              <option value="3">Admin</option>
+            </select>
+            <button
+              class="action-btn"
+              ?disabled=${this._repeaterAccessBusy !== null || !/^[0-9a-f]{64}$/.test(this._aclNewPublicKey)}
+              @click=${this._addRepeaterAclEntry}>
+              Adicionar
+            </button>
+          </div>
+        </div>
+      </div>
                     <div style="font-size:9px;color:var(--secondary-text-color);overflow-wrap:anywhere;">
                       ${entry.public_key}
                     </div>
@@ -2928,6 +2968,21 @@ export class SettingsPage extends LitElement {
         `}
       </div>
     `;
+  }
+
+  private async _addRepeaterAclEntry() {
+    const key = this._aclNewPublicKey.trim().toLowerCase();
+    if (!/^[0-9a-f]{64}$/.test(key)) {
+      this._showStatusMessage('ACL: public key inválida.', 'error');
+      return;
+    }
+    await this._setRepeaterAclEntry(key, this._aclNewPermissions);
+    if (this._repeaterStatus?.server_auth?.acl_entries?.some(
+      (entry) => entry.public_key === key,
+    )) {
+      this._aclNewPublicKey = '';
+      this._aclNewPermissions = 1;
+    }
   }
 
   private async _setRepeaterAclEntry(publicKey: string, permissions: number) {
