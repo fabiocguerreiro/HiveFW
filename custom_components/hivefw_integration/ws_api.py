@@ -2202,6 +2202,14 @@ async def ws_get_local_repeater_status(hass, connection, msg):
 
     commands = coordinator.api.mesh_core.commands
 
+    # The SDK matches replies by EventType, not by command opcode. Two
+    # simultaneous local status reads can therefore consume each other's
+    # CUSTOM_VARS/DEVICE_INFO replies. Serialize this full snapshot using the
+    # SDK's existing request lock so Settings always receives one coherent
+    # radio state.
+    request_lock = commands._mesh_request_lock
+    await request_lock.acquire()
+
     async def _payload(call, *args, **kwargs):
         try:
             result = await call(*args, **kwargs)
@@ -2469,6 +2477,9 @@ async def ws_get_local_repeater_status(hass, connection, msg):
             ex,
             handler="ws_get_local_repeater_status",
         )
+    finally:
+        if request_lock.locked():
+            request_lock.release()
 
 
 # ─── HiveFW local Repeater RegionMap ────────────────────────────────────
