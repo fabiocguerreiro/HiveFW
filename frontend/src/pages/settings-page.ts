@@ -156,6 +156,11 @@ export class SettingsPage extends LitElement {
   @state() private _identityFlowState: IdentityFlowState = { kind: 'closed' };
   private _identityFlowUnsubscribe: (() => void) | null = null;
 
+  // Settings writes are serialized. The Companion is the single source of
+  // truth: each user change is sent immediately, verified by a fresh read,
+  // and only then may the next queued change run.
+  private _settingsWriteQueue: Promise<void> = Promise.resolve();
+
   // Post-rename persistent dialog. Toast was too easy to
   // miss for an op that rewrites N entity_ids and triggers a
   // config-entry reload. When set, the panel renders a modal the user
@@ -1184,6 +1189,24 @@ export class SettingsPage extends LitElement {
       // older Companion cannot answer the newer stats/tuning queries. Keep
       // this as the single authoritative read for the native Settings page.
       await this._readRepeaterStatus(false, false);
+
+      // SELF_INFO can be stale or incomplete on reconnect. The local Repeater
+      // snapshot explicitly runs APP_START/DEVICE_INFO against the Companion,
+      // so use its radio block as the authoritative value shown in Settings.
+      if (this._deviceConfig && this._repeaterStatus?.radio) {
+        const radio = this._repeaterStatus.radio;
+        this._deviceConfig = {
+          ...this._deviceConfig,
+          frequency: radio.frequency ?? this._deviceConfig.frequency,
+          bandwidth: radio.bandwidth ?? this._deviceConfig.bandwidth,
+          spreading_factor: radio.spreading_factor ?? this._deviceConfig.spreading_factor,
+          coding_rate: radio.coding_rate ?? this._deviceConfig.coding_rate,
+          tx_power: radio.tx_power ?? this._deviceConfig.tx_power,
+          path_hash_mode:
+            this._repeaterStatus.device_info?.path_hash_mode ??
+            this._deviceConfig.path_hash_mode,
+        };
+      }
       try {
         this._localRegions = await getLocalRegions(
           this.hass,
@@ -1885,30 +1908,93 @@ export class SettingsPage extends LitElement {
     `;
   }
 
+  private _applyImmediateSetting(
+    key: string,
+    value: unknown,
+    label: string,
+  ) {
+    if (!this.hass) return;
+
+    this._settingsWriteQueue = this._settingsWriteQueue.then(async () => {
+      this._saving = true;
+      try {
+        const result = await setDeviceConfig(
+          this.hass!,
+          { [key]: value },
+          this.config?.entry_id,
+        );
+        if (!result.success) {
+          throw new Error(result.error || `Falha ao aplicar ${label}`);
+        }
+
+        // No optimistic state survives a write: refresh both Companion
+        // configuration and Repeater custom vars before reflecting success.
+        this._deviceConfig = await getDeviceConfig(
+          this.hass!,
+          this.config?.entry_id,
+        );
+        await this._readRepeaterStatus(false, true);
+
+        if (this._deviceConfig && this._repeaterStatus?.radio) {
+          const radio = this._repeaterStatus.radio;
+          this._deviceConfig = {
+            ...this._deviceConfig,
+            frequency: radio.frequency ?? this._deviceConfig.frequency,
+            bandwidth: radio.bandwidth ?? this._deviceConfig.bandwidth,
+            spreading_factor: radio.spreading_factor ?? this._deviceConfig.spreading_factor,
+            coding_rate: radio.coding_rate ?? this._deviceConfig.coding_rate,
+            tx_power: radio.tx_power ?? this._deviceConfig.tx_power,
+            path_hash_mode:
+              this._repeaterStatus.device_info?.path_hash_mode ??
+              this._deviceConfig.path_hash_mode,
+          };
+        }
+
+        delete this._editValues[key];
+        this._editValues = { ...this._editValues };
+        this.requestUpdate();
+        this._showStatusMessage(`${label} atualizado no Companion.`, 'success');
+      } catch (error) {
+        // Re-read on failure too, so the control snaps back to the actual
+        // Companion value rather than keeping a local draft.
+        try {
+          this._deviceConfig = await getDeviceConfig(
+            this.hass!,
+            this.config?.entry_id,
+          );
+          await this._readRepeaterStatus(false, true);
+        } catch {
+          // Preserve the original write error.
+        }
+        this._showStatusMessage(
+          `${label}: ${error instanceof Error ? error.message : String(error)}`,
+          'error',
+        );
+      } finally {
+        this._saving = false;
+      }
+    });
+  }
+
   private _renderRadioSettings() {
     if (!this._deviceConfig) return;
 
     const profile = this._repeaterStatus?.repeater_profile;
-    const rxBoostedGain = Boolean(
-      this._editValues['rx_boosted_gain'] ?? profile?.rx_boosted_gain ?? false
+    const radio = this._repeaterStatus?.radio;
+    const txPower = Number(radio?.tx_power ?? this._deviceConfig.tx_power ?? 17);
+    const frequency = Number(radio?.frequency ?? this._deviceConfig.frequency ?? 0);
+    const bandwidth = Number(radio?.bandwidth ?? this._deviceConfig.bandwidth ?? 250);
+    const spreadingFactor = Number(
+      radio?.spreading_factor ?? this._deviceConfig.spreading_factor ?? 10
     );
-    const adcMultiplier = Number(
-      this._editValues['adc_multiplier'] ?? profile?.adc_multiplier ?? 0
+    const codingRate = Number(radio?.coding_rate ?? this._deviceConfig.coding_rate ?? 5);
+    const pathHashMode = Number(
+      this._repeaterStatus?.device_info?.path_hash_mode ??
+      this._deviceConfig.path_hash_mode ??
+      0
     );
-    const profileChanged =
-      (this._editValues['rx_boosted_gain'] !== undefined &&
-        Boolean(this._editValues['rx_boosted_gain']) !== Boolean(profile?.rx_boosted_gain)) ||
-      (this._editValues['adc_multiplier'] !== undefined &&
-        Number(this._editValues['adc_multiplier']) !== Number(profile?.adc_multiplier ?? 0));
-
-    const changed = this._hasChanges('radio-settings', [
-      'tx_power',
-      'frequency',
-      'bandwidth',
-      'spreading_factor',
-      'coding_rate',
-      'path_hash_mode',
-    ]) || profileChanged;
+    const rxBoostedGain = Boolean(profile?.rx_boosted_gain ?? false);
+    const adcMultiplier = Number(profile?.adc_multiplier ?? 0);
 
     return html`
       <div class="section-row">
@@ -1919,9 +2005,14 @@ export class SettingsPage extends LitElement {
             class="form-input"
             min="2"
             max="22"
-            .value=${String(this._editValues['tx_power'] ?? this._deviceConfig.tx_power ?? 17)}
-            @input=${(e: Event) => {
-              this._editValues['tx_power'] = Number((e.target as HTMLInputElement).value);
+            .value=${String(txPower)}
+            ?disabled=${this._saving}
+            @change=${(e: Event) => {
+              void this._applyImmediateSetting(
+                'tx_power',
+                Number((e.target as HTMLInputElement).value),
+                'TX Power',
+              );
             }}
           />
         </div>
@@ -1931,9 +2022,14 @@ export class SettingsPage extends LitElement {
             type="number"
             class="form-input"
             step="0.001"
-            .value=${String(this._editValues['frequency'] ?? this._deviceConfig.frequency ?? 906.875)}
-            @input=${(e: Event) => {
-              this._editValues['frequency'] = Number((e.target as HTMLInputElement).value);
+            .value=${String(frequency)}
+            ?disabled=${this._saving}
+            @change=${(e: Event) => {
+              void this._applyImmediateSetting(
+                'frequency',
+                Number((e.target as HTMLInputElement).value),
+                'Frequência',
+              );
             }}
           />
         </div>
@@ -1944,26 +2040,36 @@ export class SettingsPage extends LitElement {
           <label class="form-label">Bandwidth (kHz)</label>
           <select
             class="form-select"
+            .value=${String(bandwidth)}
+            ?disabled=${this._saving}
             @change=${(e: Event) => {
-              this._editValues['bandwidth'] = Number((e.target as HTMLSelectElement).value);
+              void this._applyImmediateSetting(
+                'bandwidth',
+                Number((e.target as HTMLSelectElement).value),
+                'Bandwidth',
+              );
             }}>
-            ${[7.8, 10.4, 15.6, 20.8, 31.25, 41.7, 62.5, 125, 250, 500].map((bw) => {
-              const current = this._editValues['bandwidth'] ?? this._deviceConfig!.bandwidth ?? 250;
-              return html`<option value=${bw} ?selected=${Number(current) === bw}>${bw}</option>`;
-            })}
+            ${[7.8, 10.4, 15.6, 20.8, 31.25, 41.7, 62.5, 125, 250, 500].map(
+              (bw) => html`<option value=${String(bw)}>${bw}</option>`,
+            )}
           </select>
         </div>
         <div class="form-group-inline">
           <label class="form-label">Spreading Factor</label>
           <select
             class="form-select"
+            .value=${String(spreadingFactor)}
+            ?disabled=${this._saving}
             @change=${(e: Event) => {
-              this._editValues['spreading_factor'] = Number((e.target as HTMLSelectElement).value);
+              void this._applyImmediateSetting(
+                'spreading_factor',
+                Number((e.target as HTMLSelectElement).value),
+                'Spreading Factor',
+              );
             }}>
-            ${[7, 8, 9, 10, 11, 12].map((sf) => {
-              const current = this._editValues['spreading_factor'] ?? this._deviceConfig!.spreading_factor ?? 11;
-              return html`<option value=${sf} ?selected=${Number(current) === sf}>${sf}</option>`;
-            })}
+            ${[7, 8, 9, 10, 11, 12].map(
+              (sf) => html`<option value=${String(sf)}>${sf}</option>`,
+            )}
           </select>
         </div>
       </div>
@@ -1973,26 +2079,36 @@ export class SettingsPage extends LitElement {
           <label class="form-label">Coding Rate</label>
           <select
             class="form-select"
+            .value=${String(codingRate)}
+            ?disabled=${this._saving}
             @change=${(e: Event) => {
-              this._editValues['coding_rate'] = Number((e.target as HTMLSelectElement).value);
+              void this._applyImmediateSetting(
+                'coding_rate',
+                Number((e.target as HTMLSelectElement).value),
+                'Coding Rate',
+              );
             }}>
-            ${[5, 6, 7, 8].map((cr) => {
-              const current = this._editValues['coding_rate'] ?? this._deviceConfig!.coding_rate ?? 5;
-              return html`<option value=${cr} ?selected=${Number(current) === cr}>${cr}</option>`;
-            })}
+            ${[5, 6, 7, 8].map(
+              (cr) => html`<option value=${String(cr)}>${cr}</option>`,
+            )}
           </select>
         </div>
         <div class="form-group-inline">
           <label class="form-label">Path Hash Mode</label>
           <select
             class="form-select"
+            .value=${String(pathHashMode)}
+            ?disabled=${this._saving}
             @change=${(e: Event) => {
-              this._editValues['path_hash_mode'] = Number((e.target as HTMLSelectElement).value);
+              void this._applyImmediateSetting(
+                'path_hash_mode',
+                Number((e.target as HTMLSelectElement).value),
+                'Path Hash Mode',
+              );
             }}>
-            ${[[0, '0 - 1 byte'], [1, '1 - 2 byte'], [2, '2 - 3 byte']].map(([val, label]) => {
-              const current = this._editValues['path_hash_mode'] ?? this._deviceConfig!.path_hash_mode ?? 0;
-              return html`<option value=${val} ?selected=${Number(current) === val}>${label}</option>`;
-            })}
+            <option value="0">0 - 1 byte</option>
+            <option value="1">1 - 2 byte</option>
+            <option value="2">2 - 3 byte</option>
           </select>
         </div>
       </div>
@@ -2003,11 +2119,13 @@ export class SettingsPage extends LitElement {
           <select
             class="form-select"
             .value=${rxBoostedGain ? '1' : '0'}
-            ?disabled=${!profile?.supported}
+            ?disabled=${!profile?.supported || this._saving}
             @change=${(e: Event) => {
-              this._editValues['rx_boosted_gain'] =
-                (e.target as HTMLSelectElement).value === '1';
-              this._editValues = { ...this._editValues };
+              void this._applyImmediateSetting(
+                'rx_boosted_gain',
+                (e.target as HTMLSelectElement).value === '1',
+                'RX Boosted Gain',
+              );
             }}>
             <option value="0">Desligado</option>
             <option value="1">Ligado</option>
@@ -2025,11 +2143,13 @@ export class SettingsPage extends LitElement {
             max="10"
             step="0.001"
             .value=${String(adcMultiplier)}
-            ?disabled=${!profile?.supported}
-            @input=${(e: Event) => {
-              this._editValues['adc_multiplier'] =
-                Number((e.target as HTMLInputElement).value);
-              this._editValues = { ...this._editValues };
+            ?disabled=${!profile?.supported || this._saving}
+            @change=${(e: Event) => {
+              void this._applyImmediateSetting(
+                'adc_multiplier',
+                Number((e.target as HTMLInputElement).value),
+                'ADC multiplier',
+              );
             }}
           />
           <div style="font-size:11px;color:var(--secondary-text-color);margin-top:4px;">
@@ -2038,18 +2158,76 @@ export class SettingsPage extends LitElement {
         </div>
       </div>
 
-      <button
-        class="apply-button"
-        style="width: 100%; margin-top: 12px;"
-        ?disabled=${!changed || this._saving}
-        @click=${() => this._handleApply('radio-settings')}>
-        ${this._saving ? 'Applying...' : 'Apply Radio Settings'}
-      </button>
-
-      <div style="margin-top: 12px; padding: 8px; background: rgba(0, 0, 0, 0.02); border-radius: 6px; font-size: 12px; color: var(--secondary-text-color);">
-        <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" style="vertical-align: -2px; margin-right: 4px;"><path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg>Radio changes require device reboot to take effect
+      <div style="margin-top:12px;padding:8px;background:rgba(0,0,0,0.02);border-radius:6px;font-size:12px;color:var(--secondary-text-color);">
+        Cada alteração é enviada imediatamente e confirmada por leitura direta do Companion.
+        Parâmetros RF que exigem reboot continuam a ser persistidos no rádio no momento da seleção.
       </div>
     `;
+  }
+
+  private _applyImmediateCoordinates(latitude: number, longitude: number) {
+    if (!this.hass) return;
+    this._settingsWriteQueue = this._settingsWriteQueue.then(async () => {
+      this._saving = true;
+      try {
+        const result = await setDeviceConfig(
+          this.hass!,
+          { latitude, longitude },
+          this.config?.entry_id,
+        );
+        if (!result.success) throw new Error(result.error || 'Falha ao atualizar coordenadas');
+        this._deviceConfig = await getDeviceConfig(this.hass!, this.config?.entry_id);
+        this.requestUpdate();
+        this._showStatusMessage('Localização atualizada no Companion.', 'success');
+      } catch (error) {
+        this._showStatusMessage('Localização: ' + String(error), 'error');
+      } finally {
+        this._saving = false;
+      }
+    });
+  }
+
+  private _applyImmediateLocationSource(
+    source: 'gps' | 'manual' | 'ha_location',
+  ) {
+    if (!this.hass) return;
+    this._settingsWriteQueue = this._settingsWriteQueue.then(async () => {
+      this._saving = true;
+      try {
+        const result = await setLocationSource(
+          this.hass!,
+          source,
+          this.config?.entry_id,
+        );
+        if (!result.success) throw new Error('Falha ao atualizar Location Source');
+
+        if (source === 'ha_location') {
+          const zoneHome = this.hass?.states['zone.home'];
+          if (zoneHome) {
+            const coords = await setDeviceConfig(
+              this.hass!,
+              {
+                latitude: Number(zoneHome.attributes.latitude ?? 0),
+                longitude: Number(zoneHome.attributes.longitude ?? 0),
+              },
+              this.config?.entry_id,
+            );
+            if (!coords.success) {
+              throw new Error(coords.error || 'Falha ao enviar coordenadas do Home Assistant');
+            }
+          }
+        }
+
+        this._deviceConfig = await getDeviceConfig(this.hass!, this.config?.entry_id);
+        this._locationSource = source;
+        this.requestUpdate();
+        this._showStatusMessage('Location Source atualizado.', 'success');
+      } catch (error) {
+        this._showStatusMessage('Location Source: ' + String(error), 'error');
+      } finally {
+        this._saving = false;
+      }
+    });
   }
 
   private _renderLocation() {
@@ -2079,8 +2257,12 @@ export class SettingsPage extends LitElement {
             max="90"
             .value=${displayLat}
             ?disabled=${isHaLocation}
-            @input=${(e: Event) => {
-              this._editValues['latitude'] = Number((e.target as HTMLInputElement).value);
+            @change=${(e: Event) => {
+              const latitude = Number((e.target as HTMLInputElement).value);
+              const longitude = Number(
+                this._deviceConfig?.longitude ?? 0
+              );
+              void this._applyImmediateCoordinates(latitude, longitude);
             }}
           />
         </div>
@@ -2094,8 +2276,12 @@ export class SettingsPage extends LitElement {
             max="180"
             .value=${displayLon}
             ?disabled=${isHaLocation}
-            @input=${(e: Event) => {
-              this._editValues['longitude'] = Number((e.target as HTMLInputElement).value);
+            @change=${(e: Event) => {
+              const latitude = Number(
+                this._deviceConfig?.latitude ?? 0
+              );
+              const longitude = Number((e.target as HTMLInputElement).value);
+              void this._applyImmediateCoordinates(latitude, longitude);
             }}
           />
         </div>
@@ -2113,7 +2299,9 @@ export class SettingsPage extends LitElement {
             class="form-select"
             .value=${this._locationSource}
             @change=${(e: Event) => {
-              this._locationSource = (e.target as HTMLSelectElement).value as 'gps' | 'manual' | 'ha_location';
+              const source = (e.target as HTMLSelectElement).value as 'gps' | 'manual' | 'ha_location';
+              this._locationSource = source;
+              void this._applyImmediateLocationSource(source);
             }}>
             <option value="manual">Manual (coordinates above)</option>
             <option value="gps">GPS (device hardware)</option>
@@ -2125,13 +2313,9 @@ export class SettingsPage extends LitElement {
         </div>
       </div>
 
-      <button
-        class="apply-button"
-        style="width: 100%; margin-top: 12px;"
-        ?disabled=${!locationChanged || this._saving}
-        @click=${this._applyLocation}>
-        ${this._saving ? 'Applying...' : 'Apply Location Settings'}
-      </button>
+      <div style="font-size:11px;color:var(--secondary-text-color);margin-top:10px;">
+        Alterações de localização são aplicadas automaticamente.
+      </div>
     `;
   }
 
@@ -2448,8 +2632,6 @@ export class SettingsPage extends LitElement {
           ? Boolean(this._repeaterStatus.auto_advert)
           : Boolean(this._repeaterStatus.mesh_time_sync);
 
-    this._editValues[key] = value;
-    this._editValues = { ...this._editValues };
     this._repeaterQuickBusy = key;
 
     try {
@@ -2462,9 +2644,7 @@ export class SettingsPage extends LitElement {
         throw new Error(result.error || 'Não foi possível aplicar a alteração.');
       }
 
-      delete this._editValues[key];
-      this._editValues = { ...this._editValues };
-      await this._readRepeaterStatus(false, false);
+      await this._readRepeaterStatus(false, true);
 
       const label =
         key === 'repeat'
@@ -2477,8 +2657,6 @@ export class SettingsPage extends LitElement {
         'success',
       );
     } catch (error) {
-      this._editValues[key] = previous;
-      this._editValues = { ...this._editValues };
       await this._readRepeaterStatus(false, true);
       this._showStatusMessage(
         'Configuração imediata do Repeater: ' + String(error),
@@ -2499,13 +2677,11 @@ export class SettingsPage extends LitElement {
       `;
     }
 
-    const repeat = Boolean(this._editValues['repeat'] ?? status.repeat);
+    const repeat = Boolean(status.repeat);
     const autoAdvertSupported = Boolean(status.auto_advert_supported);
-    const autoAdvert = Boolean(this._editValues['auto_advert'] ?? status.auto_advert);
+    const autoAdvert = Boolean(status.auto_advert);
     const meshTimeSupported = Boolean(status.mesh_time_sync_supported);
-    const meshTimeSync = Boolean(
-      this._editValues['mesh_time_sync'] ?? status.mesh_time_sync
-    );
+    const meshTimeSync = Boolean(status.mesh_time_sync);
     const multiAcks = Number(this._editValues['multi_acks'] ?? status.radio.multi_acks ?? 0);
     const rxDelay = Number(this._editValues['rx_delay'] ?? status.tuning.rx_delay ?? 0);
     const routing = status.routing;
@@ -2610,9 +2786,12 @@ export class SettingsPage extends LitElement {
             style="width:100%;min-height:74px;resize:vertical;box-sizing:border-box;"
             .value=${ownerInfo}
             ?disabled=${!profile?.supported}
-            @input=${(e: Event) => {
-              this._editValues['owner_info'] = (e.target as HTMLTextAreaElement).value;
-              this._editValues = { ...this._editValues };
+            @change=${(e: Event) => {
+              void this._applyImmediateSetting(
+                'owner_info',
+                (e.target as HTMLTextAreaElement).value,
+                'Owner Info',
+              );
             }}></textarea>
         </div>
         <div
@@ -2742,27 +2921,24 @@ export class SettingsPage extends LitElement {
                 <label class="form-label">Flood Max</label>
                 <input class="form-input" type="number" min="0" max="64"
                   .value=${String(floodMax)}
-                  @input=${(e: Event) => {
-                    this._editValues['flood_max'] = Number((e.target as HTMLInputElement).value);
-                    this._editValues = { ...this._editValues };
+                  @change=${(e: Event) => {
+                    void this._applyImmediateSetting('flood_max', Number((e.target as HTMLInputElement).value), 'Flood Max');
                   }} />
               </div>
               <div>
                 <label class="form-label">Flood Max Unscoped</label>
                 <input class="form-input" type="number" min="0" max="64"
                   .value=${String(floodMaxUnscoped)}
-                  @input=${(e: Event) => {
-                    this._editValues['flood_max_unscoped'] = Number((e.target as HTMLInputElement).value);
-                    this._editValues = { ...this._editValues };
+                  @change=${(e: Event) => {
+                    void this._applyImmediateSetting('flood_max_unscoped', Number((e.target as HTMLInputElement).value), 'Flood Max Unscoped');
                   }} />
               </div>
               <div>
                 <label class="form-label">Flood Max Adverts</label>
                 <input class="form-input" type="number" min="0" max="64"
                   .value=${String(floodMaxAdvert)}
-                  @input=${(e: Event) => {
-                    this._editValues['flood_max_advert'] = Number((e.target as HTMLInputElement).value);
-                    this._editValues = { ...this._editValues };
+                  @change=${(e: Event) => {
+                    void this._applyImmediateSetting('flood_max_advert', Number((e.target as HTMLInputElement).value), 'Flood Max Adverts');
                   }} />
               </div>
               <div>
@@ -2770,8 +2946,7 @@ export class SettingsPage extends LitElement {
                 <select class="form-select"
                   .value=${String(loopDetect)}
                   @change=${(e: Event) => {
-                    this._editValues['loop_detect'] = Number((e.target as HTMLSelectElement).value);
-                    this._editValues = { ...this._editValues };
+                    void this._applyImmediateSetting('loop_detect', Number((e.target as HTMLSelectElement).value), 'Loop Detect');
                   }}>
                   <option value="0">Off</option>
                   <option value="1">Minimal</option>
@@ -2784,8 +2959,7 @@ export class SettingsPage extends LitElement {
                 <select class="form-select"
                   .value=${String(multiAcks)}
                   @change=${(e: Event) => {
-                    this._editValues['multi_acks'] = Number((e.target as HTMLSelectElement).value);
-                    this._editValues = { ...this._editValues };
+                    void this._applyImmediateSetting('multi_acks', Number((e.target as HTMLSelectElement).value), 'Multi ACK');
                   }}>
                   <option value="0">Desligado</option>
                   <option value="1">Ligado</option>
@@ -2816,9 +2990,8 @@ export class SettingsPage extends LitElement {
                   max="20"
                   step="0.001"
                   .value=${String(rxDelay)}
-                  @input=${(e: Event) => {
-                    this._editValues['rx_delay'] = Number((e.target as HTMLInputElement).value);
-                    this._editValues = { ...this._editValues };
+                  @change=${(e: Event) => {
+                    void this._applyImmediateSetting('rx_delay', Number((e.target as HTMLInputElement).value), 'RX Delay');
                   }}
                 />
                 <div style="font-size:10px;color:var(--secondary-text-color);margin-top:3px;line-height:1.35;">
@@ -2830,8 +3003,7 @@ export class SettingsPage extends LitElement {
                 <select class="form-select"
                   .value=${cadEnabled ? '1' : '0'}
                   @change=${(e: Event) => {
-                    this._editValues['cad_enabled'] = (e.target as HTMLSelectElement).value === '1';
-                    this._editValues = { ...this._editValues };
+                    void this._applyImmediateSetting('cad_enabled', (e.target as HTMLSelectElement).value === '1', 'CAD');
                   }}>
                   <option value="0">Desligado</option>
                   <option value="1">Ligado</option>
@@ -2841,36 +3013,32 @@ export class SettingsPage extends LitElement {
                 <label class="form-label">Interference Threshold</label>
                 <input class="form-input" type="number" min="0" max="255"
                   .value=${String(interferenceThreshold)}
-                  @input=${(e: Event) => {
-                    this._editValues['interference_threshold'] = Number((e.target as HTMLInputElement).value);
-                    this._editValues = { ...this._editValues };
+                  @change=${(e: Event) => {
+                    void this._applyImmediateSetting('interference_threshold', Number((e.target as HTMLInputElement).value), 'Interference Threshold');
                   }} />
               </div>
               <div>
                 <label class="form-label">AGC Reset (s)</label>
                 <input class="form-input" type="number" min="0" max="1020" step="4"
                   .value=${String(agcResetInterval)}
-                  @input=${(e: Event) => {
-                    this._editValues['agc_reset_interval'] = Number((e.target as HTMLInputElement).value);
-                    this._editValues = { ...this._editValues };
+                  @change=${(e: Event) => {
+                    void this._applyImmediateSetting('agc_reset_interval', Number((e.target as HTMLInputElement).value), 'AGC Reset');
                   }} />
               </div>
               <div>
                 <label class="form-label">Flood TX Delay</label>
                 <input class="form-input" type="number" min="0" max="2" step="0.001"
                   .value=${String(floodTxDelay)}
-                  @input=${(e: Event) => {
-                    this._editValues['flood_tx_delay'] = Number((e.target as HTMLInputElement).value);
-                    this._editValues = { ...this._editValues };
+                  @change=${(e: Event) => {
+                    void this._applyImmediateSetting('flood_tx_delay', Number((e.target as HTMLInputElement).value), 'Flood TX Delay');
                   }} />
               </div>
               <div>
                 <label class="form-label">Direct TX Delay</label>
                 <input class="form-input" type="number" min="0" max="2" step="0.001"
                   .value=${String(directTxDelay)}
-                  @input=${(e: Event) => {
-                    this._editValues['direct_tx_delay'] = Number((e.target as HTMLInputElement).value);
-                    this._editValues = { ...this._editValues };
+                  @change=${(e: Event) => {
+                    void this._applyImmediateSetting('direct_tx_delay', Number((e.target as HTMLInputElement).value), 'Direct TX Delay');
                   }} />
               </div>
               <div data-hive-duty-cycle-control>
@@ -2902,18 +3070,8 @@ export class SettingsPage extends LitElement {
 
       </div>
 
-      <button
-        class="apply-button"
-        style="width:100%;margin:0 0 10px;"
-        ?disabled=${this._saving}
-        @click=${this._applyRepeaterSettings}>
-        ${this._saving ? 'A aplicar...' : 'Aplicar configurações do Repeater'}
-      </button>
-
       <div style="margin-top:10px;font-size:11px;color:var(--secondary-text-color);line-height:1.45;">
-        Frequência, BW, SF, CR, TX Power, Path Hash, RX Boosted Gain e ADC multiplier
-        pertencem ao Companion Setup. Os toggles de Modo Repetidor, Auto Advert e RTC via Mesh
-        são aplicados imediatamente; o botão acima guarda apenas os restantes campos editáveis.
+        Todas as alterações deste painel são enviadas imediatamente ao Companion e confirmadas por read-back.
       </div>
     `;
   }
@@ -3281,6 +3439,7 @@ export class SettingsPage extends LitElement {
     try {
       const result = await setDutyCycle(this.hass, duty, this.config?.entry_id);
       this._dutyCycleValue = Number(result.duty_cycle);
+      await this._readRepeaterStatus(false, true);
       this.requestUpdate();
       this._showStatusMessage(
         `Duty Cycle aplicado e confirmado: ${result.duty_cycle}%`,
