@@ -389,11 +389,27 @@ export class ChatPage extends LitElement {
 
     .narrow-list-only {
       width: 100% !important;
+      min-height: 0;
+      flex-direction: column;
+      overflow: hidden;
     }
 
     .narrow-list-only meshcore-conversation-list {
       width: 100% !important;
+      min-height: 0;
+      flex: 1 1 auto;
       flex-shrink: 1;
+    }
+
+    .narrow-list-only .hive-observed-column {
+      width: 100%;
+      min-width: 0;
+      height: min(32vh, 280px);
+      min-height: 180px;
+      max-height: 280px;
+      flex: 0 0 auto;
+      border-left: 0;
+      border-top: 1px solid var(--divider-color, #e0e0e0);
     }
 
     .chat-header-actions {
@@ -724,6 +740,11 @@ export class ChatPage extends LitElement {
                 this._narrowShowMessages = true;
               }}
               @manage-requested=${() => this._onManageRequested()}></meshcore-conversation-list>
+            <aside
+              class="hive-observed-column"
+              data-hive-observed-host
+              aria-label="Canais Observados 48H">
+            </aside>
             ${this._manageOpen ? html`
               <meshcore-manage-dialog
                 .hass=${this.hass}
