@@ -5412,7 +5412,7 @@ void MyMesh::handleCmdFrame(size_t len) {
       _prefs.isAutoAdvertEn() ? "1" : "0"
     );
     appendCustomVar(
-      "mesh_time",
+      "mt",
       _prefs.mesh_time_sync ? "1" : "0"
     );
 
@@ -5551,7 +5551,7 @@ void MyMesh::handleCmdFrame(size_t len) {
           setAutoAdvertEnabled(np[0] == '1');
           success = true;
         }
-      } else if (strcmp(sp, "mesh_time") == 0) {
+      } else if (strcmp(sp, "mt") == 0) {
         if (strcmp(np, "0") == 0 || strcmp(np, "1") == 0) {
           _prefs.mesh_time_sync = np[0] == '1' ? 1 : 0;
           if (!_prefs.mesh_time_sync) {
