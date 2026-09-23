@@ -6526,28 +6526,29 @@ let e,t,i,o,a,r,s,n,l,d,c,p,h,u,v,g,m,f,_,b,y,x,w,$,k,S,C,M,A,R,z,I,T,N,F,D,E,O,
         </label>
       </div>
 
-      <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:14px;margin-bottom:14px;padding:10px 12px;border-radius:8px;background:var(--secondary-background-color);">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:14px;padding:8px 12px;border-radius:8px;background:var(--secondary-background-color);">
         <div style="min-width:0;flex:1;">
           <div style="font-size:13px;font-weight:600;">Neighbour Advert zero-hop</div>
-          <div style="font-size:11px;color:var(--secondary-text-color);margin-top:2px;line-height:1.45;">
-            Advert local de presença RF direta. Não é flooded nem reencaminhado.
-            0 desativa; intervalo oficial 60–240 minutos em passos de 2.
+          <div style="font-size:10px;color:var(--secondary-text-color);margin-top:2px;line-height:1.35;">
+            Zero-hop local · 0 desativa · 60–240 min, passo 2
           </div>
         </div>
-        <div style="min-width:150px;">
-          <label class="form-label">Intervalo (min)</label>
-          <input
-            class="form-input"
-            type="number"
-            min="0"
-            max="240"
-            step="2"
-            .value=${0}
-            ?disabled=${0}
-            @change=${0}
-          />
-          <div style="font-size:10px;color:var(--secondary-text-color);margin-top:3px;">
-            ${0}
+        <div style="min-width:132px;">
+          <div style="position:relative;">
+            <input
+              class="form-input"
+              style="padding-right:34px;box-sizing:border-box;"
+              type="number"
+              min="0"
+              max="240"
+              step="2"
+              .value=${0}
+              ?disabled=${0}
+              @change=${0}
+            />
+            <span style="position:absolute;right:10px;top:50%;transform:translateY(-50%);font-size:11px;color:var(--secondary-text-color);pointer-events:none;">
+              min
+            </span>
           </div>
         </div>
       </div>
@@ -6630,7 +6631,7 @@ let e,t,i,o,a,r,s,n,l,d,c,p,h,u,v,g,m,f,_,b,y,x,w,$,k,S,C,M,A,R,z,I,T,N,F,D,E,O,
       <div style="margin-top:10px;font-size:11px;color:var(--secondary-text-color);line-height:1.45;">
         Todas as alterações deste painel são enviadas imediatamente ao Companion e confirmadas por read-back.
       </div>
-    `),R.repeat?"Ativo no HiveFW":"Desligado — Companion apenas",z,null!==this._repeaterQuickBusy,e=>{this._applyRepeaterQuickSetting("repeat",e.target.checked)},z?"Ativo":"Desligado",I?T?"Ativo — Smart Advert automático":"Desligado":"Requer firmware HiveFW com controlo remoto de AutoAdvert",T,!I||null!==this._repeaterQuickBusy,e=>{this._applyRepeaterQuickSetting("auto_advert",e.target.checked)},T?"Ativo":"Desligado",String(F),!N||this._saving,e=>{this._applyImmediateSetting("neighbor_advert_interval",Number(e.target.value),"Neighbour Advert")},N?0===F?"Desativado":F+" min · "+(1440/F).toFixed(1)+" adverts/dia":"Requer firmware HiveFW atualizado",E,!D||null!==this._repeaterQuickBusy,e=>{this._applyRepeaterQuickSetting("mesh_time_sync",e.target.checked)},D?E?"Ativo":"Desligado":"Não suportada",U,!(null!=H&&H.supported),e=>{this._applyImmediateSetting("owner_info",e.target.value,"Owner Info")},null!==(S=null===(C=R.server_auth)||void 0===C?void 0:C.acl_count)&&void 0!==S?S:"—",null!==(M=R.server_auth)&&void 0!==M&&M.supported?Ws(Fa||(Fa=ts`
+    `),R.repeat?"Ativo no HiveFW":"Desligado — Companion apenas",z,null!==this._repeaterQuickBusy,e=>{this._applyRepeaterQuickSetting("repeat",e.target.checked)},z?"Ativo":"Desligado",I?T?"Ativo — Smart Advert automático":"Desligado":"Requer firmware HiveFW com controlo remoto de AutoAdvert",T,!I||null!==this._repeaterQuickBusy,e=>{this._applyRepeaterQuickSetting("auto_advert",e.target.checked)},T?"Ativo":"Desligado",String(F),!N||this._saving,e=>{this._applyImmediateSetting("neighbor_advert_interval",Number(e.target.value),"Neighbour Advert")},E,!D||null!==this._repeaterQuickBusy,e=>{this._applyRepeaterQuickSetting("mesh_time_sync",e.target.checked)},D?E?"Ativo":"Desligado":"Não suportada",U,!(null!=H&&H.supported),e=>{this._applyImmediateSetting("owner_info",e.target.value,"Owner Info")},null!==(S=null===(C=R.server_auth)||void 0===C?void 0:C.acl_count)&&void 0!==S?S:"—",null!==(M=R.server_auth)&&void 0!==M&&M.supported?Ws(Fa||(Fa=ts`
             <div style="display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 10px;align-items:end;">
               <div>
                 <label class="form-label">
