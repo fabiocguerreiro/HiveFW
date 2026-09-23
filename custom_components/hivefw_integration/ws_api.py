@@ -7,6 +7,7 @@ there is no external Home Assistant integration dependency.
 from __future__ import annotations
 
 import asyncio
+import base64
 import hashlib
 import json
 import logging
@@ -48,6 +49,54 @@ from .ota import (
 from .utils import format_entity_id, parse_flood_scope_allowlist, sanitize_name
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _load_public_channel_candidates() -> dict[int, list[dict[str, str]]]:
+    """Index the bundled CC0 MeshCore channel catalog by on-air hash byte."""
+    path = Path(__file__).parent / "channel_catalog.json"
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        rows = raw.get("channels") or []
+    except (OSError, ValueError):
+        _LOGGER.warning("HiveFW public channel catalog is unavailable")
+        return {}
+
+    indexed: dict[int, list[dict[str, str]]] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        name = str(row.get("name") or "").strip()
+        if not name:
+            continue
+
+        try:
+            if name.startswith("#"):
+                secret = hashlib.sha256(name.encode("utf-8")).digest()[:16]
+                kind = "hashtag"
+            else:
+                encoded = str(row.get("key") or "").strip()
+                if not encoded:
+                    continue
+                secret = base64.b64decode(encoded, validate=True)
+                if len(secret) != 16:
+                    continue
+                kind = "catalog"
+        except (ValueError, TypeError):
+            continue
+
+        channel_hash = hashlib.sha256(secret).digest()[0]
+        indexed.setdefault(channel_hash, []).append(
+            {
+                "name": "Public" if name.lower() == "public" else name,
+                "secret": secret.hex(),
+                "kind": kind,
+            }
+        )
+
+    return indexed
+
+
+_PUBLIC_CHANNEL_CANDIDATES = _load_public_channel_candidates()
 
 
 # ─── Exception translations ──────────────────────────────────────────────
@@ -5173,7 +5222,7 @@ async def ws_get_hive_neighbors(hass, connection, msg):
 )
 @websocket_api.async_response
 async def ws_get_observed_channels(hass, connection, msg):
-    """Return unknown group-channel hashes forwarded during the last 48h."""
+    """Return and resolve unknown group channels forwarded during the last 48h."""
     from meshcore.events import EventType
 
     coordinator = _get_coordinator(hass, msg.get("entry_id"))
@@ -5224,16 +5273,16 @@ async def ws_get_observed_channels(hass, connection, msg):
                     continue
                 channel_hash = parts[0].upper()[:2]
                 try:
+                    hash_byte = int(channel_hash, 16)
                     secs_ago = max(0, int(parts[1]))
-                except (TypeError, ValueError):
-                    secs_ago = 0
-                try:
                     message_count = max(0, int(parts[2]))
                 except (TypeError, ValueError):
-                    message_count = 0
+                    continue
+
                 channels.append(
                     {
                         "hash": channel_hash,
+                        "hash_byte": hash_byte,
                         "secs_ago": secs_ago,
                         "last_seen": datetime.fromtimestamp(
                             max(0, int(time.time()) - secs_ago)
@@ -5252,6 +5301,38 @@ async def ws_get_observed_channels(hass, connection, msg):
             if previous is None or item["secs_ago"] < previous["secs_ago"]:
                 unique[item["hash"]] = item
         channels = sorted(unique.values(), key=lambda item: item["secs_ago"])
+
+        # A one-byte transport hash is not enough to identify a channel.
+        # Resolve only catalog candidates whose derived key is accepted by the
+        # MAC of the real observed packet (CMD 53 is local-only; no LoRa TX).
+        for item in channels:
+            candidates = _PUBLIC_CHANNEL_CANDIDATES.get(item["hash_byte"], [])
+            item["candidate_count"] = len(candidates)
+            item["resolved"] = False
+
+            for candidate in candidates:
+                try:
+                    secret = bytes.fromhex(candidate["secret"])
+                    result = await commands.send(
+                        bytes((0x35, item["hash_byte"])) + secret,
+                        [EventType.OK, EventType.ERROR],
+                    )
+                except Exception:
+                    continue
+
+                if (
+                    result is not None
+                    and getattr(result, "type", None) == EventType.OK
+                ):
+                    item["resolved"] = True
+                    item["name"] = candidate["name"]
+                    item["secret"] = candidate["secret"]
+                    item["channel_type"] = candidate["kind"]
+                    item["resolution"] = "catalog_mac_verified"
+                    break
+
+            item.pop("hash_byte", None)
+
         connection.send_result(
             msg["id"],
             {
@@ -5260,12 +5341,14 @@ async def ws_get_observed_channels(hass, connection, msg):
                 "channels": channels,
                 "window_hours": 48,
                 "passive": True,
+                "catalog_entries": sum(
+                    len(items) for items in _PUBLIC_CHANNEL_CANDIDATES.values()
+                ),
             },
         )
     except Exception as ex:
         _LOGGER.warning("Observed channel query failed: %s", ex)
         _ws_send_error_safe(connection, msg["id"], ex, handler="ws_get_observed_channels")
-
 
 # ─── hivefw_integration active zero-hop discovery ───────────────────────
 

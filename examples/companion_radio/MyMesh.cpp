@@ -63,6 +63,7 @@ extern bool hivefw_set_ota_token(const char* token);
 #define CMD_SEND_BINARY_REQ           50
 #define CMD_FACTORY_RESET             51
 #define CMD_SEND_PATH_DISCOVERY_REQ   52
+#define CMD_VERIFY_OBSERVED_CHANNEL   53   // HiveFW verify candidate key against observed group packet
 #define CMD_SET_FLOOD_SCOPE_KEY       54   // v8+
 #define CMD_SEND_CONTROL_DATA         55   // v8+
 #define CMD_GET_STATS                 56   // v8+, second byte is stats type
@@ -1024,18 +1025,32 @@ void MyMesh::noteObservedForwardedChannel(
   if (
     packet == NULL ||
     packet->getPayloadType() != PAYLOAD_TYPE_GRP_TXT ||
-    packet->payload_len < 1
+    packet->payload_len <= 1 + CIPHER_MAC_SIZE
   ) {
     return;
   }
 
   const uint8_t channel_hash = packet->payload[0];
+  const uint8_t* mac_and_data = &packet->payload[1];
+  const uint16_t sample_len = packet->payload_len - 1;
 
-  // A configured channel with the same hash is already visible in Chat.
-  // Suggestions are only for group traffic the Companion cannot decrypt.
+  // Hashes are only one byte, so a configured channel with the same hash is
+  // not sufficient proof that the packet is known. Try the matching keys and
+  // suppress observation only when the packet MAC actually validates.
   mesh::GroupChannel matches[4];
-  if (searchChannelsByHash(&channel_hash, matches, 4) > 0) {
-    return;
+  const int num_matches = searchChannelsByHash(&channel_hash, matches, 4);
+  for (int i = 0; i < num_matches; i++) {
+    uint8_t decoded[MAX_PACKET_PAYLOAD];
+    if (
+      mesh::Utils::MACThenDecrypt(
+        matches[i].secret,
+        decoded,
+        mac_and_data,
+        sample_len
+      ) > 0
+    ) {
+      return;
+    }
   }
 
   const uint32_t now = getRTCClock()->getCurrentTime();
@@ -1053,11 +1068,16 @@ void MyMesh::noteObservedForwardedChannel(
     if (observed.heard_timestamp > 0 && observed.hash == channel_hash) {
       observed.heard_timestamp = now;
       if (observed.message_count < 0xFFFF) observed.message_count++;
+      observed.sample_len = sample_len;
+      memcpy(observed.sample, mac_and_data, sample_len);
       return;
     }
 
     if (observed.heard_timestamp == 0 && free_slot < 0) free_slot = i;
-    if (observed.heard_timestamp > 0 && observed.heard_timestamp < oldest_timestamp) {
+    if (
+      observed.heard_timestamp > 0 &&
+      observed.heard_timestamp < oldest_timestamp
+    ) {
       oldest_timestamp = observed.heard_timestamp;
       oldest_slot = i;
     }
@@ -1069,8 +1089,9 @@ void MyMesh::noteObservedForwardedChannel(
   observed_channels[slot].hash = channel_hash;
   observed_channels[slot].heard_timestamp = now;
   observed_channels[slot].message_count = 1;
+  observed_channels[slot].sample_len = sample_len;
+  memcpy(observed_channels[slot].sample, mac_and_data, sample_len);
 }
-
 
 bool MyMesh::allowPacketForward(
   const mesh::Packet* packet
@@ -5759,10 +5780,6 @@ void MyMesh::handleCmdFrame(size_t len) {
         now >= observed.heard_timestamp ? now - observed.heard_timestamp : 0;
       if (secs_ago > 48UL * 60UL * 60UL) continue;
 
-      mesh::GroupChannel matches[4];
-      const uint8_t hash = observed.hash;
-      if (searchChannelsByHash(&hash, matches, 4) > 0) continue;
-
       sorted[observed_count++] = &observed;
     }
 
@@ -5809,6 +5826,76 @@ void MyMesh::handleCmdFrame(size_t len) {
     }
     dp += written;
     _serial->writeFrame(out_frame, dp - (char*)out_frame);
+
+  } else if (
+    cmd_frame[0] == CMD_VERIFY_OBSERVED_CHANNEL &&
+    len >= 2 + CIPHER_KEY_SIZE
+  ) {
+    const uint8_t channel_hash = cmd_frame[1];
+
+    uint8_t secret[PUB_KEY_SIZE] = {};
+    memcpy(secret, &cmd_frame[2], CIPHER_KEY_SIZE);
+
+    // Reject keys that cannot even generate the observed transport hash.
+    uint8_t derived_hash = 0;
+    mesh::Utils::sha256(
+      &derived_hash,
+      1,
+      secret,
+      CIPHER_KEY_SIZE
+    );
+
+    if (derived_hash != channel_hash) {
+      writeErrFrame(ERR_CODE_NOT_FOUND);
+      return;
+    }
+
+    for (int n = 0; n < MAX_OBSERVED_CHANNELS; n++) {
+      const ObservedChannel& observed = observed_channels[n];
+      if (
+        observed.heard_timestamp == 0 ||
+        observed.hash != channel_hash ||
+        observed.sample_len <= CIPHER_MAC_SIZE
+      ) {
+        continue;
+      }
+
+      uint8_t decoded[MAX_PACKET_PAYLOAD];
+      const int decoded_len = mesh::Utils::MACThenDecrypt(
+        secret,
+        decoded,
+        observed.sample,
+        observed.sample_len
+      );
+
+      if (decoded_len < 6) {
+        continue;
+      }
+
+      // Group text plaintext is timestamp(4), flags(1), then
+      // "<sender>: <message>". The MAC is already the main proof; this small
+      // structural check reduces the chance of accepting a random 2-byte-MAC
+      // collision even further.
+      bool has_colon = false;
+      bool printable = true;
+      int text_len = 0;
+      for (int i = 5; i < decoded_len && decoded[i] != 0; i++) {
+        const uint8_t ch = decoded[i];
+        if (ch == ':') has_colon = true;
+        if (ch < 0x20 || ch > 0x7E) {
+          printable = false;
+          break;
+        }
+        text_len++;
+      }
+
+      if (printable && has_colon && text_len >= 3) {
+        writeOKFrame();
+        return;
+      }
+    }
+
+    writeErrFrame(ERR_CODE_NOT_FOUND);
 
   } else if (cmd_frame[0] == CMD_GET_REPEATER_RF_CONFIG) {
     // Dedicated local response so these settings do not consume the

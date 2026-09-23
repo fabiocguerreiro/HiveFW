@@ -107,8 +107,25 @@ export class ChannelDialog extends LitElement {
           this._customKey = '';
         }
       } else {
-        // Default to first available index
+        // Default to first available index and honour an optional prefilled
+        // channel suggestion from passive discovery.
         this._channelIdx = this.availableIndices.length > 0 ? this.availableIndices[0] : 0;
+        this._channelName = this.initialChannelName || '';
+        this._scope = this.initialScope || '';
+
+        const autoKeyHex = this._channelName
+          ? sha256(this._channelName).slice(0, 32)
+          : '';
+        if (
+          this.initialKey &&
+          this.initialKey.toLowerCase() !== autoKeyHex
+        ) {
+          this._autoKey = false;
+          this._customKey = this.initialKey.toLowerCase();
+        } else {
+          this._autoKey = true;
+          this._customKey = '';
+        }
       }
       this._initialized = true;
       void this._loadScopes();

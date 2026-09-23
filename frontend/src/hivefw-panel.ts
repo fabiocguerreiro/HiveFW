@@ -983,17 +983,22 @@ class HiveFWPanel extends BasePanel {
     }
   }
 
-  __openObservedChannelAdd(channelHash) {
+  __openObservedChannelAdd(item) {
     const chat = this.shadowRoot?.querySelector("hivefw-integration-page");
     if (!chat) return;
     chat._manageInitialTab = "channels";
     chat._manageOpen = true;
     chat.requestUpdate?.();
+
     window.setTimeout(() => {
       const manage = chat.shadowRoot?.querySelector("meshcore-manage-dialog");
       if (!manage) return;
       manage._switchTab?.("channels");
-      manage._openAddChannel?.();
+      if (item?.resolved && item?.name && item?.secret) {
+        manage.openSuggestedChannel?.(item.name, item.secret);
+      } else {
+        manage._openAddChannel?.();
+      }
     }, 80);
   }
 
@@ -1038,21 +1043,25 @@ class HiveFWPanel extends BasePanel {
     const channels=Array.isArray(state.channels)?state.channels:[];
     const note=document.createElement("div"); note.className="hive-observed-note";
     note.textContent=channels.length
-      ? "Canais de grupo desconhecidos cujas mensagens este Repeater encaminhou. O hash é visível; nome e chave permanecem cifrados."
+      ? "Tráfego de grupo encaminhado pelo Repeater. Canais hashtag/públicos conhecidos são identificados apenas quando a chave derivada valida o MAC do pacote real."
       : "Nenhum canal desconhecido foi retransmitido nas últimas 48 horas.";
     section.appendChild(note);
     for(const item of channels){
       const row=document.createElement("div"); row.className="hive-observed-row";
       const info=document.createElement("div");
-      const hash=document.createElement("div"); hash.className="hive-observed-hash"; hash.textContent="#"+String(item.hash||"??");
+      const hash=document.createElement("div"); hash.className="hive-observed-hash";
+      hash.textContent=item.resolved&&item.name ? String(item.name) : "#"+String(item.hash||"??");
       const meta=document.createElement("div"); meta.className="hive-observed-meta";
       const secs=Math.max(0,Number(item.secs_ago)||0);
       const when=new Date(Date.now()-secs*1000).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit",second:"2-digit"});
-      meta.textContent=String(item.message_count||0)+" mensagens · última "+when;
+      const resolution=item.resolved ? " · hash "+String(item.hash)+" · confirmado" : " · hash "+String(item.hash)+" · não identificado";
+      meta.textContent=String(item.message_count||0)+" mensagens · última "+when+resolution;
       info.append(hash,meta);
-      const add=document.createElement("button"); add.type="button"; add.className="hive-observed-add"; add.textContent="Adicionar";
-      add.title="Abrir criação de canal; nome e chave têm de ser introduzidos porque não viajam em claro.";
-      add.addEventListener("click",()=>this.__openObservedChannelAdd(item.hash));
+      const add=document.createElement("button"); add.type="button"; add.className="hive-observed-add"; add.textContent=item.resolved?"Adicionar":"Configurar";
+      add.title=item.resolved
+        ? "Adicionar canal identificado; nome e chave já foram confirmados pelo MAC do pacote."
+        : "O hash foi observado, mas nenhum nome do catálogo validou o pacote. Introduz manualmente nome/chave.";
+      add.addEventListener("click",()=>this.__openObservedChannelAdd(item));
       row.append(info,add); section.appendChild(row);
     }
   }

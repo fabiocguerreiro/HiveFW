@@ -59,6 +59,8 @@ export class ManageDialog extends LitElement {
   @state() private _confirmingRemoveChannel: number | null = null;
   @state() private _channelDialogOpen = false;
   @state() private _editingChannel: Channel | null = null;
+  @state() private _suggestedChannelName = '';
+  @state() private _suggestedChannelKey = '';
   @state() private _maxChannels = 4;
 
   static styles = css`
@@ -635,12 +637,17 @@ export class ManageDialog extends LitElement {
               .narrow=${this.narrow}
               .editMode=${!!this._editingChannel}
               .initialChannelIdx=${this._editingChannel?.channel_idx ?? 0}
-              .initialChannelName=${this._editingChannel?.name ?? ''}
+              .initialChannelName=${this._editingChannel?.name ?? this._suggestedChannelName}
               .initialScope=${this._editingChannel?.scope ?? ''}
-              .initialKey=${(this._editingChannel?.settings?.channel_secret as string | undefined) ?? ''}
+              .initialKey=${(this._editingChannel?.settings?.channel_secret as string | undefined) ?? this._suggestedChannelKey}
               .availableIndices=${this._getAvailableIndices()}
               @channel-saved=${this._onChannelSaved}
-              @close=${() => { this._channelDialogOpen = false; this._editingChannel = null; }}
+              @close=${() => {
+                this._channelDialogOpen = false;
+                this._editingChannel = null;
+                this._suggestedChannelName = '';
+                this._suggestedChannelKey = '';
+              }}
             ></meshcore-channel-dialog>
           `
         : ''}
@@ -907,6 +914,17 @@ export class ManageDialog extends LitElement {
 
   private _openAddChannel() {
     this._editingChannel = null;
+    this._suggestedChannelName = '';
+    this._suggestedChannelKey = '';
+    this._channelDialogOpen = true;
+  }
+
+  /** Open Add Channel prefilled from a MAC-verified passive observation. */
+  public openSuggestedChannel(name: string, key: string) {
+    this._activeTab = 'channels';
+    this._editingChannel = null;
+    this._suggestedChannelName = String(name || '');
+    this._suggestedChannelKey = String(key || '').toLowerCase();
     this._channelDialogOpen = true;
   }
 
@@ -949,6 +967,8 @@ export class ManageDialog extends LitElement {
   private async _onChannelSaved() {
     this._channelDialogOpen = false;
     this._editingChannel = null;
+    this._suggestedChannelName = '';
+    this._suggestedChannelKey = '';
     if (this.hass) {
       const channels = await getChannels(this.hass, this.entryId);
       this._channels = channels;

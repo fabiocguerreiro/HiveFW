@@ -1,0 +1,2459 @@
+{
+  "source": "marcelverdult/meshcore-channels",
+  "generated_at": "2026-08-23T11:10:12Z",
+  "license": "CC0-1.0",
+  "channels": [
+    {
+      "name": "#024-bot"
+    },
+    {
+      "name": "#1"
+    },
+    {
+      "name": "#1191"
+    },
+    {
+      "name": "#1337"
+    },
+    {
+      "name": "#2"
+    },
+    {
+      "name": "#27mc"
+    },
+    {
+      "name": "#3"
+    },
+    {
+      "name": "#3625"
+    },
+    {
+      "name": "#4"
+    },
+    {
+      "name": "#42"
+    },
+    {
+      "name": "#420"
+    },
+    {
+      "name": "#4444"
+    },
+    {
+      "name": "#5"
+    },
+    {
+      "name": "#69"
+    },
+    {
+      "name": "#70cm"
+    },
+    {
+      "name": "#73"
+    },
+    {
+      "name": "#73s"
+    },
+    {
+      "name": "#a"
+    },
+    {
+      "name": "#a28"
+    },
+    {
+      "name": "#aa"
+    },
+    {
+      "name": "#ab"
+    },
+    {
+      "name": "#abc"
+    },
+    {
+      "name": "#acores"
+    },
+    {
+      "name": "#admin"
+    },
+    {
+      "name": "#adsb"
+    },
+    {
+      "name": "#afrithonbot"
+    },
+    {
+      "name": "#ai"
+    },
+    {
+      "name": "#alaska"
+    },
+    {
+      "name": "#alentejo"
+    },
+    {
+      "name": "#alert"
+    },
+    {
+      "name": "#alerts"
+    },
+    {
+      "name": "#alkmaar"
+    },
+    {
+      "name": "#allgaeu"
+    },
+    {
+      "name": "#almelo"
+    },
+    {
+      "name": "#almere"
+    },
+    {
+      "name": "#alphen"
+    },
+    {
+      "name": "#alsace"
+    },
+    {
+      "name": "#altes-land"
+    },
+    {
+      "name": "#amersfoort"
+    },
+    {
+      "name": "#amradio"
+    },
+    {
+      "name": "#amstelland"
+    },
+    {
+      "name": "#amsterdam"
+    },
+    {
+      "name": "#analyser"
+    },
+    {
+      "name": "#anchorage"
+    },
+    {
+      "name": "#angrynerds"
+    },
+    {
+      "name": "#ankuendigungen"
+    },
+    {
+      "name": "#antwerpen"
+    },
+    {
+      "name": "#apeldoorn"
+    },
+    {
+      "name": "#ardf"
+    },
+    {
+      "name": "#arduino"
+    },
+    {
+      "name": "#ares"
+    },
+    {
+      "name": "#argentina"
+    },
+    {
+      "name": "#arizona"
+    },
+    {
+      "name": "#arnhem"
+    },
+    {
+      "name": "#atlanta"
+    },
+    {
+      "name": "#atlmesh"
+    },
+    {
+      "name": "#auckland"
+    },
+    {
+      "name": "#aurora"
+    },
+    {
+      "name": "#austin"
+    },
+    {
+      "name": "#australia"
+    },
+    {
+      "name": "#austria"
+    },
+    {
+      "name": "#autism"
+    },
+    {
+      "name": "#aveiro"
+    },
+    {
+      "name": "#b"
+    },
+    {
+      "name": "#backup"
+    },
+    {
+      "name": "#baltimore"
+    },
+    {
+      "name": "#bami"
+    },
+    {
+      "name": "#bangalore"
+    },
+    {
+      "name": "#bangkok"
+    },
+    {
+      "name": "#barcelona"
+    },
+    {
+      "name": "#barneveld"
+    },
+    {
+      "name": "#basel"
+    },
+    {
+      "name": "#bay"
+    },
+    {
+      "name": "#bayarea"
+    },
+    {
+      "name": "#bbxdwd"
+    },
+    {
+      "name": "#beds-bucks-northants"
+    },
+    {
+      "name": "#beer"
+    },
+    {
+      "name": "#beja"
+    },
+    {
+      "name": "#bemesh"
+    },
+    {
+      "name": "#bergischesland"
+    },
+    {
+      "name": "#bergstrasse"
+    },
+    {
+      "name": "#berks"
+    },
+    {
+      "name": "#berlin"
+    },
+    {
+      "name": "#berlinbrandenburg"
+    },
+    {
+      "name": "#bern"
+    },
+    {
+      "name": "#best"
+    },
+    {
+      "name": "#betuwe"
+    },
+    {
+      "name": "#beverwijk"
+    },
+    {
+      "name": "#beylix"
+    },
+    {
+      "name": "#bienen"
+    },
+    {
+      "name": "#bike"
+    },
+    {
+      "name": "#blabla"
+    },
+    {
+      "name": "#blackout"
+    },
+    {
+      "name": "#blubb"
+    },
+    {
+      "name": "#bochum"
+    },
+    {
+      "name": "#boe"
+    },
+    {
+      "name": "#boeblingen"
+    },
+    {
+      "name": "#bogota"
+    },
+    {
+      "name": "#bonn"
+    },
+    {
+      "name": "#bookclub"
+    },
+    {
+      "name": "#books"
+    },
+    {
+      "name": "#borssele"
+    },
+    {
+      "name": "#boston"
+    },
+    {
+      "name": "#bot"
+    },
+    {
+      "name": "#bot-tacoma"
+    },
+    {
+      "name": "#bot-van"
+    },
+    {
+      "name": "#bots"
+    },
+    {
+      "name": "#boulder"
+    },
+    {
+      "name": "#brabant"
+    },
+    {
+      "name": "#braga"
+    },
+    {
+      "name": "#braganca"
+    },
+    {
+      "name": "#brandenburg"
+    },
+    {
+      "name": "#brandstofprijzen"
+    },
+    {
+      "name": "#brasil"
+    },
+    {
+      "name": "#brazil"
+    },
+    {
+      "name": "#bremesh"
+    },
+    {
+      "name": "#breukelen"
+    },
+    {
+      "name": "#brisbane"
+    },
+    {
+      "name": "#bristol"
+    },
+    {
+      "name": "#brooklyn"
+    },
+    {
+      "name": "#brugge"
+    },
+    {
+      "name": "#bsmesh"
+    },
+    {
+      "name": "#buch"
+    },
+    {
+      "name": "#buenosaires"
+    },
+    {
+      "name": "#bulgaria"
+    },
+    {
+      "name": "#burgernet"
+    },
+    {
+      "name": "#bw"
+    },
+    {
+      "name": "#bw-kn"
+    },
+    {
+      "name": "#c"
+    },
+    {
+      "name": "#c3re"
+    },
+    {
+      "name": "#calgary"
+    },
+    {
+      "name": "#camping"
+    },
+    {
+      "name": "#canada"
+    },
+    {
+      "name": "#capb1"
+    },
+    {
+      "name": "#capelleaandenijssel"
+    },
+    {
+      "name": "#capetown"
+    },
+    {
+      "name": "#capitolhill"
+    },
+    {
+      "name": "#cascadia"
+    },
+    {
+      "name": "#castelobranco"
+    },
+    {
+      "name": "#cat"
+    },
+    {
+      "name": "#cats"
+    },
+    {
+      "name": "#cdmx"
+    },
+    {
+      "name": "#cert"
+    },
+    {
+      "name": "#chat"
+    },
+    {
+      "name": "#chatgpt"
+    },
+    {
+      "name": "#chesterfield"
+    },
+    {
+      "name": "#chicago"
+    },
+    {
+      "name": "#chile"
+    },
+    {
+      "name": "#chtest"
+    },
+    {
+      "name": "#cmdd"
+    },
+    {
+      "name": "#code"
+    },
+    {
+      "name": "#coding"
+    },
+    {
+      "name": "#coffee"
+    },
+    {
+      "name": "#coimbra"
+    },
+    {
+      "name": "#colombia"
+    },
+    {
+      "name": "#colorado"
+    },
+    {
+      "name": "#copenhagen"
+    },
+    {
+      "name": "#cornmeisternl"
+    },
+    {
+      "name": "#cornwall"
+    },
+    {
+      "name": "#criticalmass"
+    },
+    {
+      "name": "#cruxin"
+    },
+    {
+      "name": "#csy"
+    },
+    {
+      "name": "#custom-firmware"
+    },
+    {
+      "name": "#cyber"
+    },
+    {
+      "name": "#cycling"
+    },
+    {
+      "name": "#czech"
+    },
+    {
+      "name": "#dallas"
+    },
+    {
+      "name": "#dares"
+    },
+    {
+      "name": "#darkroom"
+    },
+    {
+      "name": "#darmstadt"
+    },
+    {
+      "name": "#dc"
+    },
+    {
+      "name": "#dd-companion"
+    },
+    {
+      "name": "#dd-meshcon"
+    },
+    {
+      "name": "#dd-ping"
+    },
+    {
+      "name": "#dd-repeater"
+    },
+    {
+      "name": "#dd-roomserver"
+    },
+    {
+      "name": "#de"
+    },
+    {
+      "name": "#de-bb-bar"
+    },
+    {
+      "name": "#de-bb-cb"
+    },
+    {
+      "name": "#de-bb-ee"
+    },
+    {
+      "name": "#de-bb-ffo"
+    },
+    {
+      "name": "#de-bb-hvl"
+    },
+    {
+      "name": "#de-bb-lds"
+    },
+    {
+      "name": "#de-bb-los"
+    },
+    {
+      "name": "#de-bb-mol"
+    },
+    {
+      "name": "#de-bb-ohv"
+    },
+    {
+      "name": "#de-bb-opr"
+    },
+    {
+      "name": "#de-bb-osl"
+    },
+    {
+      "name": "#de-bb-pm"
+    },
+    {
+      "name": "#de-bb-pr"
+    },
+    {
+      "name": "#de-bb-spn"
+    },
+    {
+      "name": "#de-bb-tf"
+    },
+    {
+      "name": "#de-bb-um"
+    },
+    {
+      "name": "#de-de"
+    },
+    {
+      "name": "#de-sn-dd"
+    },
+    {
+      "name": "#de-sn-mei"
+    },
+    {
+      "name": "#de-sn-pir"
+    },
+    {
+      "name": "#de-th"
+    },
+    {
+      "name": "#debug"
+    },
+    {
+      "name": "#default"
+    },
+    {
+      "name": "#deil"
+    },
+    {
+      "name": "#dekroeg"
+    },
+    {
+      "name": "#delft"
+    },
+    {
+      "name": "#delhi"
+    },
+    {
+      "name": "#den-helder"
+    },
+    {
+      "name": "#denhaag"
+    },
+    {
+      "name": "#denhelder"
+    },
+    {
+      "name": "#denmark"
+    },
+    {
+      "name": "#denver"
+    },
+    {
+      "name": "#derby"
+    },
+    {
+      "name": "#derbyshire"
+    },
+    {
+      "name": "#detmold"
+    },
+    {
+      "name": "#detroit"
+    },
+    {
+      "name": "#deutschland"
+    },
+    {
+      "name": "#dev"
+    },
+    {
+      "name": "#deventer"
+    },
+    {
+      "name": "#devnull"
+    },
+    {
+      "name": "#df0uk"
+    },
+    {
+      "name": "#dfw"
+    },
+    {
+      "name": "#dhr"
+    },
+    {
+      "name": "#dinteloord"
+    },
+    {
+      "name": "#dirage"
+    },
+    {
+      "name": "#diy"
+    },
+    {
+      "name": "#dl"
+    },
+    {
+      "name": "#dl-mitte"
+    },
+    {
+      "name": "#dme"
+    },
+    {
+      "name": "#dogs"
+    },
+    {
+      "name": "#domoticz"
+    },
+    {
+      "name": "#doorn"
+    },
+    {
+      "name": "#dordrecht"
+    },
+    {
+      "name": "#drco"
+    },
+    {
+      "name": "#drechtsteden"
+    },
+    {
+      "name": "#drenthe"
+    },
+    {
+      "name": "#dresden"
+    },
+    {
+      "name": "#drg"
+    },
+    {
+      "name": "#drk"
+    },
+    {
+      "name": "#dtis"
+    },
+    {
+      "name": "#dtv"
+    },
+    {
+      "name": "#dublin"
+    },
+    {
+      "name": "#duisburg"
+    },
+    {
+      "name": "#durlach"
+    },
+    {
+      "name": "#dutchmeshcore"
+    },
+    {
+      "name": "#dx"
+    },
+    {
+      "name": "#earthquake"
+    },
+    {
+      "name": "#eastbay"
+    },
+    {
+      "name": "#eastbourne"
+    },
+    {
+      "name": "#echo"
+    },
+    {
+      "name": "#ede"
+    },
+    {
+      "name": "#edinburgh"
+    },
+    {
+      "name": "#eemnes"
+    },
+    {
+      "name": "#ehbo"
+    },
+    {
+      "name": "#ei"
+    },
+    {
+      "name": "#eifel"
+    },
+    {
+      "name": "#eindhoven"
+    },
+    {
+      "name": "#elburg"
+    },
+    {
+      "name": "#electronics"
+    },
+    {
+      "name": "#emcomm"
+    },
+    {
+      "name": "#emergency"
+    },
+    {
+      "name": "#emmen"
+    },
+    {
+      "name": "#english"
+    },
+    {
+      "name": "#enschede"
+    },
+    {
+      "name": "#erfurt"
+    },
+    {
+      "name": "#ergolding"
+    },
+    {
+      "name": "#ergoldsbach"
+    },
+    {
+      "name": "#esp32"
+    },
+    {
+      "name": "#essen"
+    },
+    {
+      "name": "#essex"
+    },
+    {
+      "name": "#ettlingen"
+    },
+    {
+      "name": "#evac"
+    },
+    {
+      "name": "#evenvroegopstaan"
+    },
+    {
+      "name": "#evora"
+    },
+    {
+      "name": "#ezhe"
+    },
+    {
+      "name": "#faro"
+    },
+    {
+      "name": "#fbaw"
+    },
+    {
+      "name": "#feuerwehr"
+    },
+    {
+      "name": "#ffdd"
+    },
+    {
+      "name": "#ffnw"
+    },
+    {
+      "name": "#fichtelgebirge"
+    },
+    {
+      "name": "#film"
+    },
+    {
+      "name": "#finland"
+    },
+    {
+      "name": "#fire"
+    },
+    {
+      "name": "#flevoland"
+    },
+    {
+      "name": "#flightradar24"
+    },
+    {
+      "name": "#flood"
+    },
+    {
+      "name": "#florida"
+    },
+    {
+      "name": "#food"
+    },
+    {
+      "name": "#fosdem"
+    },
+    {
+      "name": "#fr"
+    },
+    {
+      "name": "#france"
+    },
+    {
+      "name": "#franken"
+    },
+    {
+      "name": "#frankfurt"
+    },
+    {
+      "name": "#freiburg"
+    },
+    {
+      "name": "#freifunk"
+    },
+    {
+      "name": "#friesland"
+    },
+    {
+      "name": "#fuerth"
+    },
+    {
+      "name": "#fun"
+    },
+    {
+      "name": "#games"
+    },
+    {
+      "name": "#gaming"
+    },
+    {
+      "name": "#gateway"
+    },
+    {
+      "name": "#gay"
+    },
+    {
+      "name": "#gelderland"
+    },
+    {
+      "name": "#general"
+    },
+    {
+      "name": "#gent"
+    },
+    {
+      "name": "#germany"
+    },
+    {
+      "name": "#gezellig"
+    },
+    {
+      "name": "#gisborne"
+    },
+    {
+      "name": "#gj"
+    },
+    {
+      "name": "#gmr"
+    },
+    {
+      "name": "#gmrbot"
+    },
+    {
+      "name": "#goedemorgen"
+    },
+    {
+      "name": "#goedenavond"
+    },
+    {
+      "name": "#goes"
+    },
+    {
+      "name": "#gouda"
+    },
+    {
+      "name": "#groetzingen"
+    },
+    {
+      "name": "#grunn"
+    },
+    {
+      "name": "#gsn"
+    },
+    {
+      "name": "#guarda"
+    },
+    {
+      "name": "#gunmen"
+    },
+    {
+      "name": "#gwnl"
+    },
+    {
+      "name": "#gyverbot"
+    },
+    {
+      "name": "#h33"
+    },
+    {
+      "name": "#haarlem"
+    },
+    {
+      "name": "#hacker"
+    },
+    {
+      "name": "#hackers"
+    },
+    {
+      "name": "#hackerspacenijmegen"
+    },
+    {
+      "name": "#hacktheplanet"
+    },
+    {
+      "name": "#hahab"
+    },
+    {
+      "name": "#ham"
+    },
+    {
+      "name": "#hampshire"
+    },
+    {
+      "name": "#hamradio"
+    },
+    {
+      "name": "#hamradionederland"
+    },
+    {
+      "name": "#hannover"
+    },
+    {
+      "name": "#hansemesh"
+    },
+    {
+      "name": "#hashtags"
+    },
+    {
+      "name": "#hawaii"
+    },
+    {
+      "name": "#hbn"
+    },
+    {
+      "name": "#heerhugowaard"
+    },
+    {
+      "name": "#heidemesh"
+    },
+    {
+      "name": "#hellevoetsluis"
+    },
+    {
+      "name": "#hello"
+    },
+    {
+      "name": "#helmond"
+    },
+    {
+      "name": "#helmstedt"
+    },
+    {
+      "name": "#help"
+    },
+    {
+      "name": "#helsinki"
+    },
+    {
+      "name": "#hengelo"
+    },
+    {
+      "name": "#hertford"
+    },
+    {
+      "name": "#hetweerinjegemeente"
+    },
+    {
+      "name": "#heukelum"
+    },
+    {
+      "name": "#hey"
+    },
+    {
+      "name": "#hi"
+    },
+    {
+      "name": "#hidden"
+    },
+    {
+      "name": "#hike"
+    },
+    {
+      "name": "#hiking"
+    },
+    {
+      "name": "#hilversum"
+    },
+    {
+      "name": "#home"
+    },
+    {
+      "name": "#homeassistant"
+    },
+    {
+      "name": "#honolulu"
+    },
+    {
+      "name": "#houston"
+    },
+    {
+      "name": "#houten"
+    },
+    {
+      "name": "#hsg"
+    },
+    {
+      "name": "#hsluis"
+    },
+    {
+      "name": "#hsnl"
+    },
+    {
+      "name": "#huddersfield"
+    },
+    {
+      "name": "#hvm"
+    },
+    {
+      "name": "#ijsselstein"
+    },
+    {
+      "name": "#india"
+    },
+    {
+      "name": "#indonesia"
+    },
+    {
+      "name": "#info"
+    },
+    {
+      "name": "#infosec"
+    },
+    {
+      "name": "#ingolstadt"
+    },
+    {
+      "name": "#invite"
+    },
+    {
+      "name": "#ipswich"
+    },
+    {
+      "name": "#ireland"
+    },
+    {
+      "name": "#isleofwight"
+    },
+    {
+      "name": "#italy"
+    },
+    {
+      "name": "#jakarta"
+    },
+    {
+      "name": "#japan"
+    },
+    {
+      "name": "#jena"
+    },
+    {
+      "name": "#jockgrim"
+    },
+    {
+      "name": "#joep"
+    },
+    {
+      "name": "#john"
+    },
+    {
+      "name": "#jokes"
+    },
+    {
+      "name": "#jrs"
+    },
+    {
+      "name": "#junk"
+    },
+    {
+      "name": "#ka-pf"
+    },
+    {
+      "name": "#kaaskop"
+    },
+    {
+      "name": "#kampen"
+    },
+    {
+      "name": "#kanalen"
+    },
+    {
+      "name": "#karlsruhe"
+    },
+    {
+      "name": "#kats"
+    },
+    {
+      "name": "#katwijk"
+    },
+    {
+      "name": "#kees"
+    },
+    {
+      "name": "#kent"
+    },
+    {
+      "name": "#kenya"
+    },
+    {
+      "name": "#kernow"
+    },
+    {
+      "name": "#kixs"
+    },
+    {
+      "name": "#koblenz"
+    },
+    {
+      "name": "#koeln"
+    },
+    {
+      "name": "#koffie"
+    },
+    {
+      "name": "#konfiguration"
+    },
+    {
+      "name": "#korea"
+    },
+    {
+      "name": "#kortrijk"
+    },
+    {
+      "name": "#kubecon"
+    },
+    {
+      "name": "#la"
+    },
+    {
+      "name": "#lagos"
+    },
+    {
+      "name": "#landkreis-harburg"
+    },
+    {
+      "name": "#landshut"
+    },
+    {
+      "name": "#lasvegas"
+    },
+    {
+      "name": "#leerdam"
+    },
+    {
+      "name": "#leeuwarden"
+    },
+    {
+      "name": "#leiden"
+    },
+    {
+      "name": "#leidschendam"
+    },
+    {
+      "name": "#leipzig"
+    },
+    {
+      "name": "#leiria"
+    },
+    {
+      "name": "#lelystad"
+    },
+    {
+      "name": "#leusden"
+    },
+    {
+      "name": "#leverkusen"
+    },
+    {
+      "name": "#lgbtq"
+    },
+    {
+      "name": "#liemers"
+    },
+    {
+      "name": "#lifethreat"
+    },
+    {
+      "name": "#lima"
+    },
+    {
+      "name": "#limburg"
+    },
+    {
+      "name": "#linux"
+    },
+    {
+      "name": "#lippstadt"
+    },
+    {
+      "name": "#lisboa"
+    },
+    {
+      "name": "#lisbon"
+    },
+    {
+      "name": "#lisse"
+    },
+    {
+      "name": "#lk-stade"
+    },
+    {
+      "name": "#lkgr"
+    },
+    {
+      "name": "#local"
+    },
+    {
+      "name": "#lohmar"
+    },
+    {
+      "name": "#londen"
+    },
+    {
+      "name": "#london"
+    },
+    {
+      "name": "#loosdrecht"
+    },
+    {
+      "name": "#lora"
+    },
+    {
+      "name": "#losangeles"
+    },
+    {
+      "name": "#lowestoft"
+    },
+    {
+      "name": "#luxembourg"
+    },
+    {
+      "name": "#maassluis"
+    },
+    {
+      "name": "#maastricht-hl"
+    },
+    {
+      "name": "#madeira"
+    },
+    {
+      "name": "#madrid"
+    },
+    {
+      "name": "#magdeburg"
+    },
+    {
+      "name": "#main"
+    },
+    {
+      "name": "#maker"
+    },
+    {
+      "name": "#makers"
+    },
+    {
+      "name": "#makerspace"
+    },
+    {
+      "name": "#malaysia"
+    },
+    {
+      "name": "#malden"
+    },
+    {
+      "name": "#manhattan"
+    },
+    {
+      "name": "#manila"
+    },
+    {
+      "name": "#marin"
+    },
+    {
+      "name": "#mastodon"
+    },
+    {
+      "name": "#maui"
+    },
+    {
+      "name": "#mc-radar"
+    },
+    {
+      "name": "#mc-tisch"
+    },
+    {
+      "name": "#mcnl"
+    },
+    {
+      "name": "#medianetwerk"
+    },
+    {
+      "name": "#melbourne"
+    },
+    {
+      "name": "#memes"
+    },
+    {
+      "name": "#menzis"
+    },
+    {
+      "name": "#meow"
+    },
+    {
+      "name": "#mesh"
+    },
+    {
+      "name": "#meshcore"
+    },
+    {
+      "name": "#meshcorenetz"
+    },
+    {
+      "name": "#meshoe"
+    },
+    {
+      "name": "#meshtastic"
+    },
+    {
+      "name": "#meteo-milano"
+    },
+    {
+      "name": "#metz"
+    },
+    {
+      "name": "#mexico"
+    },
+    {
+      "name": "#mhl"
+    },
+    {
+      "name": "#miami"
+    },
+    {
+      "name": "#middelburg"
+    },
+    {
+      "name": "#midlands"
+    },
+    {
+      "name": "#midwest"
+    },
+    {
+      "name": "#mierlo"
+    },
+    {
+      "name": "#milan"
+    },
+    {
+      "name": "#minneapolis"
+    },
+    {
+      "name": "#missing"
+    },
+    {
+      "name": "#mkk"
+    },
+    {
+      "name": "#mnot"
+    },
+    {
+      "name": "#mod"
+    },
+    {
+      "name": "#montreal"
+    },
+    {
+      "name": "#mosel"
+    },
+    {
+      "name": "#motor"
+    },
+    {
+      "name": "#movies"
+    },
+    {
+      "name": "#muelheim"
+    },
+    {
+      "name": "#muenchen"
+    },
+    {
+      "name": "#muenster"
+    },
+    {
+      "name": "#mumbai"
+    },
+    {
+      "name": "#music"
+    },
+    {
+      "name": "#n44"
+    },
+    {
+      "name": "#nairobi"
+    },
+    {
+      "name": "#nedap"
+    },
+    {
+      "name": "#nederland"
+    },
+    {
+      "name": "#nederlands"
+    },
+    {
+      "name": "#nerd"
+    },
+    {
+      "name": "#netherlands"
+    },
+    {
+      "name": "#nevada"
+    },
+    {
+      "name": "#news"
+    },
+    {
+      "name": "#newyork"
+    },
+    {
+      "name": "#newzealand"
+    },
+    {
+      "name": "#nhn"
+    },
+    {
+      "name": "#niedersachsen"
+    },
+    {
+      "name": "#niels"
+    },
+    {
+      "name": "#nieuws"
+    },
+    {
+      "name": "#nigeria"
+    },
+    {
+      "name": "#nijmegen"
+    },
+    {
+      "name": "#nijverdal"
+    },
+    {
+      "name": "#nl"
+    },
+    {
+      "name": "#nl-alert"
+    },
+    {
+      "name": "#nl-gtb-bs"
+    },
+    {
+      "name": "#nl-prio"
+    },
+    {
+      "name": "#noc"
+    },
+    {
+      "name": "#nocal"
+    },
+    {
+      "name": "#node"
+    },
+    {
+      "name": "#nodes"
+    },
+    {
+      "name": "#noodkanaal"
+    },
+    {
+      "name": "#noordbrabant"
+    },
+    {
+      "name": "#noordholland"
+    },
+    {
+      "name": "#norcal"
+    },
+    {
+      "name": "#nordharz"
+    },
+    {
+      "name": "#norniron"
+    },
+    {
+      "name": "#northbay"
+    },
+    {
+      "name": "#northeast"
+    },
+    {
+      "name": "#northwest"
+    },
+    {
+      "name": "#norway"
+    },
+    {
+      "name": "#nov"
+    },
+    {
+      "name": "#nrw"
+    },
+    {
+      "name": "#ns"
+    },
+    {
+      "name": "#nsagov"
+    },
+    {
+      "name": "#nuernberg"
+    },
+    {
+      "name": "#nyc"
+    },
+    {
+      "name": "#nycmesh"
+    },
+    {
+      "name": "#nz"
+    },
+    {
+      "name": "#oakland"
+    },
+    {
+      "name": "#oberbayern"
+    },
+    {
+      "name": "#oberfranken"
+    },
+    {
+      "name": "#oberhessen"
+    },
+    {
+      "name": "#odido"
+    },
+    {
+      "name": "#offgrid"
+    },
+    {
+      "name": "#offtopic"
+    },
+    {
+      "name": "#onmesh"
+    },
+    {
+      "name": "#ops"
+    },
+    {
+      "name": "#orlando"
+    },
+    {
+      "name": "#os3"
+    },
+    {
+      "name": "#oslo"
+    },
+    {
+      "name": "#ouderkerk"
+    },
+    {
+      "name": "#outdoors"
+    },
+    {
+      "name": "#ov"
+    },
+    {
+      "name": "#overijssel"
+    },
+    {
+      "name": "#p2000"
+    },
+    {
+      "name": "#pa3ang"
+    },
+    {
+      "name": "#pacnw"
+    },
+    {
+      "name": "#pamina"
+    },
+    {
+      "name": "#paris"
+    },
+    {
+      "name": "#passau"
+    },
+    {
+      "name": "#pd0kmd"
+    },
+    {
+      "name": "#pd7lj"
+    },
+    {
+      "name": "#pdx"
+    },
+    {
+      "name": "#peninsula"
+    },
+    {
+      "name": "#peru"
+    },
+    {
+      "name": "#pets"
+    },
+    {
+      "name": "#pforzheim"
+    },
+    {
+      "name": "#philadelphia"
+    },
+    {
+      "name": "#philippines"
+    },
+    {
+      "name": "#philly"
+    },
+    {
+      "name": "#phoenix"
+    },
+    {
+      "name": "#pi2dev"
+    },
+    {
+      "name": "#pi2ldn"
+    },
+    {
+      "name": "#pi4cc"
+    },
+    {
+      "name": "#pi4hm"
+    },
+    {
+      "name": "#pi4raz"
+    },
+    {
+      "name": "#pi4utr"
+    },
+    {
+      "name": "#pi6mep"
+    },
+    {
+      "name": "#ping"
+    },
+    {
+      "name": "#pingbot"
+    },
+    {
+      "name": "#pingpong"
+    },
+    {
+      "name": "#plano333"
+    },
+    {
+      "name": "#plovdiv"
+    },
+    {
+      "name": "#plovdivbot"
+    },
+    {
+      "name": "#pnw"
+    },
+    {
+      "name": "#poland"
+    },
+    {
+      "name": "#politie"
+    },
+    {
+      "name": "#portalegre"
+    },
+    {
+      "name": "#portland"
+    },
+    {
+      "name": "#porto"
+    },
+    {
+      "name": "#portugal"
+    },
+    {
+      "name": "#pota"
+    },
+    {
+      "name": "#prague"
+    },
+    {
+      "name": "#prepper"
+    },
+    {
+      "name": "#preppers"
+    },
+    {
+      "name": "#pride"
+    },
+    {
+      "name": "#primary"
+    },
+    {
+      "name": "#prime"
+    },
+    {
+      "name": "#private"
+    },
+    {
+      "name": "#programming"
+    },
+    {
+      "name": "#protest"
+    },
+    {
+      "name": "#prove"
+    },
+    {
+      "name": "#prut"
+    },
+    {
+      "name": "#prutser"
+    },
+    {
+      "name": "#public"
+    },
+    {
+      "name": "#publiek"
+    },
+    {
+      "name": "#putyourspamhere"
+    },
+    {
+      "name": "#queens"
+    },
+    {
+      "name": "#queer"
+    },
+    {
+      "name": "#raalte"
+    },
+    {
+      "name": "#radar"
+    },
+    {
+      "name": "#radio"
+    },
+    {
+      "name": "#radio-zend-amateurs"
+    },
+    {
+      "name": "#random"
+    },
+    {
+      "name": "#raspberry"
+    },
+    {
+      "name": "#reading"
+    },
+    {
+      "name": "#region-muc"
+    },
+    {
+      "name": "#remoteterm"
+    },
+    {
+      "name": "#renkum"
+    },
+    {
+      "name": "#rennsteigmesh"
+    },
+    {
+      "name": "#repeater"
+    },
+    {
+      "name": "#repeaters"
+    },
+    {
+      "name": "#rescue"
+    },
+    {
+      "name": "#retie"
+    },
+    {
+      "name": "#reutlingen"
+    },
+    {
+      "name": "#rhein-main"
+    },
+    {
+      "name": "#rhein-neckar"
+    },
+    {
+      "name": "#rheinland"
+    },
+    {
+      "name": "#rijnmond"
+    },
+    {
+      "name": "#rmc"
+    },
+    {
+      "name": "#rome"
+    },
+    {
+      "name": "#rosenheim"
+    },
+    {
+      "name": "#rotterdam"
+    },
+    {
+      "name": "#rtm"
+    },
+    {
+      "name": "#ruche"
+    },
+    {
+      "name": "#ruhrgebiet"
+    },
+    {
+      "name": "#s62"
+    },
+    {
+      "name": "#saarland"
+    },
+    {
+      "name": "#saarlorlux"
+    },
+    {
+      "name": "#sacramento"
+    },
+    {
+      "name": "#sandiego"
+    },
+    {
+      "name": "#sanjose"
+    },
+    {
+      "name": "#santarem"
+    },
+    {
+      "name": "#santiago"
+    },
+    {
+      "name": "#saopaulo"
+    },
+    {
+      "name": "#sarlorlux"
+    },
+    {
+      "name": "#sauerland"
+    },
+    {
+      "name": "#schagen"
+    },
+    {
+      "name": "#scotland"
+    },
+    {
+      "name": "#scouting"
+    },
+    {
+      "name": "#seahawks"
+    },
+    {
+      "name": "#seattle"
+    },
+    {
+      "name": "#secondary"
+    },
+    {
+      "name": "#secret"
+    },
+    {
+      "name": "#security"
+    },
+    {
+      "name": "#seeland"
+    },
+    {
+      "name": "#seevetal"
+    },
+    {
+      "name": "#sensemakers"
+    },
+    {
+      "name": "#seoul"
+    },
+    {
+      "name": "#server"
+    },
+    {
+      "name": "#setubal"
+    },
+    {
+      "name": "#sf"
+    },
+    {
+      "name": "#sfmesh"
+    },
+    {
+      "name": "#sfo"
+    },
+    {
+      "name": "#shelter"
+    },
+    {
+      "name": "#shtf"
+    },
+    {
+      "name": "#singapore"
+    },
+    {
+      "name": "#sion"
+    },
+    {
+      "name": "#skywarn"
+    },
+    {
+      "name": "#sn"
+    },
+    {
+      "name": "#socal"
+    },
+    {
+      "name": "#socalmesh"
+    },
+    {
+      "name": "#soest"
+    },
+    {
+      "name": "#sofia"
+    },
+    {
+      "name": "#solent"
+    },
+    {
+      "name": "#somerset"
+    },
+    {
+      "name": "#sorocaba"
+    },
+    {
+      "name": "#sos"
+    },
+    {
+      "name": "#sota"
+    },
+    {
+      "name": "#southafrica"
+    },
+    {
+      "name": "#southbay"
+    },
+    {
+      "name": "#southeast"
+    },
+    {
+      "name": "#southwest"
+    },
+    {
+      "name": "#spain"
+    },
+    {
+      "name": "#spire"
+    },
+    {
+      "name": "#spoileralert"
+    },
+    {
+      "name": "#sports"
+    },
+    {
+      "name": "#st"
+    },
+    {
+      "name": "#stad"
+    },
+    {
+      "name": "#steffan"
+    },
+    {
+      "name": "#stlouis"
+    },
+    {
+      "name": "#stockholm"
+    },
+    {
+      "name": "#storm"
+    },
+    {
+      "name": "#stricken"
+    },
+    {
+      "name": "#stuttgart"
+    },
+    {
+      "name": "#suffolk"
+    },
+    {
+      "name": "#suisse"
+    },
+    {
+      "name": "#sup"
+    },
+    {
+      "name": "#survival"
+    },
+    {
+      "name": "#sux35"
+    },
+    {
+      "name": "#svizzera"
+    },
+    {
+      "name": "#sweden"
+    },
+    {
+      "name": "#switzerland"
+    },
+    {
+      "name": "#sydney"
+    },
+    {
+      "name": "#taipei"
+    },
+    {
+      "name": "#taiwan"
+    },
+    {
+      "name": "#tampa"
+    },
+    {
+      "name": "#taubertal"
+    },
+    {
+      "name": "#taunus"
+    },
+    {
+      "name": "#tech"
+    },
+    {
+      "name": "#terschelling"
+    },
+    {
+      "name": "#tesla"
+    },
+    {
+      "name": "#test"
+    },
+    {
+      "name": "#testes"
+    },
+    {
+      "name": "#testing"
+    },
+    {
+      "name": "#testkanal"
+    },
+    {
+      "name": "#testn"
+    },
+    {
+      "name": "#texas"
+    },
+    {
+      "name": "#texel"
+    },
+    {
+      "name": "#th"
+    },
+    {
+      "name": "#thailand"
+    },
+    {
+      "name": "#themar"
+    },
+    {
+      "name": "#thw"
+    },
+    {
+      "name": "#tiel"
+    },
+    {
+      "name": "#tilburg"
+    },
+    {
+      "name": "#tokyo"
+    },
+    {
+      "name": "#toronto"
+    },
+    {
+      "name": "#trail"
+    },
+    {
+      "name": "#trier"
+    },
+    {
+      "name": "#tsunami"
+    },
+    {
+      "name": "#tucson"
+    },
+    {
+      "name": "#twente"
+    },
+    {
+      "name": "#txl"
+    },
+    {
+      "name": "#uitdagingen"
+    },
+    {
+      "name": "#uk"
+    },
+    {
+      "name": "#ulm"
+    },
+    {
+      "name": "#unix"
+    },
+    {
+      "name": "#untermain"
+    },
+    {
+      "name": "#utrecht"
+    },
+    {
+      "name": "#valleibot"
+    },
+    {
+      "name": "#valleirug"
+    },
+    {
+      "name": "#vancouver"
+    },
+    {
+      "name": "#vegas"
+    },
+    {
+      "name": "#venlo"
+    },
+    {
+      "name": "#verkehr"
+    },
+    {
+      "name": "#vianadocastelo"
+    },
+    {
+      "name": "#vienna"
+    },
+    {
+      "name": "#vietnam"
+    },
+    {
+      "name": "#vilareal"
+    },
+    {
+      "name": "#viseu"
+    },
+    {
+      "name": "#vlaardingen"
+    },
+    {
+      "name": "#vleesboek"
+    },
+    {
+      "name": "#vlissingen"
+    },
+    {
+      "name": "#voorburg"
+    },
+    {
+      "name": "#voorhout"
+    },
+    {
+      "name": "#voorne-putten"
+    },
+    {
+      "name": "#voorthuizen"
+    },
+    {
+      "name": "#vpk"
+    },
+    {
+      "name": "#vught"
+    },
+    {
+      "name": "#walcheren"
+    },
+    {
+      "name": "#wales"
+    },
+    {
+      "name": "#wallis"
+    },
+    {
+      "name": "#wardrive"
+    },
+    {
+      "name": "#wardriving"
+    },
+    {
+      "name": "#warnings"
+    },
+    {
+      "name": "#warsaw"
+    },
+    {
+      "name": "#washingtondc"
+    },
+    {
+      "name": "#wassenaar"
+    },
+    {
+      "name": "#weather"
+    },
+    {
+      "name": "#weer"
+    },
+    {
+      "name": "#weinstrasse"
+    },
+    {
+      "name": "#wellington"
+    },
+    {
+      "name": "#west-friesland"
+    },
+    {
+      "name": "#westerwald"
+    },
+    {
+      "name": "#wetter"
+    },
+    {
+      "name": "#wetterau"
+    },
+    {
+      "name": "#wezep"
+    },
+    {
+      "name": "#woerth-am-rhein"
+    },
+    {
+      "name": "#wolfsburg"
+    },
+    {
+      "name": "#worms"
+    },
+    {
+      "name": "#wx"
+    },
+    {
+      "name": "#xr"
+    },
+    {
+      "name": "#xrwf"
+    },
+    {
+      "name": "#ycv-wx"
+    },
+    {
+      "name": "#yo"
+    },
+    {
+      "name": "#yorkshire"
+    },
+    {
+      "name": "#zaandam"
+    },
+    {
+      "name": "#zaanstreek-waterland"
+    },
+    {
+      "name": "#zak"
+    },
+    {
+      "name": "#zeeland"
+    },
+    {
+      "name": "#zeist"
+    },
+    {
+      "name": "#zelhem"
+    },
+    {
+      "name": "#zuerich"
+    },
+    {
+      "name": "#zuid-holland"
+    },
+    {
+      "name": "#zuidholland"
+    },
+    {
+      "name": "#zurich"
+    },
+    {
+      "name": "#zutphen"
+    },
+    {
+      "name": "#zwickau"
+    },
+    {
+      "name": "#zwolle"
+    },
+    {
+      "name": "alert-lo",
+      "key": "wvjINGz5QNg8e/ECY8u4Uw=="
+    },
+    {
+      "name": "emilia-romagna",
+      "key": "gvfT6WRmXq8cY0gpMopKPQ=="
+    },
+    {
+      "name": "friuli-vg",
+      "key": "Bj3p8EiH44DEMfEC3Cfxyg=="
+    },
+    {
+      "name": "italia",
+      "key": "TJe/5DGr4gZyJZ2baWnc7A=="
+    },
+    {
+      "name": "liguria",
+      "key": "u8/tjfIueiFjgmSBoG9YTQ=="
+    },
+    {
+      "name": "lombardia",
+      "key": "ejqYj3d1AmbjZJMtlMz1IQ=="
+    },
+    {
+      "name": "meteo",
+      "key": "gxrw9Qt78UOkdwwFrj64iA=="
+    },
+    {
+      "name": "milano",
+      "key": "yh1i8/ES8Zgcjup1av4Quw=="
+    },
+    {
+      "name": "news",
+      "key": "Ox/70K9DxRePjQuDJb/qbQ=="
+    },
+    {
+      "name": "notfunk-netzwerk-team",
+      "key": "K2MIDlG08FQJb9OHXHfiiw=="
+    },
+    {
+      "name": "piemonte",
+      "key": "W5uu9MPYdR4vkpLwufe2pg=="
+    },
+    {
+      "name": "public",
+      "key": "izOH6cXN6mrJ5e26oRXNcg=="
+    },
+    {
+      "name": "seeland",
+      "key": "9DuSeXfSbvS2C1gXGcMTfA=="
+    },
+    {
+      "name": "suisse-romande",
+      "key": "BISErgHaEg/le/WPfIOzCg=="
+    },
+    {
+      "name": "toscana",
+      "key": "WOr44P+lKcR9cfSde0OEpQ=="
+    },
+    {
+      "name": "veneto",
+      "key": "hXtdVqGvjE5zX2WnNdn73w=="
+    }
+  ]
+}

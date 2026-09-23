@@ -605,6 +605,8 @@ private:
     uint8_t hash;
     uint32_t heard_timestamp;
     uint16_t message_count;
+    uint16_t sample_len;
+    uint8_t sample[MAX_PACKET_PAYLOAD - 1];
   };
 
   // Unknown group-text channels that this Repeater actually forwarded.
