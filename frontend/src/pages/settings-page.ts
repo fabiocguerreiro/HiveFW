@@ -2873,32 +2873,29 @@ export class SettingsPage extends LitElement {
                     this._editValues = { ...this._editValues };
                   }} />
               </div>
+              <div data-hive-duty-cycle-control>
+                <label class="form-label">Duty Cycle</label>
+                <select
+                  class="form-select"
+                  .value=${String(this._dutyCycleValue)}
+                  ?disabled=${this._dutyCycleBusy !== null}
+                  @change=${(e: Event) => {
+                    const next = Number((e.target as HTMLSelectElement).value);
+                    this._dutyCycleValue = next;
+                    void this._applyDutyCycle(next);
+                  }}>
+                  ${Array.from({ length: 41 }, (_, i) => i + 10).map(
+                    (value) => html`<option value=${String(value)}>${value}%</option>`,
+                  )}
+                </select>
+              </div>
             </div>
           ` : html`
             <div style="font-size:11px;color:var(--secondary-text-color);">
               Atualiza o firmware HiveFW para ativar os controlos locais de CAD, AGC e delays.
             </div>
           `}
-          <div
-            style="margin-top:8px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 10px;"
-            data-hive-duty-cycle-control>
-            <div>
-              <label class="form-label">Duty Cycle</label>
-              <select
-                class="form-select"
-                .value=${String(this._dutyCycleValue)}
-                ?disabled=${this._dutyCycleBusy !== null}
-                @change=${(e: Event) => {
-                  const next = Number((e.target as HTMLSelectElement).value);
-                  this._dutyCycleValue = next;
-                  void this._applyDutyCycle(next);
-                }}>
-                ${Array.from({ length: 41 }, (_, i) => i + 10).map(
-                  (value) => html`<option value=${String(value)}>${value}%</option>`,
-                )}
-              </select>
-            </div>
-          </div>
+
 
 
         </div>
