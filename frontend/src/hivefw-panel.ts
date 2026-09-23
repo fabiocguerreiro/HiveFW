@@ -3305,7 +3305,7 @@ class HiveFWPanel extends BasePanel {
 
       const meshTime = this.__settingsSelect(
         "Sincronização RTC via Mesh",
-        [["1", "Ativada"], ["0", "Desativada"]],
+        [["1", "Ativo"], ["0", "Desligado"]],
         this.__repeaterEdit.mesh_time_sync ? "1" : "0"
       );
       meshTime.select.addEventListener("change", () => {
