@@ -2735,16 +2735,29 @@ async def ws_set_duty_cycle(hass, connection, msg):
     duty = int(msg["duty_cycle"])
 
     try:
-        result = await coordinator.api.mesh_core.commands.set_custom_var(
-            "duty_cycle",
-            str(duty),
+        # Reuse the proven tuning path from commit 24e6307b. Duty Cycle is
+        # represented by airtime_factor in MeshCore, so preserve RX delay,
+        # write both tuning values atomically, then verify the exact wire value.
+        current = await coordinator.api.mesh_core.commands.get_tuning()
+        reason = _device_config_failure_reason(current)
+        if reason is not None:
+            connection.send_error(msg["id"], "duty_cycle_read_tuning_failed", reason)
+            return
+
+        current_payload = getattr(current, "payload", {}) or {}
+        requested_rx = int(current_payload.get("rx_delay", 0))
+        requested_af = int(round(((100.0 / float(duty)) - 1.0) * 1000.0))
+
+        result = await coordinator.api.mesh_core.commands.set_tuning(
+            requested_rx,
+            requested_af,
         )
         reason = _device_config_failure_reason(result)
         if reason is not None:
             connection.send_error(msg["id"], "duty_cycle_write_failed", reason)
             return
 
-        verified = await coordinator.api.mesh_core.commands.get_custom_vars()
+        verified = await coordinator.api.mesh_core.commands.get_tuning()
         reason = _device_config_failure_reason(verified)
         if reason is not None:
             connection.send_error(
@@ -2755,26 +2768,32 @@ async def ws_set_duty_cycle(hass, connection, msg):
             return
 
         payload = getattr(verified, "payload", {}) or {}
-        raw = str(payload.get("duty_cycle", "")).strip()
-        try:
-            actual = int(raw)
-        except (TypeError, ValueError):
-            actual = -1
-
-        if actual != duty:
+        actual_af = int(payload.get("airtime_factor", -1))
+        if abs(actual_af - requested_af) > 1:
             connection.send_error(
                 msg["id"],
                 "duty_cycle_mismatch",
-                f"Duty Cycle verification failed: requested {duty}%, read {actual}%",
+                (
+                    "Duty Cycle verification failed: requested "
+                    f"airtime_factor={requested_af}, read {actual_af}"
+                ),
             )
             return
+
+        actual = max(
+            10,
+            min(
+                50,
+                round(100.0 / (1.0 + (actual_af / 1000.0))),
+            ),
+        )
 
         connection.send_result(
             msg["id"],
             {
                 "success": True,
                 "duty_cycle": actual,
-                "raw": raw,
+                "raw": str(actual_af),
             },
         )
     except Exception as ex:
@@ -3934,15 +3953,29 @@ async def ws_set_device_config(hass, connection, msg):
                 )
                 return
 
-        # New HiveFW builds expose Duty Cycle as a first-class Companion
-        # custom variable. Send the percentage directly so the firmware owns
-        # the Duty Cycle <-> Airtime Factor conversion, exactly like its OLED
-        # menu, then verify the persisted value by reading it back.
+        # Duty Cycle uses MeshCore tuning on the wire. This restores the
+        # verified implementation from commit 24e6307b: preserve RX delay,
+        # convert percentage -> airtime_factor, set tuning, then read it back.
         if "duty_cycle" in settings:
             duty_cycle = max(10, min(50, int(settings["duty_cycle"])))
-            result = await coordinator.api.mesh_core.commands.set_custom_var(
-                "duty_cycle",
-                str(duty_cycle),
+
+            current = await coordinator.api.mesh_core.commands.get_tuning()
+            reason = _device_config_failure_reason(current)
+            if reason is not None:
+                _send_device_config_failure(
+                    connection, msg["id"], "duty_cycle tuning read", reason, changed
+                )
+                return
+
+            current_payload = getattr(current, "payload", {}) or {}
+            requested_rx = int(current_payload.get("rx_delay", 0))
+            requested_af = int(
+                round(((100.0 / float(duty_cycle)) - 1.0) * 1000.0)
+            )
+
+            result = await coordinator.api.mesh_core.commands.set_tuning(
+                requested_rx,
+                requested_af,
             )
             reason = _device_config_failure_reason(result)
             if reason is not None:
@@ -3951,28 +3984,29 @@ async def ws_set_device_config(hass, connection, msg):
                 )
                 return
 
-            verified = await coordinator.api.mesh_core.commands.get_custom_vars()
+            verified = await coordinator.api.mesh_core.commands.get_tuning()
             reason = _device_config_failure_reason(verified)
             if reason is not None:
                 _send_device_config_failure(
                     connection, msg["id"], "duty_cycle verification", reason, changed
                 )
                 return
-            verified_payload = getattr(verified, "payload", {}) or {}
-            try:
-                actual_duty = int(str(verified_payload.get("duty_cycle", "")).strip())
-            except (TypeError, ValueError):
-                actual_duty = -1
 
-            if actual_duty != duty_cycle:
+            verified_payload = getattr(verified, "payload", {}) or {}
+            actual_af = int(verified_payload.get("airtime_factor", -1))
+            if abs(actual_af - requested_af) > 1:
                 _send_device_config_failure(
                     connection,
                     msg["id"],
                     "duty_cycle verification",
-                    f"read-back mismatch: requested {duty_cycle}%, got {actual_duty}%",
+                    (
+                        "read-back mismatch: requested "
+                        f"airtime_factor={requested_af}; got {actual_af}"
+                    ),
                     changed,
                 )
                 return
+
             changed.append("duty_cycle")
 
         # HiveFW Repeater flood limits + loop detection. Firmware exposes the
