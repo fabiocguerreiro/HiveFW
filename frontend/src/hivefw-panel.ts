@@ -1177,16 +1177,17 @@ class HiveFWPanel extends BasePanel {
         String(item.message_count || 0) + " mensagens · última " + when + resolution;
       info.append(hash, meta);
 
-      const add = document.createElement("button");
-      add.type = "button";
-      add.className = "hive-observed-add";
-      add.textContent = item.resolved ? "Adicionar" : "Configurar";
-      add.title = item.resolved
-        ? "Adicionar canal identificado; nome e chave já foram confirmados pelo MAC do pacote."
-        : "O hash foi observado, mas nenhum nome do catálogo validou o pacote. Introduz manualmente nome/chave.";
-      add.addEventListener("click", () => this.__openObservedChannelAdd(item));
-
-      row.append(info, add);
+      if (item.resolved && item.name && item.secret) {
+        const add = document.createElement("button");
+        add.type = "button";
+        add.className = "hive-observed-add";
+        add.textContent = "Adicionar";
+        add.title = "Adicionar canal identificado; nome e chave já foram confirmados pelo MAC do pacote.";
+        add.addEventListener("click", () => this.__openObservedChannelAdd(item));
+        row.append(info, add);
+      } else {
+        row.append(info);
+      }
       list.appendChild(row);
     }
   }
