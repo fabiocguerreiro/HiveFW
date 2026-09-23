@@ -598,13 +598,10 @@ export class ConversationList extends LitElement {
   }
 
   private _markAllRead() {
-    if (!this.unread) return;
-    const snapshot = Object.entries(this.unread.counts ?? this.unreadCounts ?? {});
-    for (const [entityId, count] of snapshot) {
-      if (entityId && Number(count) > 0) {
-        this.unread.requestMarkRead(entityId);
-      }
-    }
+    this.dispatchEvent(new CustomEvent('mark-all-read-requested', {
+      bubbles: true,
+      composed: true,
+    }));
   }
 
   private _emptyMessage(): string {

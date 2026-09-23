@@ -868,7 +868,8 @@ export class MeshCorePanel extends LitElement {
             @active-entity-changed=${this._onActiveEntityChanged}
             @contacts-changed=${() => this._loadDeviceData()}
             @channels-changed=${() => this._loadDeviceData()}
-            @refresh-channels-requested=${() => this._refreshChannelsFromRadio()}></hivefw-integration-page>`;
+            @refresh-channels-requested=${() => this._refreshChannelsFromRadio()}
+            @mark-all-read-requested=${this._handleMarkAllReadRequested}></hivefw-integration-page>`;
       case 'nodes':
         return html`
           <meshcore-nodes-page
@@ -1110,6 +1111,30 @@ export class MeshCorePanel extends LitElement {
     });
     this._unread.clearEntity(entityId);
     this._loadUnreadCounts();
+  }
+
+  private async _handleMarkAllReadRequested() {
+    if (!this.hass) return;
+
+    const unreadEntries = Object.entries(this._unread.counts)
+      .filter(([entityId, count]) => Boolean(entityId) && Number(count) > 0);
+
+    if (unreadEntries.length === 0) return;
+
+    // Clear badges immediately, then reconcile once after all idempotent
+    // mark_read calls finish. This avoids one backend refresh per conversation.
+    for (const [entityId] of unreadEntries) {
+      this._unread.clearEntity(entityId);
+    }
+
+    const entryId = this._selectedEntryId || undefined;
+    await Promise.allSettled(
+      unreadEntries.map(([entityId]) =>
+        markConversationRead(this.hass!, entityId, entryId),
+      ),
+    );
+
+    await this._loadUnreadCounts();
   }
 
   private async _handleNodeAction(e: CustomEvent) {
