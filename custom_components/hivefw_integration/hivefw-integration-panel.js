@@ -6484,11 +6484,11 @@ let e,t,i,o,a,r,s,n,l,d,c,p,h,u,v,g,m,f,_,b,y,x,w,$,k,S,C,M,A,R,z,I,T,N,F,D,E,O,
                 ${0}
               </div>
             </div>
-          `),"repeater"===e.type?"R":"C",e.name,o,(null===(t=e.pubkey_prefix)||void 0===t?void 0:t.toUpperCase())||"sem chave",e.firmware_version?Ws(Ra||(Ra=ts` · FW ${0}`),e.firmware_version):Xs,e.neighbors_enabled?Ws(za||(za=ts` · vizinhos monitorizados`)):Xs,i?"online":"offline",i?"Online":"Offline","repeater"===e.type?Ws(Ia||(Ia=ts`<button class="action-btn" @click=${0}>Admin</button>`),()=>this._requestManagedAdmin(e)):Xs)}))}async _applyRepeaterQuickSetting(e,t){var i;if(this.hass&&null!==(i=this._repeaterStatus)&&void 0!==i&&i.supported&&!this._repeaterQuickBusy){"repeat"===e?Boolean(this._repeaterStatus.repeat):"auto_advert"===e?Boolean(this._repeaterStatus.auto_advert):Boolean(this._repeaterStatus.mesh_time_sync),this._repeaterQuickBusy=e;try{var o;const i=await Rn(this.hass,{[e]:t},null===(o=this.config)||void 0===o?void 0:o.entry_id);if(!i.success)throw new Error(i.error||"Não foi possível aplicar a alteração.");await this._readRepeaterStatus(!1,!0);const a="repeat"===e?"Modo Repetidor":"auto_advert"===e?"Auto Advert":"Sincronização RTC via Mesh";this._showStatusMessage(`${a}: ${t?"ativado":"desativado"}.`,"success")}catch(e){await this._readRepeaterStatus(!1,!0),this._showStatusMessage("Configuração imediata do Repeater: "+String(e),"error")}finally{this._repeaterQuickBusy=null}}}_renderRepeaterSettings(){var e,t,i,o,a,r,s,n,l,d,c,p,h,u,v,g,m,f,_,b,y,x,w,$,k,S,C,M;const A=this._repeaterStatus;if(null==A||!A.supported)return Ws(Ta||(Ta=ts`
+          `),"repeater"===e.type?"R":"C",e.name,o,(null===(t=e.pubkey_prefix)||void 0===t?void 0:t.toUpperCase())||"sem chave",e.firmware_version?Ws(Ra||(Ra=ts` · FW ${0}`),e.firmware_version):Xs,e.neighbors_enabled?Ws(za||(za=ts` · vizinhos monitorizados`)):Xs,i?"online":"offline",i?"Online":"Offline","repeater"===e.type?Ws(Ia||(Ia=ts`<button class="action-btn" @click=${0}>Admin</button>`),()=>this._requestManagedAdmin(e)):Xs)}))}async _applyRepeaterQuickSetting(e,t){var i;if(this.hass&&null!==(i=this._repeaterStatus)&&void 0!==i&&i.supported&&!this._repeaterQuickBusy){"repeat"===e?Boolean(this._repeaterStatus.repeat):"auto_advert"===e?Boolean(this._repeaterStatus.auto_advert):Boolean(this._repeaterStatus.mesh_time_sync),this._repeaterQuickBusy=e;try{var o;const i=await Rn(this.hass,{[e]:t},null===(o=this.config)||void 0===o?void 0:o.entry_id);if(!i.success)throw new Error(i.error||"Não foi possível aplicar a alteração.");await this._readRepeaterStatus(!1,!0);const a="repeat"===e?"Modo Repetidor":"auto_advert"===e?"Auto Advert":"Sincronização RTC via Mesh";this._showStatusMessage(`${a}: ${t?"ativado":"desativado"}.`,"success")}catch(e){await this._readRepeaterStatus(!1,!0),this._showStatusMessage("Configuração imediata do Repeater: "+String(e),"error")}finally{this._repeaterQuickBusy=null}}}_renderRepeaterSettings(){var e,t,i,o,a,r,s,n,l,d,c,p,h,u,v,g,m,f,_,b,y,x,w,$,k,S,C,M,A;const R=this._repeaterStatus;if(null==R||!R.supported)return Ws(Ta||(Ta=ts`
         <div style="font-size: 12px; color: var(--secondary-text-color); line-height: 1.5;">
           O Companion está disponível, mas esta versão não anuncia o modo Repeater integrado.
         </div>
-      `));const R=Boolean(A.repeat),z=Boolean(A.auto_advert_supported),I=Boolean(A.auto_advert),T=Boolean(A.mesh_time_sync_supported),N=Boolean(A.mesh_time_sync),F=Number(null!==(e=null!==(t=this._editValues.multi_acks)&&void 0!==t?t:A.radio.multi_acks)&&void 0!==e?e:0),D=Number(null!==(i=null!==(o=this._editValues.rx_delay)&&void 0!==o?o:A.tuning.rx_delay)&&void 0!==i?i:0),E=A.routing,O=A.radio_guard,P=A.repeater_profile,B=String(null!==(a=null!==(r=this._editValues.owner_info)&&void 0!==r?r:null==P?void 0:P.owner_info)&&void 0!==a?a:""),L=Number(null!==(s=null!==(n=this._editValues.flood_max)&&void 0!==n?n:null==E?void 0:E.flood_max)&&void 0!==s?s:64),H=Number(null!==(l=null!==(d=this._editValues.flood_max_unscoped)&&void 0!==d?d:null==E?void 0:E.flood_max_unscoped)&&void 0!==l?l:64),U=Number(null!==(c=null!==(p=this._editValues.flood_max_advert)&&void 0!==p?p:null==E?void 0:E.flood_max_advert)&&void 0!==c?c:8),j=Number(null!==(h=null!==(u=this._editValues.loop_detect)&&void 0!==u?u:null==E?void 0:E.loop_detect)&&void 0!==h?h:0),q=Boolean(null!==(v=null!==(g=this._editValues.cad_enabled)&&void 0!==g?g:null==O?void 0:O.cad_enabled)&&void 0!==v&&v),V=Number(null!==(m=null!==(f=this._editValues.interference_threshold)&&void 0!==f?f:null==O?void 0:O.interference_threshold)&&void 0!==m?m:0),W=Number(null!==(_=null!==(b=this._editValues.agc_reset_interval)&&void 0!==b?b:null==O?void 0:O.agc_reset_interval)&&void 0!==_?_:0),K=Number(null!==(y=null!==(x=this._editValues.flood_tx_delay)&&void 0!==x?x:null==O?void 0:O.flood_tx_delay)&&void 0!==y?y:.5),G=Number(null!==(w=null!==($=this._editValues.direct_tx_delay)&&void 0!==$?$:null==O?void 0:O.direct_tx_delay)&&void 0!==w?w:.3);return Ws(Na||(Na=ts`
+      `));const z=Boolean(R.repeat),I=Boolean(R.auto_advert_supported),T=Boolean(R.auto_advert),N=Boolean(R.neighbor_advert_supported),F=Number(null!==(e=R.neighbor_advert_interval)&&void 0!==e?e:240),D=Boolean(R.mesh_time_sync_supported),E=Boolean(R.mesh_time_sync),O=Number(null!==(t=null!==(i=this._editValues.multi_acks)&&void 0!==i?i:R.radio.multi_acks)&&void 0!==t?t:0),P=Number(null!==(o=null!==(a=this._editValues.rx_delay)&&void 0!==a?a:R.tuning.rx_delay)&&void 0!==o?o:0),B=R.routing,L=R.radio_guard,H=R.repeater_profile,U=String(null!==(r=null!==(s=this._editValues.owner_info)&&void 0!==s?s:null==H?void 0:H.owner_info)&&void 0!==r?r:""),j=Number(null!==(n=null!==(l=this._editValues.flood_max)&&void 0!==l?l:null==B?void 0:B.flood_max)&&void 0!==n?n:64),q=Number(null!==(d=null!==(c=this._editValues.flood_max_unscoped)&&void 0!==c?c:null==B?void 0:B.flood_max_unscoped)&&void 0!==d?d:64),V=Number(null!==(p=null!==(h=this._editValues.flood_max_advert)&&void 0!==h?h:null==B?void 0:B.flood_max_advert)&&void 0!==p?p:8),W=Number(null!==(u=null!==(v=this._editValues.loop_detect)&&void 0!==v?v:null==B?void 0:B.loop_detect)&&void 0!==u?u:0),K=Boolean(null!==(g=null!==(m=this._editValues.cad_enabled)&&void 0!==m?m:null==L?void 0:L.cad_enabled)&&void 0!==g&&g),G=Number(null!==(f=null!==(_=this._editValues.interference_threshold)&&void 0!==_?_:null==L?void 0:L.interference_threshold)&&void 0!==f?f:0),X=Number(null!==(b=null!==(y=this._editValues.agc_reset_interval)&&void 0!==y?y:null==L?void 0:L.agc_reset_interval)&&void 0!==b?b:0),Q=Number(null!==(x=null!==(w=this._editValues.flood_tx_delay)&&void 0!==w?w:null==L?void 0:L.flood_tx_delay)&&void 0!==x?x:.5),Y=Number(null!==($=null!==(k=this._editValues.direct_tx_delay)&&void 0!==k?k:null==L?void 0:L.direct_tx_delay)&&void 0!==$?$:.3);return Ws(Na||(Na=ts`
       <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;padding:10px 12px;border-radius:8px;background:var(--secondary-background-color);">
         <div>
           <div style="font-size:13px;font-weight:600;">Modo Repetidor</div>
@@ -6523,6 +6523,32 @@ let e,t,i,o,a,r,s,n,l,d,c,p,h,u,v,g,m,f,_,b,y,x,w,$,k,S,C,M,A,R,z,I,T,N,F,D,E,O,
           />
           ${0}
         </label>
+      </div>
+
+      <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:14px;margin-bottom:14px;padding:10px 12px;border-radius:8px;background:var(--secondary-background-color);">
+        <div style="min-width:0;flex:1;">
+          <div style="font-size:13px;font-weight:600;">Neighbour Advert zero-hop</div>
+          <div style="font-size:11px;color:var(--secondary-text-color);margin-top:2px;line-height:1.45;">
+            Advert local de presença RF direta. Não é flooded nem reencaminhado.
+            0 desativa; intervalo oficial 60–240 minutos em passos de 2.
+          </div>
+        </div>
+        <div style="min-width:150px;">
+          <label class="form-label">Intervalo (min)</label>
+          <input
+            class="form-input"
+            type="number"
+            min="0"
+            max="240"
+            step="2"
+            .value=${0}
+            ?disabled=${0}
+            @change=${0}
+          />
+          <div style="font-size:10px;color:var(--secondary-text-color);margin-top:3px;">
+            ${0}
+          </div>
+        </div>
       </div>
 
       <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;padding:10px 12px;border-radius:8px;background:var(--secondary-background-color);">
@@ -6603,7 +6629,7 @@ let e,t,i,o,a,r,s,n,l,d,c,p,h,u,v,g,m,f,_,b,y,x,w,$,k,S,C,M,A,R,z,I,T,N,F,D,E,O,
       <div style="margin-top:10px;font-size:11px;color:var(--secondary-text-color);line-height:1.45;">
         Todas as alterações deste painel são enviadas imediatamente ao Companion e confirmadas por read-back.
       </div>
-    `),A.repeat?"Ativo no HiveFW":"Desligado — Companion apenas",R,null!==this._repeaterQuickBusy,e=>{this._applyRepeaterQuickSetting("repeat",e.target.checked)},R?"Ativo":"Desligado",z?I?"Ativo — Smart Advert automático":"Desligado":"Requer firmware HiveFW com controlo remoto de AutoAdvert",I,!z||null!==this._repeaterQuickBusy,e=>{this._applyRepeaterQuickSetting("auto_advert",e.target.checked)},I?"Ativo":"Desligado",N,!T||null!==this._repeaterQuickBusy,e=>{this._applyRepeaterQuickSetting("mesh_time_sync",e.target.checked)},T?N?"Ativo":"Desligado":"Não suportada",B,!(null!=P&&P.supported),e=>{this._applyImmediateSetting("owner_info",e.target.value,"Owner Info")},null!==(k=null===(S=A.server_auth)||void 0===S?void 0:S.acl_count)&&void 0!==k?k:"—",null!==(C=A.server_auth)&&void 0!==C&&C.supported?Ws(Fa||(Fa=ts`
+    `),R.repeat?"Ativo no HiveFW":"Desligado — Companion apenas",z,null!==this._repeaterQuickBusy,e=>{this._applyRepeaterQuickSetting("repeat",e.target.checked)},z?"Ativo":"Desligado",I?T?"Ativo — Smart Advert automático":"Desligado":"Requer firmware HiveFW com controlo remoto de AutoAdvert",T,!I||null!==this._repeaterQuickBusy,e=>{this._applyRepeaterQuickSetting("auto_advert",e.target.checked)},T?"Ativo":"Desligado",String(F),!N||this._saving,e=>{this._applyImmediateSetting("neighbor_advert_interval",Number(e.target.value),"Neighbour Advert")},N?0===F?"Desativado":F+" min · "+(1440/F).toFixed(1)+" adverts/dia":"Requer firmware HiveFW atualizado",E,!D||null!==this._repeaterQuickBusy,e=>{this._applyRepeaterQuickSetting("mesh_time_sync",e.target.checked)},D?E?"Ativo":"Desligado":"Não suportada",U,!(null!=H&&H.supported),e=>{this._applyImmediateSetting("owner_info",e.target.value,"Owner Info")},null!==(S=null===(C=R.server_auth)||void 0===C?void 0:C.acl_count)&&void 0!==S?S:"—",null!==(M=R.server_auth)&&void 0!==M&&M.supported?Ws(Fa||(Fa=ts`
             <div style="display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 10px;align-items:end;">
               <div>
                 <label class="form-label">
@@ -6690,11 +6716,11 @@ let e,t,i,o,a,r,s,n,l,d,c,p,h,u,v,g,m,f,_,b,y,x,w,$,k,S,C,M,A,R,z,I,T,N,F,D,E,O,
                 ${0}
               </button>
             </div>
-          `),A.server_auth.admin_password_set?"var(--success-color, #2e7d32)":"var(--secondary-text-color)",A.server_auth.admin_password_set?"configurada":"não configurada",A.server_auth.admin_password_set?"••••••••":"Definir password",this._adminPasswordDraft,null!==this._repeaterAccessBusy,e=>{this._adminPasswordDraft=e.target.value},null!==this._repeaterAccessBusy||!this._adminPasswordDraft,()=>this._saveRepeaterPassword("admin"),"admin"===this._repeaterAccessBusy?"A guardar...":"Guardar",null!==this._repeaterAccessBusy||!A.server_auth.admin_password_set,()=>this._clearRepeaterPassword("admin"),A.server_auth.guest_password_set?"var(--success-color, #2e7d32)":"var(--secondary-text-color)",A.server_auth.guest_password_set?"configurada":"não configurada",A.server_auth.guest_password_set?"••••••••":"Definir password",this._guestPasswordDraft,null!==this._repeaterAccessBusy,e=>{this._guestPasswordDraft=e.target.value},null!==this._repeaterAccessBusy||!this._guestPasswordDraft,()=>this._saveRepeaterPassword("guest"),"guest"===this._repeaterAccessBusy?"A guardar...":"Guardar",null!==this._repeaterAccessBusy||!A.server_auth.guest_password_set,()=>this._clearRepeaterPassword("guest"),this._renderRepeaterAcl(A),null!==this._repeaterAccessBusy||!(null!==(M=A.server_auth.acl_count)&&void 0!==M&&M),this._confirmClearRepeaterAcl,"acl"===this._repeaterAccessBusy?"A limpar...":"Limpar ACL"):Ws(Da||(Da=ts`
+          `),R.server_auth.admin_password_set?"var(--success-color, #2e7d32)":"var(--secondary-text-color)",R.server_auth.admin_password_set?"configurada":"não configurada",R.server_auth.admin_password_set?"••••••••":"Definir password",this._adminPasswordDraft,null!==this._repeaterAccessBusy,e=>{this._adminPasswordDraft=e.target.value},null!==this._repeaterAccessBusy||!this._adminPasswordDraft,()=>this._saveRepeaterPassword("admin"),"admin"===this._repeaterAccessBusy?"A guardar...":"Guardar",null!==this._repeaterAccessBusy||!R.server_auth.admin_password_set,()=>this._clearRepeaterPassword("admin"),R.server_auth.guest_password_set?"var(--success-color, #2e7d32)":"var(--secondary-text-color)",R.server_auth.guest_password_set?"configurada":"não configurada",R.server_auth.guest_password_set?"••••••••":"Definir password",this._guestPasswordDraft,null!==this._repeaterAccessBusy,e=>{this._guestPasswordDraft=e.target.value},null!==this._repeaterAccessBusy||!this._guestPasswordDraft,()=>this._saveRepeaterPassword("guest"),"guest"===this._repeaterAccessBusy?"A guardar...":"Guardar",null!==this._repeaterAccessBusy||!R.server_auth.guest_password_set,()=>this._clearRepeaterPassword("guest"),this._renderRepeaterAcl(R),null!==this._repeaterAccessBusy||!(null!==(A=R.server_auth.acl_count)&&void 0!==A&&A),this._confirmClearRepeaterAcl,"acl"===this._repeaterAccessBusy?"A limpar...":"Limpar ACL"):Ws(Da||(Da=ts`
             <div style="font-size:11px;color:var(--secondary-text-color);line-height:1.45;">
               Atualiza o firmware HiveFW para ativar passwords Admin/Guest e gestão da ACL local.
             </div>
-          `)),null!=E&&E.supported?Ws(Ea||(Ea=ts`
+          `)),null!=B&&B.supported?Ws(Ea||(Ea=ts`
             <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 10px;">
               <div>
                 <label class="form-label">Flood Max</label>
@@ -6735,11 +6761,11 @@ let e,t,i,o,a,r,s,n,l,d,c,p,h,u,v,g,m,f,_,b,y,x,w,$,k,S,C,M,A,R,z,I,T,N,F,D,E,O,
                 </select>
               </div>
             </div>
-          `),String(L),e=>{this._applyImmediateSetting("flood_max",Number(e.target.value),"Flood Max")},String(H),e=>{this._applyImmediateSetting("flood_max_unscoped",Number(e.target.value),"Flood Max Unscoped")},String(U),e=>{this._applyImmediateSetting("flood_max_advert",Number(e.target.value),"Flood Max Adverts")},String(j),e=>{this._applyImmediateSetting("loop_detect",Number(e.target.value),"Loop Detect")},String(F),e=>{this._applyImmediateSetting("multi_acks",Number(e.target.value),"Multi ACK")}):Ws(Oa||(Oa=ts`
+          `),String(j),e=>{this._applyImmediateSetting("flood_max",Number(e.target.value),"Flood Max")},String(q),e=>{this._applyImmediateSetting("flood_max_unscoped",Number(e.target.value),"Flood Max Unscoped")},String(V),e=>{this._applyImmediateSetting("flood_max_advert",Number(e.target.value),"Flood Max Adverts")},String(W),e=>{this._applyImmediateSetting("loop_detect",Number(e.target.value),"Loop Detect")},String(O),e=>{this._applyImmediateSetting("multi_acks",Number(e.target.value),"Multi ACK")}):Ws(Oa||(Oa=ts`
             <div style="font-size:11px;color:var(--secondary-text-color);">
               Este firmware não expõe Flood Limits / Loop Detect pelo Companion.
             </div>
-          `)),null!=O&&O.supported?Ws(Pa||(Pa=ts`
+          `)),null!=L&&L.supported?Ws(Pa||(Pa=ts`
             <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 10px;">
               <div>
                 <label class="form-label">RX Delay</label>
@@ -6800,7 +6826,7 @@ let e,t,i,o,a,r,s,n,l,d,c,p,h,u,v,g,m,f,_,b,y,x,w,$,k,S,C,M,A,R,z,I,T,N,F,D,E,O,
                 </select>
               </div>
             </div>
-          `),String(D),e=>{this._applyImmediateSetting("rx_delay",Number(e.target.value),"RX Delay")},q?"1":"0",e=>{this._applyImmediateSetting("cad_enabled","1"===e.target.value,"CAD")},String(V),e=>{this._applyImmediateSetting("interference_threshold",Number(e.target.value),"Interference Threshold")},String(W),e=>{this._applyImmediateSetting("agc_reset_interval",Number(e.target.value),"AGC Reset")},String(K),e=>{this._applyImmediateSetting("flood_tx_delay",Number(e.target.value),"Flood TX Delay")},String(G),e=>{this._applyImmediateSetting("direct_tx_delay",Number(e.target.value),"Direct TX Delay")},String(this._dutyCycleValue),null!==this._dutyCycleBusy,e=>{const t=Number(e.target.value);this._dutyCycleValue=t,this._applyDutyCycle(t)},Array.from({length:41},(e,t)=>t+10).map(e=>Ws(Ba||(Ba=ts`<option value=${0}>${0}%</option>`),String(e),e))):Ws(La||(La=ts`
+          `),String(P),e=>{this._applyImmediateSetting("rx_delay",Number(e.target.value),"RX Delay")},K?"1":"0",e=>{this._applyImmediateSetting("cad_enabled","1"===e.target.value,"CAD")},String(G),e=>{this._applyImmediateSetting("interference_threshold",Number(e.target.value),"Interference Threshold")},String(X),e=>{this._applyImmediateSetting("agc_reset_interval",Number(e.target.value),"AGC Reset")},String(Q),e=>{this._applyImmediateSetting("flood_tx_delay",Number(e.target.value),"Flood TX Delay")},String(Y),e=>{this._applyImmediateSetting("direct_tx_delay",Number(e.target.value),"Direct TX Delay")},String(this._dutyCycleValue),null!==this._dutyCycleBusy,e=>{const t=Number(e.target.value);this._dutyCycleValue=t,this._applyDutyCycle(t)},Array.from({length:41},(e,t)=>t+10).map(e=>Ws(Ba||(Ba=ts`<option value=${0}>${0}%</option>`),String(e),e))):Ws(La||(La=ts`
             <div style="font-size:11px;color:var(--secondary-text-color);">
               Atualiza o firmware HiveFW para ativar os controlos locais de CAD, AGC e delays.
             </div>
