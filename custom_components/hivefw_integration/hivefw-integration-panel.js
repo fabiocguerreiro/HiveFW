@@ -4480,19 +4480,24 @@ let e,t,i,o,a,r,s,n,l,d,c,p,h,u,v,g,m,f,_,b,y,x,w,$,k,C,S,M,R,A,z,N,T,I,F,D,E,O,
     }
 
     .header-actions {
-      display: flex;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto auto;
       align-items: center;
       gap: 8px;
       width: 100%;
-      flex-wrap: wrap;
     }
 
     .header-actions .search-bar {
-      flex: 1 1 340px;
-      width: auto;
+      grid-column: 1 / -1;
+      width: 100%;
       max-width: none;
-      min-width: 220px;
+      min-width: 0;
       box-sizing: border-box;
+    }
+
+    .header-actions .sort-select {
+      width: 100%;
+      min-width: 0;
     }
 
     .export-btn {
@@ -6859,20 +6864,7 @@ let e,t,i,o,a,r,s,n,l,d,c,p,h,u,v,g,m,f,_,b,y,x,w,$,k,C,S,M,R,A,z,N,T,I,F,D,E,O,
           </div>
 
           ${0}
-          <div
-            style="margin-top:8px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 10px;"
-            data-hive-duty-cycle-control>
-            <div>
-              <label class="form-label">Duty Cycle</label>
-              <select
-                class="form-select"
-                .value=${0}
-                ?disabled=${0}
-                @change=${0}>
-                ${0}
-              </select>
-            </div>
-          </div>
+
 
 
         </div>
@@ -7078,12 +7070,22 @@ let e,t,i,o,a,r,s,n,l,d,c,p,h,u,v,g,m,f,_,b,y,x,w,$,k,C,S,M,R,A,z,N,T,I,F,D,E,O,
                   .value=${0}
                   @input=${0} />
               </div>
+              <div data-hive-duty-cycle-control>
+                <label class="form-label">Duty Cycle</label>
+                <select
+                  class="form-select"
+                  .value=${0}
+                  ?disabled=${0}
+                  @change=${0}>
+                  ${0}
+                </select>
+              </div>
             </div>
-          `),String(P),e=>{this._editValues.rx_delay=Number(e.target.value),this._editValues={...this._editValues}},K?"1":"0",e=>{this._editValues.cad_enabled="1"===e.target.value,this._editValues={...this._editValues}},String(G),e=>{this._editValues.interference_threshold=Number(e.target.value),this._editValues={...this._editValues}},String(X),e=>{this._editValues.agc_reset_interval=Number(e.target.value),this._editValues={...this._editValues}},String(Q),e=>{this._editValues.flood_tx_delay=Number(e.target.value),this._editValues={...this._editValues}},String(Y),e=>{this._editValues.direct_tx_delay=Number(e.target.value),this._editValues={...this._editValues}}):vn(sr||(sr=ws`
+          `),String(P),e=>{this._editValues.rx_delay=Number(e.target.value),this._editValues={...this._editValues}},K?"1":"0",e=>{this._editValues.cad_enabled="1"===e.target.value,this._editValues={...this._editValues}},String(G),e=>{this._editValues.interference_threshold=Number(e.target.value),this._editValues={...this._editValues}},String(X),e=>{this._editValues.agc_reset_interval=Number(e.target.value),this._editValues={...this._editValues}},String(Q),e=>{this._editValues.flood_tx_delay=Number(e.target.value),this._editValues={...this._editValues}},String(Y),e=>{this._editValues.direct_tx_delay=Number(e.target.value),this._editValues={...this._editValues}},String(this._dutyCycleValue),null!==this._dutyCycleBusy,e=>{const t=Number(e.target.value);this._dutyCycleValue=t,this._applyDutyCycle(t)},Array.from({length:41},(e,t)=>t+10).map(e=>vn(sr||(sr=ws`<option value=${0}>${0}%</option>`),String(e),e))):vn(nr||(nr=ws`
             <div style="font-size:11px;color:var(--secondary-text-color);">
               Atualiza o firmware HiveFW para ativar os controlos locais de CAD, AGC e delays.
             </div>
-          `)),String(this._dutyCycleValue),null!==this._dutyCycleBusy,e=>{const t=Number(e.target.value);this._dutyCycleValue=t,this._applyDutyCycle(t)},Array.from({length:41},(e,t)=>t+10).map(e=>vn(nr||(nr=ws`<option value=${0}>${0}%</option>`),String(e),e)),this._saving,this._applyRepeaterSettings,this._saving?"A aplicar...":"Aplicar configurações do Repeater")}_renderRepeaterAcl(e){const t=e.server_auth,i=Array.isArray(null==t?void 0:t.acl_entries)?t.acl_entries:[];return vn(lr||(lr=ws`
+          `)),this._saving,this._applyRepeaterSettings,this._saving?"A aplicar...":"Aplicar configurações do Repeater")}_renderRepeaterAcl(e){const t=e.server_auth,i=Array.isArray(null==t?void 0:t.acl_entries)?t.acl_entries:[];return vn(lr||(lr=ws`
       <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--divider-color);">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;">
           <div>
