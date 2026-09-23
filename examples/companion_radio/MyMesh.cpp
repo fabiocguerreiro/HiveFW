@@ -1569,7 +1569,7 @@ bool MyMesh::handleRepeaterRemoteCommand(
       reply,
       reply_size,
       "> %s",
-      _prefs.repeat.allow_read_only ? "on" : "off"
+      _prefs.isAllowReadOnlyEn() ? "on" : "off"
     );
     return true;
   }
@@ -2091,8 +2091,7 @@ bool MyMesh::handleRepeaterRemoteCommand(
       return true;
     }
 
-    _prefs.repeat.allow_read_only =
-      strcmp(value, "on") == 0 ? 1 : 0;
+    _prefs.setAllowReadOnlyEn(strcmp(value, "on") == 0);
     save_ok();
     return true;
   }
