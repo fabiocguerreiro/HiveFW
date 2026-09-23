@@ -477,6 +477,7 @@ private:
 
   void checkCLIRescueCmd();
   void checkSerialInterface();
+  uint32_t getActiveRepeatFreqKhz() const;
   bool isValidClientRepeatFreq(uint32_t f) const;
 
   uint32_t loadPersistedAutoAdvertEpoch();
