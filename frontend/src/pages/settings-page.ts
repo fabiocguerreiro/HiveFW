@@ -3088,7 +3088,11 @@ export class SettingsPage extends LitElement {
                   @change=${(e: Event) => {
                     const next = Number((e.target as HTMLSelectElement).value);
                     this._dutyCycleValue = next;
-                    void this._applyDutyCycle(next);
+                    void this._applyImmediateSetting(
+                      'duty_cycle',
+                      next,
+                      'Duty Cycle',
+                    );
                   }}>
                   ${Array.from({ length: 41 }, (_, i) => i + 10).map(
                     (value) => html`<option value=${String(value)}>${value}%</option>`,
