@@ -3052,6 +3052,7 @@ class HiveFWPanel extends BasePanel {
     // These cards remain wrapper-specific.
     this.__renderRxLogCard(sroot, grid);
     this.__renderObservabilityCard(sroot, grid);
+    this.__renderMeshTimeSettingsCard(sroot, grid);
     this.__renderSettingsConsoleCard(sroot, grid);
     this.__renderBackupRestoreCard(sroot, grid);
     this.__renderWifiPortalCard(sroot, grid);
@@ -3066,6 +3067,103 @@ class HiveFWPanel extends BasePanel {
 
     this.__settingsObserver?.takeRecords();
     this.__settingsObserver?.observe(sroot, { childList: true, subtree: true });
+  }
+
+
+  __renderMeshTimeSettingsCard(sroot, grid) {
+    let card = sroot.querySelector("#hive-mesh-time-settings-card");
+    if (!card) {
+      card = document.createElement("section");
+      card.id = "hive-mesh-time-settings-card";
+      card.className = "device-section";
+      grid.appendChild(card);
+    }
+
+    card.replaceChildren();
+
+    const title = document.createElement("div");
+    title.className = "card-title";
+    title.textContent = "RTC & Atualização da configuração";
+    card.appendChild(title);
+
+    const description = document.createElement("div");
+    description.className = "hive-settings-note";
+    description.style.marginTop = "0";
+    description.textContent =
+      "O relógio continua a usar APP/GPS como fontes principais. Opcionalmente, o HiveFW pode usar como fonte secundária os adverts assinados pelo Timekeeper da rede portuguesa, validados pela respetiva public key.";
+    card.appendChild(description);
+
+    const status = this.__repeaterStatus;
+    if (!status && this.__repeaterLoading) {
+      const loading = document.createElement("div");
+      loading.className = "hive-settings-note";
+      loading.textContent = "A consultar a configuração diretamente no rádio…";
+      card.appendChild(loading);
+      return;
+    }
+
+    if (status?.mesh_time_sync_supported) {
+      const controls = document.createElement("div");
+      controls.className = "hive-settings-controls";
+      controls.style.marginTop = "12px";
+
+      const meshTime = this.__settingsSelect(
+        "Sincronização RTC via Mesh",
+        [["1", "Ativada"], ["0", "Desativada"]],
+        this.__repeaterEdit.mesh_time_sync ? "1" : "0"
+      );
+      meshTime.select.addEventListener("change", () => {
+        this.__repeaterEdit.mesh_time_sync =
+          meshTime.select.value === "1";
+      });
+      controls.appendChild(meshTime.field);
+      card.appendChild(controls);
+    } else {
+      const unsupported = document.createElement("div");
+      unsupported.className = "hive-settings-note";
+      unsupported.textContent =
+        "O firmware atualmente ligado ainda não expõe a opção de sincronização RTC via Mesh.";
+      card.appendChild(unsupported);
+    }
+
+    const actions = document.createElement("div");
+    actions.className = "actions-row";
+    actions.style.marginTop = "12px";
+
+    if (status?.mesh_time_sync_supported) {
+      const save = document.createElement("button");
+      save.className = "action-btn";
+      save.disabled = this.__repeaterLoading;
+      save.textContent = "Guardar sincronização";
+      save.addEventListener("click", () => {
+        void this.__saveRepeaterSettings(
+          { mesh_time_sync: !!this.__repeaterEdit.mesh_time_sync },
+          this.__repeaterEdit.mesh_time_sync
+            ? "Sincronização RTC via Mesh ativada."
+            : "Sincronização RTC via Mesh desativada."
+        );
+      });
+      actions.appendChild(save);
+    }
+
+    const refresh = document.createElement("button");
+    refresh.className = "action-btn";
+    refresh.disabled = this.__repeaterLoading;
+    refresh.textContent =
+      this.__repeaterLoading
+        ? "A reler configuração…"
+        : "↻ Reler configuração do rádio";
+    refresh.addEventListener("click", () => {
+      void this.__refreshRepeaterConfig();
+    });
+    actions.appendChild(refresh);
+    card.appendChild(actions);
+
+    const note = document.createElement("div");
+    note.className = "hive-settings-note";
+    note.textContent =
+      "A releitura força novo APPSTART, Device Info, Custom Vars, configuração RF/retransmissão e estado de acesso remoto. Não gera tráfego LoRa.";
+    card.appendChild(note);
   }
 
 
@@ -7417,6 +7515,27 @@ class HiveFWPanel extends BasePanel {
     }
   }
 
+  async __refreshRepeaterConfig() {
+    if (!this.hass || this.__repeaterLoading) return;
+
+    // Clear the current view first so this cannot look like a cosmetic refresh.
+    // get_local_repeater_status performs fresh APPSTART, DEVICE_INFO,
+    // CUSTOM_VARS, RF and auth reads from the radio.
+    this.__repeaterStatus = null;
+    this.__repeaterEdit = {};
+    this.__repeaterMessage = null;
+    this.__repeaterError = null;
+    this.__rerenderRepeater();
+
+    await this.__loadRepeaterStatus();
+
+    if (!this.__repeaterError) {
+      this.__repeaterMessage =
+        "Configuração relida diretamente do rádio.";
+      this.__rerenderRepeater();
+    }
+  }
+
   __smartAdvertRemainingSeconds() {
     const smart = this.__repeaterStatus?.smart_advert;
     if (!smart?.supported || !smart?.enabled) return null;
@@ -7507,6 +7626,7 @@ class HiveFWPanel extends BasePanel {
 
     this.__repeaterEdit = {
       repeat: !!status.repeat,
+      mesh_time_sync: !!status.mesh_time_sync,
       frequency: radio.frequency,
       bandwidth: radio.bandwidth,
       spreading_factor: radio.spreading_factor,
@@ -8081,7 +8201,7 @@ class HiveFWPanel extends BasePanel {
     refresh.className = "mcr-btn";
     refresh.disabled = this.__repeaterLoading;
     refresh.textContent = this.__repeaterLoading ? "A atualizar…" : "↻ Atualizar";
-    refresh.addEventListener("click", () => void this.__loadRepeaterStatus());
+    refresh.addEventListener("click", () => void this.__refreshRepeaterConfig());
 
     hero.append(heading, refresh);
     wrap.appendChild(hero);
@@ -8683,6 +8803,7 @@ class HiveFWPanel extends BasePanel {
       ["CAD timeouts", cad.timeouts],
       ["Recuperações RX", cad.recoveries],
       ["CAD force TX", cad.forced_tx],
+      ["TX expirados", cad.expired_tx],
       ["CAD busy máx.", cad.max_busy_ms != null ? `${(Number(cad.max_busy_ms) / 1000).toFixed(1)} s` : null],
       [
         "Último CAD timeout",
