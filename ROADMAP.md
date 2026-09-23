@@ -84,19 +84,23 @@ Plano aprovado para uma implementação futura:
 3. um Flood advert periódico reinicia o timer zero-hop, igual ao oficial;
 4. o Smart Advert não é convertido num terceiro intervalo configurável e não
    perde a sua persistência/at-most-once;
-5. qualquer advert automático realmente originado deve atualizar um estado
-   comum de “último advert automático” para permitir anti-colisão entre os
-   três schedulers;
-6. antes de transmitir, cada scheduler deve respeitar uma janela mínima de
-   separação face a outro advert automático recente;
-7. um Smart Advert que coincida com um Flood periódico deve ceder ao Flood e
-   recalcular o seu próximo slot elegível, sem criar um segundo advert;
-8. ações manuais **Local Advert** e **Flood Advert** continuam imediatas e não
-   são tratadas como Smart Advert; tal como no simple_repeater oficial, não
-   reiniciam os timers periódicos;
-9. alterações a nome não influenciam o Smart Advert: o HiveFW usa identidade /
-   public key para o slot;
-10. a UI futura deve mostrar separadamente os três mecanismos e o próximo envio
+5. o timestamp persistido `last_smart_advert` continua exclusivo dos
+   Smart Adverts; adverts oficiais não alteram a proteção Smart de 24 h;
+6. os timers oficiais são autoritativos e nunca são atrasados/suprimidos pelo
+   Smart Advert;
+7. o Smart Advert é o mecanismo de menor prioridade: antes de transmitir,
+   verifica se um Local/Flood advert oficial acabou de sair ou está prestes a
+   vencer dentro de uma pequena janela anti-colisão;
+8. em caso de proximidade, o Smart Advert é apenas **adiado** até depois dessa
+   janela e volta a validar a sua própria regra at-most-once; não perde o dia
+   inteiro nem altera o timer oficial;
+9. o Flood periódico oficial continua a reiniciar apenas o timer zero-hop,
+   exatamente como no simple_repeater;
+10. ações manuais **Local Advert** e **Flood Advert** continuam imediatas e,
+    tal como no simple_repeater oficial, não reiniciam os timers periódicos;
+11. alterações a nome não influenciam o Smart Advert: o HiveFW usa identidade /
+    public key para o slot;
+12. a UI futura deve mostrar separadamente os três mecanismos e o próximo envio
     de cada um, evitando um único toggle ambíguo.
 
 - [ ] implementar esta coexistência apenas numa fase dedicada, com testes de
