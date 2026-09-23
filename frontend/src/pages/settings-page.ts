@@ -8,7 +8,6 @@ import {
   setLocalRegion,
   getFirmwareOtaStatus,
   installLatestFirmware,
-  getDutyCycle,
   setDutyCycle,
   getManagedDevices,
   getFloodScopes,
@@ -134,8 +133,7 @@ export class SettingsPage extends LitElement {
   @state() private _firmwareChecking = false;
   @state() private _firmwareUploadStage: 'uploading' | 'rebooting' | 'reconnecting' | null = null;
   @state() private _dutyCycleValue = 10;
-  @state() private _dutyCycleReadValue: number | null = null;
-  @state() private _dutyCycleBusy: 'read' | 'apply' | null = null;
+  @state() private _dutyCycleBusy: 'apply' | null = null;
   @state() private _adminPasswordDraft = '';
   @state() private _guestPasswordDraft = '';
   @state() private _repeaterAccessBusy: 'admin' | 'guest' | 'acl' | 'acl-entry' | null = null;
@@ -355,6 +353,28 @@ export class SettingsPage extends LitElement {
         margin-bottom: 10px;
       }
 
+      .backup-restore-card {
+        grid-column: 1 / -1;
+        width: 100%;
+      }
+
+      .backup-restore-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+        width: 100%;
+      }
+
+      .backup-restore-panel {
+        width: 100%;
+        min-width: 0;
+        height: 100%;
+        box-sizing: border-box;
+        padding: 12px;
+        border: 1px solid var(--divider-color);
+        border-radius: 8px;
+      }
+
       .repeater-region-form {
         display: grid;
         grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -414,7 +434,8 @@ export class SettingsPage extends LitElement {
       @media (max-width: 870px) {
         .managed-device-list,
         .repeater-setup-grid,
-        .repeater-region-form {
+        .repeater-region-form,
+        .backup-restore-grid {
           grid-template-columns: 1fr;
         }
       }
@@ -1801,14 +1822,14 @@ export class SettingsPage extends LitElement {
   private _renderBackupRestore() {
     const busy = this._backupBusy !== null;
     return html`
-      <div class="device-section" style="margin-bottom:16px;">
+      <div class="device-section backup-restore-card" style="margin-bottom:16px;">
         <div class="card-title">Backup &amp; Restore</div>
         <div style="font-size:12px;line-height:1.45;color:var(--secondary-text-color);margin-bottom:12px;">
           Companion e Repeater são guardados separadamente para distinguir os dados de identidade/app da configuração específica do serviço Repeater.
         </div>
 
-        <div class="section-row">
-          <div style="padding:12px;border:1px solid var(--divider-color);border-radius:8px;">
+        <div class="backup-restore-grid">
+          <div class="backup-restore-panel">
             <div style="font-size:13px;font-weight:650;">Companion</div>
             <div style="font-size:11px;color:var(--secondary-text-color);line-height:1.45;margin:4px 0 9px;">
               Identidade/chave privada, nome, rádio, posição, auto-add, canais e contactos. Formato compatível com MeshCore.
@@ -1834,7 +1855,7 @@ export class SettingsPage extends LitElement {
             </div>
           </div>
 
-          <div style="padding:12px;border:1px solid var(--divider-color);border-radius:8px;">
+          <div class="backup-restore-panel">
             <div style="font-size:13px;font-weight:650;">Repeater</div>
             <div style="font-size:11px;color:var(--secondary-text-color);line-height:1.45;margin:4px 0 9px;">
               Owner Info, RX Gain, ADC, modo Repeater, Path Hash, Multi ACK, Smart Advert, RTC Mesh, Duty Cycle, routing, RF avançado, RegionMap e ACL.
@@ -2573,7 +2594,7 @@ export class SettingsPage extends LitElement {
             }}
           />
           ${meshTimeSupported
-            ? (meshTimeSync ? 'Ativada' : 'Desativada')
+            ? (meshTimeSync ? 'Ativo' : 'Desligado')
             : 'Não suportada'}
         </label>
       </div>
@@ -2859,43 +2880,23 @@ export class SettingsPage extends LitElement {
             </div>
           `}
           <div
-            style="margin-top:12px;padding-top:12px;border-top:1px solid var(--divider-color);"
+            style="margin-top:8px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 10px;"
             data-hive-duty-cycle-control>
-            <div style="font-size:13px;font-weight:600;margin-bottom:10px;">Duty Cycle</div>
-            <div style="display:grid;grid-template-columns:minmax(90px,1fr) auto auto;gap:8px;align-items:end;">
-          <div>
-            <label class="form-label">Valor</label>
-            <select
-              class="form-select"
-              ?disabled=${this._dutyCycleBusy !== null}
-              @change=${(e: Event) => {
-                this._dutyCycleValue = Number((e.target as HTMLSelectElement).value);
-              }}>
-              ${Array.from({ length: 41 }, (_, i) => i + 10).map(
-                (value) => html`
-                  <option
-                    value=${String(value)}
-                    ?selected=${value === this._dutyCycleValue}>
-                    ${value}%
-                  </option>
-                `,
-              )}
-            </select>
-          </div>
-          <button
-            class="apply-button"
-            style="width:auto;min-width:68px;padding:7px 12px;margin:0;"
-            ?disabled=${this._dutyCycleBusy !== null}
-            @click=${this._readDutyCycle}>
-            ${this._dutyCycleBusy === 'read' ? 'A ler...' : 'Ler'}
-          </button>
-          <button
-            class="apply-button"
-            style="width:auto;min-width:78px;padding:7px 12px;margin:0;"
-            ?disabled=${this._dutyCycleBusy !== null}
-            @click=${this._applyDutyCycle}>
-            ${this._dutyCycleBusy === 'apply' ? 'A aplicar...' : 'Aplicar'}
-          </button>
+            <div>
+              <label class="form-label">Duty Cycle</label>
+              <select
+                class="form-select"
+                .value=${String(this._dutyCycleValue)}
+                ?disabled=${this._dutyCycleBusy !== null}
+                @change=${(e: Event) => {
+                  const next = Number((e.target as HTMLSelectElement).value);
+                  this._dutyCycleValue = next;
+                  void this._applyDutyCycle(next);
+                }}>
+                ${Array.from({ length: 41 }, (_, i) => i + 10).map(
+                  (value) => html`<option value=${String(value)}>${value}%</option>`,
+                )}
+              </select>
             </div>
           </div>
 
@@ -3110,7 +3111,6 @@ export class SettingsPage extends LitElement {
 
       if (status?.duty_cycle !== undefined) {
         this._dutyCycleValue = Number(status.duty_cycle);
-        this._dutyCycleReadValue = Number(status.duty_cycle);
       }
 
       if (resetDrafts) {
@@ -3275,35 +3275,14 @@ export class SettingsPage extends LitElement {
     }
   }
 
-  private async _readDutyCycle() {
+  private async _applyDutyCycle(selected?: number) {
     if (!this.hass) return;
 
-    this._dutyCycleBusy = 'read';
-    try {
-      const result = await getDutyCycle(this.hass, this.config?.entry_id);
-      this._dutyCycleReadValue = Number(result.duty_cycle);
-      this._dutyCycleValue = Number(result.duty_cycle);
-      this.requestUpdate();
-      this._showStatusMessage(`Duty Cycle lido: ${result.duty_cycle}%`, 'success');
-    } catch (error) {
-      const e = error as { code?: string; message?: string };
-      const message = e?.message
-        ? (e.code ? `${e.message} (${e.code})` : e.message)
-        : String(error);
-      this._showStatusMessage(`Duty Cycle: ${message}`, 'error');
-    } finally {
-      this._dutyCycleBusy = null;
-    }
-  }
-
-  private async _applyDutyCycle() {
-    if (!this.hass) return;
-
-    const duty = Math.max(10, Math.min(50, Math.round(this._dutyCycleValue)));
+    const duty = Math.max(10, Math.min(50, Math.round(selected ?? this._dutyCycleValue)));
+    this._dutyCycleValue = duty;
     this._dutyCycleBusy = 'apply';
     try {
       const result = await setDutyCycle(this.hass, duty, this.config?.entry_id);
-      this._dutyCycleReadValue = Number(result.duty_cycle);
       this._dutyCycleValue = Number(result.duty_cycle);
       this.requestUpdate();
       this._showStatusMessage(
