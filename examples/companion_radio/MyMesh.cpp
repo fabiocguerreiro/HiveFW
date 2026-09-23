@@ -6355,7 +6355,7 @@ void MyMesh::handleCmdFrame(size_t len) {
     memset(name_hex, 0, sizeof(name_hex));
     memset(command_hex, 0, sizeof(command_hex));
 
-    static const char HEX[] = "0123456789ABCDEF";
+    static const char HEX_DIGITS[] = "0123456789ABCDEF";
 
     size_t name_len = strnlen(
       commands[offset].name,
@@ -6363,8 +6363,8 @@ void MyMesh::handleCmdFrame(size_t len) {
     );
     for (size_t i = 0; i < name_len; i++) {
       const uint8_t b = (uint8_t)commands[offset].name[i];
-      name_hex[i * 2] = HEX[(b >> 4) & 0x0F];
-      name_hex[i * 2 + 1] = HEX[b & 0x0F];
+      name_hex[i * 2] = HEX_DIGITS[(b >> 4) & 0x0F];
+      name_hex[i * 2 + 1] = HEX_DIGITS[b & 0x0F];
     }
 
     size_t command_len = strnlen(
@@ -6373,8 +6373,8 @@ void MyMesh::handleCmdFrame(size_t len) {
     );
     for (size_t i = 0; i < command_len; i++) {
       const uint8_t b = (uint8_t)commands[offset].command[i];
-      command_hex[i * 2] = HEX[(b >> 4) & 0x0F];
-      command_hex[i * 2 + 1] = HEX[b & 0x0F];
+      command_hex[i * 2] = HEX_DIGITS[(b >> 4) & 0x0F];
+      command_hex[i * 2 + 1] = HEX_DIGITS[b & 0x0F];
     }
 
     const int written = snprintf(
