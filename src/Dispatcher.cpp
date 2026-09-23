@@ -451,7 +451,7 @@ void Dispatcher::expireAgedOutbound() {
 
   for (int i = count - 1; i >= 0; i--) {
     Packet* pkt = _mgr->getOutboundByIdx(i);
-    if (pkt == NULL || pkt->queued_at == 0) continue;
+    if (pkt == NULL) continue;
 
     if ((long)(now - pkt->queued_at) > (long)MAX_PACKET_QUEUE_AGE_MS) {
       MESH_DEBUG_PRINTLN(
