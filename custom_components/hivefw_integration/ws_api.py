@@ -407,7 +407,7 @@ def _contact_location(
             return None
         return lat, lon
 
-    public_key = str(contact.get("public_key") or "").strip().lower()
+    public_key = _contact_public_key_hex(contact)
     prefix = str(contact.get("pubkey_prefix") or public_key[:12]).strip().lower()
 
     matched: tuple[float, float, str] | None = None
@@ -633,12 +633,32 @@ async def _record_trace_history(
     await _save_runtime_aux(runtime)
 
 
+def _contact_public_key_hex(contact: dict) -> str:
+    """Return a normalized 32-byte MeshCore public key as lower-case hex.
+
+    Different meshcore-python/service versions expose public_key as either
+    a plain hex string, a mapping containing hex, or raw bytes. Normalize the
+    service shapes here so every HiveFW frontend receives one representation.
+    """
+
+    def _normalize(raw) -> str:
+        if isinstance(raw, dict):
+            raw = raw.get("hex") or raw.get("public_key") or raw.get("key") or ""
+        if isinstance(raw, (bytes, bytearray, memoryview)):
+            raw = bytes(raw).hex()
+        key = str(raw or "").strip().lower()
+        if key.startswith("0x"):
+            key = key[2:]
+        if len(key) != 64 or any(ch not in "0123456789abcdef" for ch in key):
+            return ""
+        return key
+
+    return _normalize(contact.get("public_key")) or _normalize(contact.get("pubkey"))
+
+
 def _contact_meta_key(contact: dict) -> str:
     """Return stable lower-case public-key identity for local node metadata."""
-    raw = contact.get("public_key") or ""
-    if isinstance(raw, dict):
-        raw = raw.get("hex") or ""
-    key = str(raw).strip().lower()
+    key = _contact_public_key_hex(contact)
     if key:
         return key
     return str(contact.get("pubkey_prefix") or "").strip().lower()
@@ -674,7 +694,12 @@ def _node_age(contact: dict, now: float | None = None) -> tuple[str, int | None]
 def _enrich_contact_meta(contact: dict, runtime: HiveFWRuntimeData | None) -> dict:
     """Attach Home Assistant-owned metadata used by the Nodes UI."""
     result = dict(contact)
-    key = _contact_meta_key(contact)
+    full_key = _contact_public_key_hex(contact)
+    if full_key:
+        result["public_key"] = full_key
+        if not str(result.get("pubkey_prefix") or "").strip():
+            result["pubkey_prefix"] = full_key[:12]
+    key = _contact_meta_key(result)
     raw_meta = runtime.node_meta.get(key, {}) if runtime and key else {}
     tags = raw_meta.get("tags", []) if isinstance(raw_meta, dict) else []
     bucket, age_seconds = _node_age(contact)
@@ -5839,13 +5864,10 @@ async def ws_get_hive_neighbors(hass, connection, msg):
         for contact in contacts:
             if not isinstance(contact, dict):
                 continue
-            public_key = str(
-                contact.get("public_key")
-                or contact.get("pubkey_prefix")
-                or ""
-            ).lower()
-            if public_key:
-                contact_by_prefix[public_key[:12]] = contact
+            public_key = _contact_public_key_hex(contact)
+            prefix = str(contact.get("pubkey_prefix") or public_key[:12] or "").lower()
+            if prefix:
+                contact_by_prefix[prefix[:12]] = contact
 
         neighbors = []
         offset = 0
