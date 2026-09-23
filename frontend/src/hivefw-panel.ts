@@ -2266,10 +2266,22 @@ class HiveFWPanel extends BasePanel {
         background:color-mix(in srgb,var(--primary-color) 6%,var(--primary-background-color));
       }
       .hive-discovery-signal {
-        min-width:62px;
+        min-width:76px;
+        display:inline-flex;
+        align-items:center;
+        justify-content:flex-end;
+        gap:6px;
         text-align:right;
         font-size:12px;
         font-weight:700;
+      }
+      .hive-discovery-signal-dot {
+        flex:0 0 auto;
+        width:12px;
+        height:12px;
+        border-radius:50%;
+        border:2px solid white;
+        box-shadow:0 1px 4px rgba(0,0,0,.35);
       }
       .hive-discovery-empty {
         padding:22px 14px;
@@ -9442,8 +9454,29 @@ class HiveFWPanel extends BasePanel {
 
       const signal = document.createElement("div");
       signal.className = "hive-discovery-signal";
-      signal.textContent = item.snr == null ? "—" : Number(item.snr).toFixed(1) + " dB";
+      const snr = Number(item.snr);
+      const signalValue = document.createElement("span");
+      const signalDot = document.createElement("span");
+      signalDot.className = "hive-discovery-signal-dot";
 
+      if (Number.isFinite(snr)) {
+        signalValue.textContent = snr.toFixed(1) + " dB";
+        const quality = snr >= -5
+          ? { color:"#2e7d32", label:"Sinal bom" }
+          : snr >= -12
+            ? { color:"#f9a825", label:"Sinal médio" }
+            : { color:"#c62828", label:"Sinal fraco" };
+        signalDot.style.background = quality.color;
+        signalDot.title = quality.label;
+        signal.setAttribute("aria-label", quality.label + " · " + signalValue.textContent);
+      } else {
+        signalValue.textContent = "—";
+        signalDot.style.background = "#757575";
+        signalDot.title = "Qualidade do sinal indisponível";
+        signal.setAttribute("aria-label", "Qualidade do sinal indisponível");
+      }
+
+      signal.append(signalValue, signalDot);
       row.append(info, signal);
       row.addEventListener("click", () => {
         this.__hiveNeighborMapFocusId = id;
