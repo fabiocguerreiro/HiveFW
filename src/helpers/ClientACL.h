@@ -56,5 +56,30 @@ public:
   bool applyPermissions(const mesh::LocalIdentity& self_id, const uint8_t* pubkey, int key_len, uint8_t perms);
 
   int getNumClients() const { return num_clients; }
-  ClientInfo* getClientByIdx(int idx) { return &clients[idx]; }
+
+  int getNumPersistedClients() const {
+    int count = 0;
+    for (int i = 0; i < num_clients; i++) {
+      if ((clients[i].permissions & PERM_ACL_ROLE_MASK) != PERM_ACL_GUEST) {
+        count++;
+      }
+    }
+    return count;
+  }
+
+  ClientInfo* getClientByIdx(int idx) {
+    return idx >= 0 && idx < num_clients ? &clients[idx] : NULL;
+  }
+
+  ClientInfo* getPersistedClientByIdx(int idx) {
+    if (idx < 0) return NULL;
+    int logical = 0;
+    for (int i = 0; i < num_clients; i++) {
+      if ((clients[i].permissions & PERM_ACL_ROLE_MASK) == PERM_ACL_GUEST) {
+        continue;
+      }
+      if (logical++ == idx) return &clients[i];
+    }
+    return NULL;
+  }
 };
