@@ -1772,11 +1772,11 @@ export class SettingsPage extends LitElement {
       await forceT114DfuMode();
       this._usbFlashStage = 'DFU solicitado. Aguarda a porta USB reaparecer.';
       this._appendUsbFlashLog('DFU: touch 1200 baud enviado.');
-      this._showStatus('T114 colocado em modo DFU.', 'success');
+      this._showStatusMessage('T114 colocado em modo DFU.', 'success');
     } catch (error) {
       this._usbFlashStage = 'Falha ao entrar em DFU.';
       this._appendUsbFlashLog(String(error));
-      this._showStatus(`Falha ao entrar em DFU: ${String(error)}`, 'error');
+      this._showStatusMessage(`Falha ao entrar em DFU: ${String(error)}`, 'error');
     } finally {
       this._usbFlashBusy = false;
     }
@@ -1813,12 +1813,12 @@ export class SettingsPage extends LitElement {
       this._usbFlashProgress = 100;
       this._usbFlashStage = 'Instalação USB concluída.';
       this._appendUsbFlashLog(`Concluído: ${result.filename}${result.release ? ` · ${result.release}` : ''}`);
-      this._showStatus('Firmware instalado por USB com sucesso.', 'success');
+      this._showStatusMessage('Firmware instalado por USB com sucesso.', 'success');
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this._usbFlashStage = 'Falha no flash USB.';
       this._appendUsbFlashLog(message);
-      this._showStatus(`Flash USB falhou: ${message}`, 'error');
+      this._showStatusMessage(`Flash USB falhou: ${message}`, 'error');
     } finally {
       this._usbFlashBusy = false;
     }
