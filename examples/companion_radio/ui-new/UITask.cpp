@@ -1919,24 +1919,44 @@ class HomeScreen : public UIScreen {
   static int batteryPercentageFromMilliVolts(
     uint16_t batteryMilliVolts
   ) {
-#ifndef BATT_MIN_MILLIVOLTS
-#define BATT_MIN_MILLIVOLTS 3000
-#endif
 #ifndef BATT_MAX_MILLIVOLTS
 #define BATT_MAX_MILLIVOLTS 4200
 #endif
 
-    const int minMilliVolts = BATT_MIN_MILLIVOLTS;
-    const int maxMilliVolts = BATT_MAX_MILLIVOLTS;
+    // Approximate low-load LiPo open-circuit discharge curve. This is much
+    // closer to real remaining capacity than a linear 3.0-4.2 V mapping.
+    static const struct {
+      uint16_t milliVolts;
+      uint8_t percent;
+    } curve[] = {
+      {4200,100}, {4150,95}, {4100,90}, {4050,85}, {4000,80},
+      {3950,74}, {3900,68}, {3850,60}, {3800,50}, {3750,38},
+      {3700,28}, {3650,18}, {3600,10}, {3500,5}, {3300,0},
+    };
 
-    int percentage =
-      (((int)batteryMilliVolts - minMilliVolts) * 100) /
-      (maxMilliVolts - minMilliVolts);
+    const int cells = (BATT_MAX_MILLIVOLTS + 2099) / 4200;
+    const uint16_t cellMv =
+      cells > 0 ? batteryMilliVolts / cells : batteryMilliVolts;
+    const int count = sizeof(curve) / sizeof(curve[0]);
 
-    if (percentage < 0) percentage = 0;
-    if (percentage > 100) percentage = 100;
+    if (cellMv >= curve[0].milliVolts) return 100;
+    if (cellMv <= curve[count - 1].milliVolts) return 0;
 
-    return percentage;
+    for (int i = 0; i < count - 1; i++) {
+      const uint16_t highMv = curve[i].milliVolts;
+      const uint16_t lowMv = curve[i + 1].milliVolts;
+
+      if (cellMv <= highMv && cellMv >= lowMv) {
+        const int highPct = curve[i].percent;
+        const int lowPct = curve[i + 1].percent;
+
+        return lowPct +
+          ((int)(cellMv - lowMv) * (highPct - lowPct)) /
+          (int)(highMv - lowMv);
+      }
+    }
+
+    return 0;
   }
 
   static void formatDuration(
