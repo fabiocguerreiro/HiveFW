@@ -2276,6 +2276,13 @@ async def ws_get_local_repeater_status(hass, connection, msg):
             "on",
             "yes",
         }
+        mesh_time_sync_supported = "mesh_time" in custom_vars
+        mesh_time_sync = str(custom_vars.get("mesh_time", "0")).strip().lower() in {
+            "1",
+            "true",
+            "on",
+            "yes",
+        }
         smart_advert = {
             "supported": False,
             "enabled": auto_advert,
@@ -2362,7 +2369,7 @@ async def ws_get_local_repeater_status(hass, connection, msg):
         if raw_cad_diag:
             try:
                 cad_parts = [int(part) for part in raw_cad_diag.split("/")]
-                if len(cad_parts) == 6:
+                if len(cad_parts) >= 6:
                     cad_diag = {
                         "timeouts": cad_parts[0],
                         "recoveries": cad_parts[1],
@@ -2370,6 +2377,7 @@ async def ws_get_local_repeater_status(hass, connection, msg):
                         "last_busy_ms": cad_parts[3],
                         "max_busy_ms": cad_parts[4],
                         "last_timeout_age_secs": cad_parts[5],
+                        "expired_tx": cad_parts[6] if len(cad_parts) >= 7 else None,
                     }
             except (TypeError, ValueError):
                 pass
@@ -2394,6 +2402,8 @@ async def ws_get_local_repeater_status(hass, connection, msg):
                 "repeat": repeat_enabled,
                 "auto_advert_supported": auto_advert_supported,
                 "auto_advert": auto_advert,
+                "mesh_time_sync_supported": mesh_time_sync_supported,
+                "mesh_time_sync": mesh_time_sync,
                 "smart_advert": smart_advert,
                 "duty_cycle_supported": duty_cycle_supported,
                 "duty_cycle": duty_cycle,
@@ -3461,6 +3471,48 @@ async def ws_set_device_config(hass, connection, msg):
                 )
                 return
             changed.append("auto_advert")
+
+        if "mesh_time_sync" in settings:
+            requested_mesh_time = bool(settings["mesh_time_sync"])
+            result = await coordinator.api.mesh_core.commands.set_custom_var(
+                "mesh_time",
+                "1" if requested_mesh_time else "0",
+            )
+            reason = _device_config_failure_reason(result)
+            if reason is not None:
+                _send_device_config_failure(
+                    connection, msg["id"], "mesh_time_sync", reason, changed
+                )
+                return
+
+            verified = await coordinator.api.mesh_core.commands.get_custom_vars()
+            reason = _device_config_failure_reason(verified)
+            if reason is not None:
+                _send_device_config_failure(
+                    connection,
+                    msg["id"],
+                    "mesh_time_sync verification",
+                    reason,
+                    changed,
+                )
+                return
+
+            verified_payload = getattr(verified, "payload", {}) or {}
+            actual_mesh_time = str(
+                verified_payload.get("mesh_time", "0")
+            ).strip().lower() in {"1", "true", "on", "yes"}
+
+            if actual_mesh_time != requested_mesh_time:
+                _send_device_config_failure(
+                    connection,
+                    msg["id"],
+                    "mesh_time_sync verification",
+                    "read-back mismatch",
+                    changed,
+                )
+                return
+
+            changed.append("mesh_time_sync")
 
         # New HiveFW builds expose Duty Cycle as a first-class Companion
         # custom variable. Send the percentage directly so the firmware owns
