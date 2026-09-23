@@ -79,6 +79,7 @@ extern bool hivefw_set_ota_token(const char* token);
 #define CMD_GET_REPEATER_PROFILE      66   // HiveFW owner/RX gain/ADC pages
 #define CMD_GET_REPEATER_ACL_ENTRY    67   // HiveFW persisted ACL entry by logical index
 #define CMD_SET_REPEATER_ACL_ENTRY    68   // HiveFW set/remove one persisted ACL identity
+#define CMD_GET_HA_COMMANDS            69   // HiveFW local Home Assistant command page
 
 // Stats sub-types for CMD_GET_STATS
 #define STATS_TYPE_CORE               0
@@ -6052,6 +6053,85 @@ void MyMesh::handleCmdFrame(size_t len) {
     }
 
     writeErrFrame(ERR_CODE_NOT_FOUND);
+
+  } else if (cmd_frame[0] == CMD_GET_HA_COMMANDS) {
+    // Local-only, paged view of Home Assistant commands persisted by the
+    // Companion UI. Reading this table never emits LoRa traffic.
+    const uint8_t offset = len >= 2 ? cmd_frame[1] : 0;
+
+    HiveFWHACommand commands[HIVEFW_HA_MAX_COMMANDS];
+    memset(commands, 0, sizeof(commands));
+
+    int command_count = loadHACommands(
+      commands,
+      HIVEFW_HA_MAX_COMMANDS
+    );
+    if (command_count < 0) command_count = 0;
+    if (command_count > HIVEFW_HA_MAX_COMMANDS) {
+      command_count = HIVEFW_HA_MAX_COMMANDS;
+    }
+
+    out_frame[0] = RESP_CODE_CUSTOM_VARS;
+
+    if (offset >= command_count) {
+      const int written = snprintf(
+        (char*)&out_frame[1],
+        sizeof(out_frame) - 1,
+        "ha_total:%d,ha_offset:%u,ha_count:0",
+        command_count,
+        offset
+      );
+      if (written < 0 || written >= (int)(sizeof(out_frame) - 1)) {
+        writeErrFrame(ERR_CODE_BAD_STATE);
+      } else {
+        _serial->writeFrame(out_frame, 1 + written);
+      }
+      return;
+    }
+
+    char name_hex[HIVEFW_HA_NAME_LEN * 2 + 1];
+    char command_hex[HIVEFW_HA_COMMAND_LEN * 2 + 1];
+    memset(name_hex, 0, sizeof(name_hex));
+    memset(command_hex, 0, sizeof(command_hex));
+
+    static const char HEX[] = "0123456789ABCDEF";
+
+    size_t name_len = strnlen(
+      commands[offset].name,
+      HIVEFW_HA_NAME_LEN - 1
+    );
+    for (size_t i = 0; i < name_len; i++) {
+      const uint8_t b = (uint8_t)commands[offset].name[i];
+      name_hex[i * 2] = HEX[(b >> 4) & 0x0F];
+      name_hex[i * 2 + 1] = HEX[b & 0x0F];
+    }
+
+    size_t command_len = strnlen(
+      commands[offset].command,
+      HIVEFW_HA_COMMAND_LEN - 1
+    );
+    for (size_t i = 0; i < command_len; i++) {
+      const uint8_t b = (uint8_t)commands[offset].command[i];
+      command_hex[i * 2] = HEX[(b >> 4) & 0x0F];
+      command_hex[i * 2 + 1] = HEX[b & 0x0F];
+    }
+
+    const int written = snprintf(
+      (char*)&out_frame[1],
+      sizeof(out_frame) - 1,
+      "ha_total:%d,ha_offset:%u,h0:%s|%s|%u,ha_count:1",
+      command_count,
+      offset,
+      name_hex,
+      command_hex,
+      (unsigned)commands[offset].flags
+    );
+
+    if (written < 0 || written >= (int)(sizeof(out_frame) - 1)) {
+      writeErrFrame(ERR_CODE_BAD_STATE);
+    } else {
+      _serial->writeFrame(out_frame, 1 + written);
+    }
 
   } else if (cmd_frame[0] == CMD_GET_REPEATER_RF_CONFIG) {
     // Dedicated local response so these settings do not consume the
