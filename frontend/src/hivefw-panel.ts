@@ -125,6 +125,10 @@ class HiveFWPanel extends BasePanel {
     this.__hiveNeighborLocalMarker = null;
     this.__hiveNeighborMapFocusId = "";
 
+    this.__networkOverlay = null;
+    this.__networkRangeHours = 48;
+    this.__networkHistory = null;
+
     this.__consoleHistory = [];
     this.__consoleCommandHistory = [];
     this.__consoleHistoryIndex = -1;
@@ -295,10 +299,17 @@ class HiveFWPanel extends BasePanel {
       this.__observabilityLoadedEntry = null;
       this.__observabilitySettings = null;
       this.__observabilityState = {};
+      this.__networkHistory = null;
     }
 
     if (this._activeTab !== "neighbors") {
       this.__removeNeighborsOverlay();
+    }
+    if (this._activeTab !== "network") {
+      this.__removeNetworkOverlay();
+    }
+    if (!["neighbors", "network"].includes(this._activeTab)) {
+      this.__stopHiveNeighborDiscoveryPolling();
     }
     if (this._activeTab !== "settings") {
       this.__removeConsoleOverlay();
@@ -372,11 +383,14 @@ class HiveFWPanel extends BasePanel {
       return;
     }
 
-    if (this._activeTab === "neighbors") {
+    if (this._activeTab === "neighbors" || this._activeTab === "network") {
+      const networkMode = this._activeTab === "network";
+
       if (entryId !== this.__hiveNeighborsLoadedEntry) {
         this.__hiveNeighbors = null;
         this.__hiveNeighborsError = null;
         this.__hiveNeighborsLoadedEntry = entryId;
+        this.__networkHistory = null;
       }
       if (entryId !== this.__hiveNeighborDiscoveryLoadedEntry) {
         this.__hiveNeighborDiscovery = null;
@@ -388,13 +402,21 @@ class HiveFWPanel extends BasePanel {
 
       const container = root.querySelector(".page-container");
       if (!container) return;
-      const overlay = this.__ensureNeighborsOverlay(container);
-      if (!overlay.querySelector(".hive-neighbors-three")) {
-        this.__renderHiveNeighbors(overlay);
+
+      if (networkMode) {
+        const overlay = this.__ensureNetworkOverlay(container);
+        if (!overlay.querySelector(".hive-network-page")) {
+          this.__renderHiveNetwork(overlay);
+        }
+      } else {
+        const overlay = this.__ensureNeighborsOverlay(container);
+        if (!overlay.querySelector(".hive-neighbors-three")) {
+          this.__renderHiveNeighbors(overlay);
+        }
       }
 
-      // Deliberately independent: the original passive Vizinhos query must
-      // never wait for, or fail because of, the active discovery API.
+      // Both pages consume the same local data, but Vizinhos keeps its
+      // presentation unchanged. Rede adds analytics on top of the copy.
       if (!this.__hiveNeighbors && !this.__hiveNeighborsLoading) {
         void this.__loadHiveNeighbors();
       }
@@ -404,8 +426,16 @@ class HiveFWPanel extends BasePanel {
       if (!this.__repeaterStatus && !this.__repeaterLoading) {
         void this.__loadRepeaterStatus();
       }
+      if (networkMode) {
+        if (this.__peerActivityLoadedEntry !== entryId && !this.__peerActivityLoading) {
+          void this.__loadPeerActivity();
+        }
+        if ((!Array.isArray(this.__nodesMapContacts) || this.__nodesMapLoadedEntry !== entryId) && !this.__nodesMapLoading) {
+          void this.__loadNodesMapContacts().then(() => this.__rerenderHivePage());
+        }
+      }
     }
-  }
+  }  }
 
   __otaErrorMessage(error) {
     if (!error) return "Erro desconhecido";
@@ -1516,6 +1546,7 @@ class HiveFWPanel extends BasePanel {
     const nodes = byLabel("Nodes", "Nós");
     const devices = byLabel("Devices");
     let neighbors = byLabel("Vizinhos");
+    let network = byLabel("Rede");
     const consoleTab = byLabel("Console", "Consola");
 
     if (state) {
@@ -1532,7 +1563,7 @@ class HiveFWPanel extends BasePanel {
     }
     if (settings) {
       settings.textContent = "Definições";
-      settings.style.order = "5";
+      settings.style.order = "6";
     }
 
     // Reuse the legacy Devices Lit button as Vizinhos when required.
@@ -1567,6 +1598,22 @@ class HiveFWPanel extends BasePanel {
       neighbors.classList.remove("active");
     }
 
+    if (!network) {
+      network = document.createElement("button");
+      network.dataset.hiveNetworkTab = "1";
+      network.textContent = "Rede";
+      network.addEventListener("click", () => {
+        this._activeTab = "network";
+        this.requestUpdate();
+      });
+      tabBar.appendChild(network);
+    }
+    network.style.order = "5";
+    network.classList.toggle("active", this._activeTab === "network");
+    if (this._activeTab !== "network") {
+      network.classList.remove("active");
+    }
+
     // Consola no longer has a top-level tab. Remove only the wrapper-owned
     // compatibility tab; hide a hypothetical stale native one without moving it.
     if (consoleTab) {
@@ -1589,6 +1636,7 @@ class HiveFWPanel extends BasePanel {
     iconize(chat, "mdi:message-text-outline");
     iconize(nodes, "mdi:map-marker-multiple-outline");
     iconize(neighbors, "mdi:access-point-network");
+    iconize(network, "mdi:chart-timeline-variant");
     iconize(settings, "mdi:cog-outline");
   }
 
@@ -2289,17 +2337,27 @@ class HiveFWPanel extends BasePanel {
         font-size:10px;
         line-height:1.45;
       }
-      .hive-neighbor-signal-label {
-        border:1px solid var(--divider-color) !important;
+      .hive-neighbor-signal-label,
+      .hivefw-map-tooltip {
+        border:1px solid #c8ccd0 !important;
         border-radius:7px !important;
-        background:color-mix(in srgb,var(--card-background-color) 92%,transparent) !important;
-        color:var(--primary-text-color) !important;
+        background:#eef0f2 !important;
+        color:#202124 !important;
         box-shadow:0 1px 4px rgba(0,0,0,.18) !important;
         padding:2px 5px !important;
         font-size:9px !important;
         font-weight:700 !important;
       }
-      .hive-neighbor-signal-label::before { display:none !important; }
+      .hive-neighbor-signal-label::before,
+      .hivefw-map-tooltip::before { display:none !important; }
+      .hivefw-node-popup .leaflet-popup-content-wrapper,
+      .hivefw-node-popup .leaflet-popup-tip {
+        background:#eef0f2 !important;
+        color:#202124 !important;
+      }
+      .hivefw-node-popup .leaflet-popup-content {
+        color:#202124 !important;
+      }
       .hive-neighbors-map {
         position:relative;
       }
@@ -2342,9 +2400,178 @@ class HiveFWPanel extends BasePanel {
         font-weight:700;
         pointer-events:none;
       }
+      .hive-network-overlay {
+        position:absolute;
+        inset:0;
+        z-index:21;
+        overflow:auto;
+        background:var(--primary-background-color);
+      }
+      .hive-network-page {
+        min-height:100%;
+        padding:0 0 18px;
+        box-sizing:border-box;
+      }
+      .hive-network-analytics {
+        margin-bottom:12px;
+        padding:16px;
+        border:1px solid var(--divider-color);
+        border-radius:16px;
+        background:var(--card-background-color);
+      }
+      .hive-network-head {
+        display:flex;
+        align-items:flex-start;
+        justify-content:space-between;
+        gap:14px;
+        margin-bottom:13px;
+      }
+      .hive-network-head h1 {
+        margin:2px 0 3px;
+        font-size:20px;
+        line-height:1.2;
+      }
+      .hive-network-head p {
+        margin:0;
+        max-width:760px;
+        color:var(--secondary-text-color);
+        font-size:11px;
+        line-height:1.45;
+      }
+      .hive-network-range {
+        display:flex;
+        gap:5px;
+        padding:3px;
+        border:1px solid var(--divider-color);
+        border-radius:10px;
+        background:var(--secondary-background-color);
+      }
+      .hive-network-range button {
+        border:0;
+        border-radius:7px;
+        padding:6px 9px;
+        background:transparent;
+        color:var(--secondary-text-color);
+        font:inherit;
+        font-size:10px;
+        font-weight:700;
+        cursor:pointer;
+      }
+      .hive-network-range button.active {
+        background:var(--primary-color);
+        color:white;
+      }
+      .hive-network-metrics {
+        display:grid;
+        grid-template-columns:repeat(6,minmax(105px,1fr));
+        gap:8px;
+        margin-bottom:10px;
+      }
+      .hive-network-metric {
+        min-width:0;
+        padding:10px 11px;
+        border:1px solid var(--divider-color);
+        border-radius:11px;
+        background:var(--primary-background-color);
+      }
+      .hive-network-metric span {
+        display:block;
+        color:var(--secondary-text-color);
+        font-size:9px;
+        font-weight:700;
+        letter-spacing:.03em;
+        text-transform:uppercase;
+      }
+      .hive-network-metric strong {
+        display:block;
+        margin-top:4px;
+        font-size:18px;
+        line-height:1.1;
+      }
+      .hive-network-metric small {
+        display:block;
+        margin-top:3px;
+        color:var(--secondary-text-color);
+        font-size:9px;
+        line-height:1.3;
+      }
+      .hive-network-panels {
+        display:grid;
+        grid-template-columns:1.05fr 1fr 1.15fr;
+        gap:8px;
+      }
+      .hive-network-panel {
+        min-width:0;
+        padding:11px;
+        border:1px solid var(--divider-color);
+        border-radius:11px;
+        background:var(--primary-background-color);
+      }
+      .hive-network-panel-title {
+        display:flex;
+        justify-content:space-between;
+        gap:8px;
+        margin-bottom:9px;
+        font-size:11px;
+        font-weight:760;
+      }
+      .hive-network-bar-row {
+        display:grid;
+        grid-template-columns:minmax(70px,1fr) 2.1fr auto;
+        align-items:center;
+        gap:7px;
+        margin-top:6px;
+        font-size:9px;
+      }
+      .hive-network-bar-track {
+        height:6px;
+        overflow:hidden;
+        border-radius:999px;
+        background:var(--divider-color);
+      }
+      .hive-network-bar-fill {
+        height:100%;
+        border-radius:inherit;
+        background:var(--primary-color);
+      }
+      .hive-network-top-row {
+        display:grid;
+        grid-template-columns:minmax(0,1fr) auto;
+        gap:8px;
+        padding:6px 0;
+        border-top:1px solid var(--divider-color);
+        font-size:10px;
+      }
+      .hive-network-top-row:first-of-type { border-top:0; }
+      .hive-network-top-row strong {
+        overflow:hidden;
+        text-overflow:ellipsis;
+        white-space:nowrap;
+      }
+      .hive-network-event {
+        display:grid;
+        grid-template-columns:auto minmax(0,1fr);
+        gap:7px;
+        padding:5px 0;
+        border-top:1px solid var(--divider-color);
+        font-size:9px;
+        line-height:1.35;
+      }
+      .hive-network-event:first-of-type { border-top:0; }
+      .hive-network-event time { color:var(--secondary-text-color); }
+      .hive-network-copy {
+        height:min(68vh,760px);
+        min-height:600px;
+      }
+      .hive-network-copy .hive-neighbors-three { height:100%; }
+
       @media (max-width:1050px) {
         .hive-neighbors-overlay { overflow:auto; }
         .hive-neighbors-overlay > .mcr-page { height:auto; min-height:100%; }
+        .hive-network-metrics { grid-template-columns:repeat(2,minmax(0,1fr)); }
+        .hive-network-panels { grid-template-columns:1fr; }
+        .hive-network-head { flex-direction:column; }
+        .hive-network-copy { height:auto; min-height:0; }
         .hive-neighbors-three {
           grid-template-columns:1fr;
           height:auto;
@@ -5187,6 +5414,7 @@ class HiveFWPanel extends BasePanel {
     }finally{
       this.__peerActivityLoading=false;
       this.__renderActivityPane();
+      if(this._activeTab==="network")this.__rerenderHivePage();
     }
   }
 
@@ -6713,12 +6941,49 @@ class HiveFWPanel extends BasePanel {
     this.__renderTraceMonitorOverlay();
   }
 
+  __fullPublicKey(contact) {
+    const readKey=(value)=>{
+      const key=String(value||"").trim().replace(/[^0-9a-f]/gi,"").toLowerCase();
+      return /^[0-9a-f]{64}$/.test(key)?key:"";
+    };
+    for(const value of [contact?.public_key,contact?.pubkey,contact?.publicKey,contact?.key]){
+      const key=readKey(value);
+      if(key)return key;
+    }
+
+    const prefix=String(contact?.pubkey_prefix||contact?.pubkey||"")
+      .trim().replace(/[^0-9a-f]/gi,"").toLowerCase();
+    const name=this.__normalizeNodeName(contact?.adv_name||contact?.name);
+    const source=[
+      ...(Array.isArray(this.__nodesMapContacts)?this.__nodesMapContacts:[]),
+      ...(Array.isArray(this._contacts)?this._contacts:[]),
+    ];
+    const matches=source.filter((candidate)=>{
+      if(candidate===contact)return false;
+      const key=readKey(candidate?.public_key)||readKey(candidate?.pubkey)||readKey(candidate?.publicKey);
+      const cp=String(candidate?.pubkey_prefix||key.slice(0,12))
+        .trim().replace(/[^0-9a-f]/gi,"").toLowerCase();
+      if(prefix && (key.startsWith(prefix)||cp===prefix||prefix.startsWith(cp)))return true;
+      return !!name && this.__normalizeNodeName(candidate?.adv_name||candidate?.name)===name;
+    }).map((candidate)=>
+      readKey(candidate?.public_key)||readKey(candidate?.pubkey)||readKey(candidate?.publicKey)
+    ).filter(Boolean);
+    if(matches.length===1)return matches[0];
+
+    const deviceKey=readKey(this._selectedDevice?.pubkey)||readKey(this._selectedDevice?.public_key);
+    if(contact?.__hivefw_local__ && deviceKey)return deviceKey;
+    return "";
+  }
+
   __nodeMapPopup(contact) {
     const root=document.createElement("div");
     root.style.minWidth="300px";
     root.style.maxWidth="410px";
     root.style.fontFamily="var(--paper-font-body1_-_font-family, sans-serif)";
-    root.style.color="var(--primary-text-color,#212121)";
+    root.style.color="#202124";
+    root.style.background="#eef0f2";
+    root.style.borderRadius="9px";
+    root.style.padding="0 2px 2px";
 
     const header=document.createElement("div");
     header.style.cssText="display:flex;align-items:center;gap:10px;padding-top:14px;margin-bottom:8px;";
@@ -6728,7 +6993,7 @@ class HiveFWPanel extends BasePanel {
     title.style.cssText="flex:1;min-width:0;font-weight:700;font-size:15px;line-height:1.25;overflow-wrap:anywhere;";
     header.appendChild(title);
 
-    const publicKeyForAction=String(contact.public_key||"").trim();
+    const publicKeyForAction=this.__fullPublicKey(contact);
     const hasRealKey=/^[0-9a-fA-F]{64}$/.test(publicKeyForAction);
     if(hasRealKey){
       const meta=this.__nodeMeta(contact);
@@ -6800,8 +7065,8 @@ class HiveFWPanel extends BasePanel {
       rows.push(["Estado",contact.added_to_node?"Adicionado":"Descoberto"]);
     }
 
-    const publicKey=String(contact.public_key||"").trim();
-    const prefix=String(contact.pubkey_prefix||publicKey.slice(0,12)||"").trim();
+    const publicKey=this.__fullPublicKey(contact);
+    const prefix=String(contact.pubkey_prefix||contact.pubkey||publicKey.slice(0,12)||"").trim();
     if(prefix && prefix!=="LOCAL")rows.push(["Prefixo",prefix]);
 
     const rssi=Number(contact.last_rssi ?? contact.rssi);
@@ -6883,13 +7148,13 @@ class HiveFWPanel extends BasePanel {
 
       const key=document.createElement("span");
       key.textContent=label;
-      key.style.color="var(--primary-text-color,#212121)";
+      key.style.color="#202124";
       key.style.fontWeight="650";
 
       const val=document.createElement("span");
       val.textContent=String(value);
       val.style.fontWeight="500";
-      val.style.color="var(--primary-text-color,#212121)";
+      val.style.color="#202124";
       val.style.whiteSpace="pre-line";
       val.style.minWidth="0";
       val.style.overflowWrap="anywhere";
@@ -6908,10 +7173,10 @@ class HiveFWPanel extends BasePanel {
       details.style.marginTop="5px";
       const summary=document.createElement("summary");
       summary.textContent="Chave pública";
-      summary.style.cssText="cursor:pointer;font-size:11px;color:var(--secondary-text-color,#666);";
+      summary.style.cssText="cursor:pointer;font-size:11px;color:#4d5156;";
       const key=document.createElement("div");
       key.textContent=publicKey;
-      key.style.cssText="margin-top:5px;padding:6px 7px;border-radius:6px;background:var(--secondary-background-color,#f3f3f3);font:10px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;overflow-wrap:anywhere;";
+      key.style.cssText="margin-top:5px;padding:6px 7px;border-radius:6px;background:#dde1e5;color:#202124;font:10px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;overflow-wrap:anywhere;";
       details.append(summary,key);
       root.appendChild(details);
     }
@@ -7031,6 +7296,7 @@ class HiveFWPanel extends BasePanel {
         direction:"top",
         offset:[0,-12],
         permanent:isLocal,
+        className:"hivefw-map-tooltip",
       });
       marker.on?.("click",()=>{
         this.__focusNodeOnMap(contact,true);
@@ -8905,6 +9171,386 @@ class HiveFWPanel extends BasePanel {
     return `${value}s`;
   }
 
+  __networkHistoryStorageKey() {
+    const entry=String(this.__entryId()||"default").replace(/[^a-zA-Z0-9_.-]/g,"_");
+    return "hivefw.network_analytics.v1."+entry;
+  }
+
+  __networkNeighborId(neighbor) {
+    const raw=String(
+      neighbor?.public_key || neighbor?.pubkey || neighbor?.pubkey_prefix || neighbor?.name || ""
+    ).trim().toLowerCase();
+    return raw.replace(/\s+/g,"_");
+  }
+
+  __networkContactForNeighbor(neighbor) {
+    const id=this.__networkNeighborId(neighbor);
+    const prefix=String(neighbor?.pubkey_prefix||neighbor?.pubkey||"")
+      .trim().toLowerCase();
+    const name=this.__normalizeNodeName(neighbor?.name);
+    const source=Array.isArray(this.__nodesMapContacts)&&this.__nodesMapContacts.length
+      ? this.__nodesMapContacts
+      : (Array.isArray(this._contacts)?this._contacts:[]);
+    const matches=source.filter((contact)=>{
+      const key=String(contact?.public_key||contact?.pubkey||"").trim().toLowerCase();
+      const cp=String(contact?.pubkey_prefix||key.slice(0,12)).trim().toLowerCase();
+      if(id && (key===id||cp===id||key.startsWith(id)||id.startsWith(cp)))return true;
+      if(prefix && (cp===prefix||key.startsWith(prefix)||prefix.startsWith(cp)))return true;
+      return !!name && this.__normalizeNodeName(contact?.adv_name||contact?.name)===name;
+    });
+    return matches.length===1?matches[0]:null;
+  }
+
+  __networkHistorySnapshot(neighbors) {
+    if(!Array.isArray(neighbors))neighbors=[];
+    let state=this.__networkHistory;
+    if(!state){
+      try{state=JSON.parse(localStorage.getItem(this.__networkHistoryStorageKey())||"null");}catch{state=null;}
+    }
+    if(!state||typeof state!=="object"){
+      state={version:1,initialized:false,samples:0,last_sample_at:0,nodes:{},events:[],advert_events:[],config_signature:""};
+    }
+    if(!state.nodes||typeof state.nodes!=="object")state.nodes={};
+    if(!Array.isArray(state.events))state.events=[];
+    if(!Array.isArray(state.advert_events))state.advert_events=[];
+
+    const now=Date.now();
+    const current=new Set();
+    const sampleDue=!state.last_sample_at||now-Number(state.last_sample_at)>=5*60*1000;
+    if(sampleDue){
+      state.samples=Math.max(0,Number(state.samples)||0)+1;
+      state.last_sample_at=now;
+    }
+
+    for(const neighbor of neighbors){
+      const id=this.__networkNeighborId(neighbor);
+      if(!id)continue;
+      current.add(id);
+      let node=state.nodes[id];
+      const isNew=!node;
+      if(!node){
+        node=state.nodes[id]={
+          name:String(neighbor?.name||neighbor?.pubkey_prefix||"Repeater"),
+          first_seen_at:state.initialized?now:0,
+          first_sample:Math.max(1,Number(state.samples)||1),
+          seen_samples:0,
+          last_seen_at:now,
+          last_advert_at:0,
+          missing_since:0,
+        };
+        if(state.initialized){
+          state.events.unshift({type:"new",timestamp:now,id,name:node.name});
+        }
+      }
+      node.name=String(neighbor?.name||node.name||neighbor?.pubkey_prefix||"Repeater");
+      node.last_seen_at=now;
+      node.missing_since=0;
+      if(sampleDue)node.seen_samples=Math.max(0,Number(node.seen_samples)||0)+1;
+
+      const secs=Math.max(0,Number(neighbor?.secs_ago)||0);
+      const advertAt=now-secs*1000;
+      const previousAdvert=Number(node.last_advert_at)||0;
+      if(previousAdvert>0 && advertAt>previousAdvert+4000){
+        state.advert_events.push({timestamp:advertAt,id});
+      }
+      node.last_advert_at=Math.max(previousAdvert,advertAt);
+      if(isNew&&state.initialized&&node.first_seen_at<=0)node.first_seen_at=now;
+    }
+
+    for(const [id,node] of Object.entries(state.nodes)){
+      if(current.has(id))continue;
+      const lastAdvert=Number(node?.last_advert_at)||0;
+      if(lastAdvert>0 && now-lastAdvert>48*60*60*1000 && !node.missing_since){
+        node.missing_since=now;
+        state.events.unshift({
+          type:"missing",
+          timestamp:now,
+          id,
+          name:String(node.name||id),
+        });
+      }
+    }
+
+    const radio=this.__repeaterStatus?.radio||{};
+    const configSignature=JSON.stringify({
+      frequency:radio.frequency??this.__repeaterStatus?.frequency??null,
+      bandwidth:radio.bandwidth??null,
+      spreading_factor:radio.spreading_factor??null,
+      coding_rate:radio.coding_rate??null,
+      tx_power:radio.tx_power??null,
+      path_hash_mode:radio.path_hash_mode??this.__repeaterStatus?.device_info?.path_hash_mode??null,
+      repeat:!!this.__repeaterStatus?.repeat,
+    });
+    if(state.config_signature && configSignature!==state.config_signature){
+      state.events.unshift({type:"config",timestamp:now,id:"config",name:"Configuração RF/Repeater alterada"});
+    }
+    state.config_signature=configSignature;
+    state.initialized=true;
+    state.events=state.events.filter((event)=>now-Number(event.timestamp||0)<=7*86400000).slice(0,80);
+    state.advert_events=state.advert_events.filter((event)=>now-Number(event.timestamp||0)<=48*3600000).slice(-4000);
+
+    this.__networkHistory=state;
+    try{localStorage.setItem(this.__networkHistoryStorageKey(),JSON.stringify(state));}catch{}
+    return state;
+  }
+
+  __networkSignalFor(neighbor) {
+    const id=this.__networkNeighborId(neighbor);
+    const prefix=String(neighbor?.pubkey_prefix||neighbor?.pubkey||"").toLowerCase();
+    const results=Array.isArray(this.__hiveNeighborDiscovery?.results)?this.__hiveNeighborDiscovery.results:[];
+    const discovery=results.find((item)=>{
+      const candidate=this.__networkNeighborId(item);
+      const cp=String(item?.pubkey_prefix||item?.pubkey||"").toLowerCase();
+      return (id&&candidate===id)||(prefix&&cp===prefix);
+    });
+    const contact=this.__networkContactForNeighbor(neighbor);
+    const rssi=Number(discovery?.rssi ?? contact?.last_rssi ?? contact?.rssi);
+    const snr=Number(discovery?.snr ?? contact?.last_snr ?? contact?.snr);
+    return {
+      rssi:Number.isFinite(rssi)?rssi:null,
+      snr:Number.isFinite(snr)?snr:null,
+      contact,
+    };
+  }
+
+  __networkMetric(label,value,detail="") {
+    const box=document.createElement("div");
+    box.className="hive-network-metric";
+    const l=document.createElement("span");l.textContent=label;
+    const v=document.createElement("strong");v.textContent=String(value);
+    const d=document.createElement("small");d.textContent=detail;
+    box.append(l,v,d);
+    return box;
+  }
+
+  __networkBarRow(label,value,max,display=String(value)) {
+    const row=document.createElement("div");
+    row.className="hive-network-bar-row";
+    const name=document.createElement("span");name.textContent=label;
+    const track=document.createElement("div");track.className="hive-network-bar-track";
+    const fill=document.createElement("div");fill.className="hive-network-bar-fill";
+    fill.style.width=(max>0?Math.max(0,Math.min(100,Number(value||0)/max*100)):0)+"%";
+    track.appendChild(fill);
+    const amount=document.createElement("strong");amount.textContent=display;
+    row.append(name,track,amount);
+    return row;
+  }
+
+  __renderHiveNetworkAnalytics(container) {
+    container.replaceChildren();
+    const data=this.__hiveNeighbors;
+    const all=Array.isArray(data?.neighbors)?[...data.neighbors]:[];
+    const hours=Math.max(1,Number(this.__networkRangeHours)||48);
+    const visible=all.filter((neighbor)=>Number(neighbor?.secs_ago||0)<=hours*3600);
+    const history=this.__networkHistorySnapshot(all);
+    const now=Date.now();
+
+    const head=document.createElement("div");
+    head.className="hive-network-head";
+    const intro=document.createElement("div");
+    const eyebrow=document.createElement("div");eyebrow.className="mcr-eyebrow";eyebrow.textContent="◉  NETWORK ANALYTICS · LOCAL";
+    const title=document.createElement("h1");title.textContent="Rede";
+    const subtitle=document.createElement("p");
+    subtitle.textContent="Leitura consolidada da rede observada pelo HiveFW. O histórico de novos/desaparecidos, presença e adverts/h começa a ser acumulado localmente a partir desta versão e não gera tráfego LoRa.";
+    intro.append(eyebrow,title,subtitle);
+
+    const range=document.createElement("div");
+    range.className="hive-network-range";
+    for(const value of [6,24,48]){
+      const button=document.createElement("button");
+      button.type="button";
+      button.textContent=value+"H";
+      button.classList.toggle("active",hours===value);
+      button.addEventListener("click",()=>{
+        this.__networkRangeHours=value;
+        this.__rerenderHivePage();
+      });
+      range.appendChild(button);
+    }
+    head.append(intro,range);
+    container.appendChild(head);
+
+    const new24=Object.values(history.nodes||{}).filter((node)=>Number(node?.first_seen_at)>0&&now-Number(node.first_seen_at)<=86400000).length;
+    const missing7=Object.values(history.nodes||{}).filter((node)=>Number(node?.missing_since)>0&&now-Number(node.missing_since)<=7*86400000).length;
+    const active1=all.filter((neighbor)=>Number(neighbor?.secs_ago||0)<=3600).length;
+    const adverts1h=(history.advert_events||[]).filter((event)=>now-Number(event.timestamp||0)<=3600000).length;
+
+    const rxRate=this.__readMetricState(null,"nb_recv_rate").value;
+    const txRate=this.__readMetricState(null,"nb_sent_rate").value;
+    const rxFlood=this.__readMetricState(null,"recv_flood_rate").value;
+    const txFlood=this.__readMetricState(null,"sent_flood_rate").value;
+    const traffic=([rxRate,txRate].some(Number.isFinite))
+      ? ((Number.isFinite(rxRate)?rxRate:0)+(Number.isFinite(txRate)?txRate:0)).toFixed(1)
+      : "—";
+    const floodHour=([rxFlood,txFlood].some(Number.isFinite))
+      ? (((Number.isFinite(rxFlood)?rxFlood:0)+(Number.isFinite(txFlood)?txFlood:0))*60).toFixed(0)
+      : "—";
+
+    const metrics=document.createElement("div");
+    metrics.className="hive-network-metrics";
+    metrics.append(
+      this.__networkMetric("Vizinhos "+hours+"H",visible.length,"zero-hop observados"),
+      this.__networkMetric("Ativos <1H",active1,"advert recente"),
+      this.__networkMetric("Novos 24H",new24,"desde o baseline"),
+      this.__networkMetric("Desaparecidos",missing7,"últimos 7 dias"),
+      this.__networkMetric("Adverts/H",adverts1h,"eventos observados"),
+      this.__networkMetric("Tráfego",traffic,traffic==="—"?"sem métrica":("msg/min · flood "+floodHour+"/h"))
+    );
+    container.appendChild(metrics);
+
+    const panels=document.createElement("div");
+    panels.className="hive-network-panels";
+
+    const freshness=document.createElement("section");
+    freshness.className="hive-network-panel";
+    const ftitle=document.createElement("div");ftitle.className="hive-network-panel-title";ftitle.textContent="Presença / recência";
+    freshness.appendChild(ftitle);
+    const freshBuckets=[
+      ["< 1h",all.filter((n)=>Number(n.secs_ago||0)<3600).length],
+      ["1–6h",all.filter((n)=>Number(n.secs_ago||0)>=3600&&Number(n.secs_ago||0)<21600).length],
+      ["6–24h",all.filter((n)=>Number(n.secs_ago||0)>=21600&&Number(n.secs_ago||0)<86400).length],
+      ["24–48h",all.filter((n)=>Number(n.secs_ago||0)>=86400&&Number(n.secs_ago||0)<=172800).length],
+    ];
+    const freshMax=Math.max(1,...freshBuckets.map(([,value])=>value));
+    for(const [label,value] of freshBuckets)freshness.appendChild(this.__networkBarRow(label,value,freshMax));
+
+    const signals=document.createElement("section");
+    signals.className="hive-network-panel";
+    const stitle=document.createElement("div");stitle.className="hive-network-panel-title";stitle.textContent="Distribuição de sinal";
+    signals.appendChild(stitle);
+    const signalRows=all.map((n)=>this.__networkSignalFor(n)).filter((s)=>s.snr!=null||s.rssi!=null);
+    const good=signalRows.filter((s)=>s.snr!=null?s.snr>=-5:s.rssi>=-100).length;
+    const medium=signalRows.filter((s)=>{
+      if(s.snr!=null)return s.snr<-5&&s.snr>=-12;
+      return s.rssi<-100&&s.rssi>=-115;
+    }).length;
+    const weak=Math.max(0,signalRows.length-good-medium);
+    const signalMax=Math.max(1,good,medium,weak);
+    signals.append(
+      this.__networkBarRow("Bom",good,signalMax),
+      this.__networkBarRow("Médio",medium,signalMax),
+      this.__networkBarRow("Fraco",weak,signalMax)
+    );
+    const sNote=document.createElement("div");
+    sNote.style.cssText="margin-top:8px;color:var(--secondary-text-color);font-size:9px;line-height:1.35;";
+    sNote.textContent=signalRows.length?signalRows.length+" vizinho(s) com RSSI/SNR disponível.":"Sem amostras RSSI/SNR disponíveis neste momento.";
+    signals.appendChild(sNote);
+
+    const trafficPanel=document.createElement("section");
+    trafficPanel.className="hive-network-panel";
+    const ttitle=document.createElement("div");ttitle.className="hive-network-panel-title";
+    const tlabel=document.createElement("span");tlabel.textContent="Repeaters por atividade";
+    const tmeta=document.createElement("span");tmeta.style.color="var(--secondary-text-color)";tmeta.textContent="RX + TX + paths";
+    ttitle.append(tlabel,tmeta);trafficPanel.appendChild(ttitle);
+
+    const ranked=all.map((neighbor)=>{
+      const signal=this.__networkSignalFor(neighbor);
+      const activity=signal.contact?this.__peerActivityFor(signal.contact):{rx:0,tx:0,linkVolume:0};
+      return {neighbor,contact:signal.contact,score:(Number(activity.rx)||0)+(Number(activity.tx)||0)+(Number(activity.linkVolume)||0),activity};
+    }).filter((item)=>item.score>0).sort((a,b)=>b.score-a.score).slice(0,5);
+
+    if(!ranked.length){
+      const empty=document.createElement("div");
+      empty.style.cssText="color:var(--secondary-text-color);font-size:9px;line-height:1.4;";
+      empty.textContent="Ainda sem atividade correlacionada com os vizinhos zero-hop.";
+      trafficPanel.appendChild(empty);
+    }else{
+      for(const item of ranked){
+        const row=document.createElement("div");row.className="hive-network-top-row";
+        const name=document.createElement("strong");name.textContent=String(item.neighbor?.name||item.neighbor?.pubkey_prefix||"Repeater");
+        const value=document.createElement("span");value.textContent=String(item.score);
+        row.append(name,value);
+        if(item.contact){
+          row.style.cursor="pointer";
+          row.title="Abrir este nó no mapa";
+          row.addEventListener("click",()=>{
+            this._activeTab="nodes";
+            this.requestUpdate?.();
+            window.setTimeout(()=>this.__focusNodeOnMap(item.contact,true),180);
+          });
+        }
+        trafficPanel.appendChild(row);
+      }
+    }
+    panels.append(freshness,signals,trafficPanel);
+
+    const events=document.createElement("section");
+    events.className="hive-network-panel";
+    events.style.marginTop="8px";
+    const etitle=document.createElement("div");etitle.className="hive-network-panel-title";
+    etitle.textContent="Alterações observadas · 7 dias";
+    events.appendChild(etitle);
+    const recent=(history.events||[]).slice(0,8);
+    if(!recent.length){
+      const empty=document.createElement("div");
+      empty.style.cssText="color:var(--secondary-text-color);font-size:9px;";
+      empty.textContent="Baseline criado. Novos repeaters, desaparecimentos e alterações de configuração passarão a aparecer aqui.";
+      events.appendChild(empty);
+    }else{
+      const labels={new:"Novo repeater",missing:"Saiu da janela 48H",config:"Configuração alterada"};
+      for(const event of recent){
+        const row=document.createElement("div");row.className="hive-network-event";
+        const time=document.createElement("time");time.textContent=new Date(Number(event.timestamp)).toLocaleString();
+        const textNode=document.createElement("div");
+        textNode.textContent=(labels[event.type]||event.type)+" · "+String(event.name||event.id||"");
+        row.append(time,textNode);events.appendChild(row);
+      }
+    }
+
+    container.append(panels,events);
+  }
+
+  __ensureNetworkOverlay(container) {
+    if(this.__networkOverlay?.isConnected)return this.__networkOverlay;
+    const overlay=document.createElement("div");
+    overlay.className="hive-network-overlay";
+    container.appendChild(overlay);
+    this.__networkOverlay=overlay;
+    return overlay;
+  }
+
+  __removeNetworkOverlay() {
+    if(this.__networkOverlay?.isConnected)this.__networkOverlay.remove();
+    this.__networkOverlay=null;
+    if(this._activeTab!=="neighbors")this.__stopHiveNeighborDiscoveryPolling();
+  }
+
+  __renderHiveNetwork(container) {
+    container.replaceChildren();
+    const page=document.createElement("div");
+    page.className="mcr-page hive-network-page";
+    page.style.overflow="visible";
+
+    const analytics=document.createElement("section");
+    analytics.className="hive-network-analytics";
+    this.__renderHiveNetworkAnalytics(analytics);
+
+    const copy=document.createElement("div");
+    copy.className="hive-network-copy";
+
+    const layout=document.createElement("div");
+    layout.className="hive-neighbors-three";
+    const left=document.createElement("section");
+    left.className="hive-neighbors-column hive-neighbors-passive";
+    const leftScroll=document.createElement("div");
+    leftScroll.className="hive-neighbors-left-scroll";
+    left.appendChild(leftScroll);
+    const middle=document.createElement("section");
+    middle.className="hive-neighbors-column hive-neighbors-discovery";
+    const right=document.createElement("section");
+    right.className="hive-neighbors-column hive-neighbors-map";
+    layout.append(left,middle,right);
+    copy.appendChild(layout);
+    page.append(analytics,copy);
+    container.appendChild(page);
+
+    // Literal copy of the current Vizinhos content. The original tab keeps
+    // using __renderHiveNeighbors() and is not augmented with analytics.
+    this.__renderHiveNeighborsLeft(leftScroll);
+    this.__renderHiveNeighborDiscovery(middle);
+    void this.__renderHiveNeighborDiscoveryMap(right);
+  }
+
   __ensureNeighborsOverlay(container) {
     if (this.__neighborsOverlay?.isConnected) return this.__neighborsOverlay;
 
@@ -8920,7 +9566,7 @@ class HiveFWPanel extends BasePanel {
       this.__neighborsOverlay.remove();
     }
     this.__neighborsOverlay = null;
-    this.__stopHiveNeighborDiscoveryPolling();
+    if(this._activeTab!=="network")this.__stopHiveNeighborDiscoveryPolling();
   }
 
   async __loadHiveNeighbors() {
@@ -8945,16 +9591,21 @@ class HiveFWPanel extends BasePanel {
   }
 
   __rerenderHivePage() {
-    if (this._activeTab !== "neighbors") return;
+    if (!["neighbors","network"].includes(this._activeTab)) return;
     const container = this.shadowRoot?.querySelector(".page-container");
     if (!container) return;
-    const overlay = this.__ensureNeighborsOverlay(container);
-    this.__renderHiveNeighbors(overlay);
+    if(this._activeTab==="network"){
+      const overlay=this.__ensureNetworkOverlay(container);
+      this.__renderHiveNetwork(overlay);
+    }else{
+      const overlay=this.__ensureNeighborsOverlay(container);
+      this.__renderHiveNeighbors(overlay);
+    }
   }
 
   __rerenderHiveNeighborsLeftOnly() {
-    if (this._activeTab !== "neighbors") return;
-    const overlay = this.__neighborsOverlay;
+    if (!["neighbors","network"].includes(this._activeTab)) return;
+    const overlay = this._activeTab==="network" ? this.__networkOverlay : this.__neighborsOverlay;
     const left = overlay?.querySelector(".hive-neighbors-passive .hive-neighbors-left-scroll");
     if (!left) {
       this.__rerenderHivePage();
@@ -8966,8 +9617,8 @@ class HiveFWPanel extends BasePanel {
   }
 
   __rerenderHiveNeighborDiscoveryOnly(renderMap = false) {
-    if (this._activeTab !== "neighbors") return;
-    const overlay = this.__neighborsOverlay;
+    if (!["neighbors","network"].includes(this._activeTab)) return;
+    const overlay = this._activeTab==="network" ? this.__networkOverlay : this.__neighborsOverlay;
     const middle = overlay?.querySelector(".hive-neighbors-discovery");
     if (!middle) {
       this.__rerenderHivePage();
@@ -9267,7 +9918,7 @@ class HiveFWPanel extends BasePanel {
   __startHiveNeighborDiscoveryPolling() {
     if (this.__hiveNeighborDiscoveryPollTimer) return;
     this.__hiveNeighborDiscoveryPollTimer = window.setInterval(async () => {
-      if (!this.hass || this._activeTab !== "neighbors") return;
+      if (!this.hass || !["neighbors","network"].includes(this._activeTab)) return;
       try {
         const msg = { type: "hivefw_integration/get_hive_neighbor_discovery" };
         const entryId = this.__entryId();
@@ -9532,6 +10183,7 @@ class HiveFWPanel extends BasePanel {
       localMarker.bindTooltip?.("HiveFW local · " + local.name, {
         direction:"top",
         offset:[0,-14],
+        className:"hivefw-map-tooltip",
       });
       this.__hiveNeighborLocalMarker = localMarker;
       layers.push(localMarker);
@@ -9568,6 +10220,7 @@ class HiveFWPanel extends BasePanel {
       marker.bindTooltip?.(name, {
         direction:"top",
         offset:[0,-12],
+        className:"hivefw-map-tooltip",
       });
       marker.on?.("click", () => {
         this.__hiveNeighborMapFocusId = id;
