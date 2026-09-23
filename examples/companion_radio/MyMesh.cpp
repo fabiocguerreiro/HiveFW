@@ -2183,7 +2183,12 @@ bool MyMesh::handleRepeaterRemoteCommand(
   if (strncmp(command, "password ", 9) == 0) {
     _prefs.setRepeaterAdminPassword(command + 9);
     savePrefs();
-    snprintf(reply, reply_size, "password updated");
+    snprintf(
+      reply,
+      reply_size,
+      "password now: %s",
+      _prefs.getRepeaterAdminPassword()
+    );
     return true;
   }
 
