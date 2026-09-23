@@ -6573,18 +6573,6 @@ let e,t,i,o,a,r,s,n,l,d,c,p,h,u,v,g,m,f,_,b,y,x,w,$,k,S,C,M,A,R,z,I,T,N,F,D,E,O,
       </div>
 
       <div class="repeater-setup-grid" style="margin-bottom:14px;">
-        <div style="margin-bottom:14px;padding:10px 12px;border-radius:8px;background:var(--secondary-background-color);">
-          <div style="font-size:13px;font-weight:600;">Owner Info</div>
-          <div style="font-size:11px;color:var(--secondary-text-color);margin:2px 0 8px;line-height:1.45;">
-            Texto livre anunciado pelo Repeater através do protocolo MeshCore. Máximo 119 bytes UTF-8.
-          </div>
-          <textarea
-            class="form-input"
-            style="width:100%;min-height:74px;resize:vertical;box-sizing:border-box;"
-            .value=${0}
-            ?disabled=${0}
-            @change=${0}></textarea>
-        </div>
         <div
           style="margin:0 0 10px;padding:12px;border:1px solid var(--divider-color);border-radius:8px;background:var(--secondary-background-color);"
           data-hive-repeater-access>
@@ -6601,6 +6589,19 @@ let e,t,i,o,a,r,s,n,l,d,c,p,h,u,v,g,m,f,_,b,y,x,w,$,k,S,C,M,A,R,z,I,T,N,F,D,E,O,
           </div>
 
           ${0}
+
+          <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--divider-color);">
+            <div style="font-size:12px;font-weight:600;">Owner Info</div>
+            <div style="font-size:10px;color:var(--secondary-text-color);margin:2px 0 7px;line-height:1.4;">
+              Texto livre anunciado pelo Repeater. Máximo 119 bytes UTF-8.
+            </div>
+            <textarea
+              class="form-input"
+              style="width:100%;min-height:64px;resize:vertical;box-sizing:border-box;"
+              .value=${0}
+              ?disabled=${0}
+              @change=${0}></textarea>
+          </div>
         </div>
       </div>
 
@@ -6631,7 +6632,7 @@ let e,t,i,o,a,r,s,n,l,d,c,p,h,u,v,g,m,f,_,b,y,x,w,$,k,S,C,M,A,R,z,I,T,N,F,D,E,O,
       <div style="margin-top:10px;font-size:11px;color:var(--secondary-text-color);line-height:1.45;">
         Todas as alterações deste painel são enviadas imediatamente ao Companion e confirmadas por read-back.
       </div>
-    `),R.repeat?"Ativo no HiveFW":"Desligado — Companion apenas",z,null!==this._repeaterQuickBusy,e=>{this._applyRepeaterQuickSetting("repeat",e.target.checked)},z?"Ativo":"Desligado",I?T?"Ativo — Smart Advert automático":"Desligado":"Requer firmware HiveFW com controlo remoto de AutoAdvert",T,!I||null!==this._repeaterQuickBusy,e=>{this._applyRepeaterQuickSetting("auto_advert",e.target.checked)},T?"Ativo":"Desligado",String(F),!N||this._saving,e=>{this._applyImmediateSetting("neighbor_advert_interval",Number(e.target.value),"Neighbour Advert")},E,!D||null!==this._repeaterQuickBusy,e=>{this._applyRepeaterQuickSetting("mesh_time_sync",e.target.checked)},D?E?"Ativo":"Desligado":"Não suportada",U,!(null!=H&&H.supported),e=>{this._applyImmediateSetting("owner_info",e.target.value,"Owner Info")},null!==(S=null===(C=R.server_auth)||void 0===C?void 0:C.acl_count)&&void 0!==S?S:"—",null!==(M=R.server_auth)&&void 0!==M&&M.supported?Ws(Fa||(Fa=ts`
+    `),R.repeat?"Ativo no HiveFW":"Desligado — Companion apenas",z,null!==this._repeaterQuickBusy,e=>{this._applyRepeaterQuickSetting("repeat",e.target.checked)},z?"Ativo":"Desligado",I?T?"Ativo — Smart Advert automático":"Desligado":"Requer firmware HiveFW com controlo remoto de AutoAdvert",T,!I||null!==this._repeaterQuickBusy,e=>{this._applyRepeaterQuickSetting("auto_advert",e.target.checked)},T?"Ativo":"Desligado",String(F),!N||this._saving,e=>{this._applyImmediateSetting("neighbor_advert_interval",Number(e.target.value),"Neighbour Advert")},E,!D||null!==this._repeaterQuickBusy,e=>{this._applyRepeaterQuickSetting("mesh_time_sync",e.target.checked)},D?E?"Ativo":"Desligado":"Não suportada",null!==(S=null===(C=R.server_auth)||void 0===C?void 0:C.acl_count)&&void 0!==S?S:"—",null!==(M=R.server_auth)&&void 0!==M&&M.supported?Ws(Fa||(Fa=ts`
             <div style="display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 10px;align-items:end;">
               <div>
                 <label class="form-label">
@@ -6722,7 +6723,7 @@ let e,t,i,o,a,r,s,n,l,d,c,p,h,u,v,g,m,f,_,b,y,x,w,$,k,S,C,M,A,R,z,I,T,N,F,D,E,O,
             <div style="font-size:11px;color:var(--secondary-text-color);line-height:1.45;">
               Atualiza o firmware HiveFW para ativar passwords Admin/Guest e gestão da ACL local.
             </div>
-          `)),null!=B&&B.supported?Ws(Ea||(Ea=ts`
+          `)),U,!(null!=H&&H.supported),e=>{this._applyImmediateSetting("owner_info",e.target.value,"Owner Info")},null!=B&&B.supported?Ws(Ea||(Ea=ts`
             <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 10px;">
               <div>
                 <label class="form-label">Flood Max</label>
