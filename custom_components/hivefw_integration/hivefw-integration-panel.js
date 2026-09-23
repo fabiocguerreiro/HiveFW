@@ -1278,12 +1278,18 @@ let e,t,i,o,a,r,s,n,l,d,c,p,h,u,v,g,m,f,_,b,y,x,w,$,k,C,S,M,A,R,z,T,I,N,F,D,E,O,
 
       <div class="sidebar-header main-section-header">
         <span class="sidebar-title main-section-title">Canais &amp; Chat</span>
-      </div>
-      <div class="filter-bar" role="tablist" aria-label="Conversation filter">
-        ${0}
-        ${0}
-        ${0}
-        ${0}
+        <div class="apps-header-actions">
+          <button
+            class="compose-btn"
+            title="Marcar todas as mensagens como lidas"
+            aria-label="Marcar todas as mensagens como lidas"
+            ?disabled=${0}
+            @click=${0}>
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true">
+              <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
+            </svg>
+          </button>
+        </div>
       </div>
       <div
         class="conversation-list"
@@ -1316,7 +1322,7 @@ let e,t,i,o,a,r,s,n,l,d,c,p,h,u,v,g,m,f,_,b,y,x,w,$,k,C,S,M,A,R,z,T,I,N,F,D,E,O,
                   <span class="apps-picker-check">${0}</span>
                   <span class="apps-picker-channel">${0}</span>
                 </button>
-              `),i?"active":"",()=>this._setAppsChannel(t),i?"✓":"",e.name||`Channel ${e.channel_idx}`)}),()=>{this._appsPickerOpen=!1,this.dispatchEvent(new CustomEvent("manage-requested",{bubbles:!0,composed:!0}))}):"",this._renderFilterBtn("all","All"),this._renderFilterBtn("unread","Unread"),this._renderFilterBtn("dms","DMs"),this._renderFilterBtn("channels","Channels"),this._onListKeyDown,this._filteredConversations.length>0?this._filteredConversations.map((e,t)=>this._renderConversation(e,t)):nn(p||(p=gs`
+              `),i?"active":"",()=>this._setAppsChannel(t),i?"✓":"",e.name||`Channel ${e.channel_idx}`)}),()=>{this._appsPickerOpen=!1,this.dispatchEvent(new CustomEvent("manage-requested",{bubbles:!0,composed:!0}))}):"",!this._hasUnreadMessages(),()=>this._markAllRead(),this._onListKeyDown,this._filteredConversations.length>0?this._filteredConversations.map((e,t)=>this._renderConversation(e,t)):nn(p||(p=gs`
               <div class="empty-state">
                 <div class="empty-text">
                   ${0}
@@ -1330,7 +1336,7 @@ let e,t,i,o,a,r,s,n,l,d,c,p,h,u,v,g,m,f,_,b,y,x,w,$,k,C,S,M,A,R,z,T,I,N,F,D,E,O,
         @click=${0}>
         ${0}
       </button>
-    `),i?"active":"",i?"true":"false",()=>{this._activeFilter=e},t)}_emptyMessage(){switch(this._activeFilter){case"unread":return"No unread conversations";case"dms":return"No direct messages";case"channels":return"No channels";default:return"No conversations yet"}}_renderConversation(e,t){const i="pubkey_prefix"in e,o=i?e.pubkey_prefix:String(e.channel_idx),a=i?e.adv_name:e.name,r=i?e.pubkey_prefix:`Channel ${e.channel_idx}`,s=i?e.pubkey_prefix.substring(0,2).toUpperCase():`#${e.channel_idx}`,n=this.activeId===o,l=this._getUnreadCount(o),d=l>0?`${a}, ${r}, ${l} unread`:`${a}, ${r}`,c=this._filteredConversations.some(e=>("pubkey_prefix"in e?e.pubkey_prefix:String(e.channel_idx))===this.activeId);return nn(u||(u=gs`
+    `),i?"active":"",i?"true":"false",()=>{this._activeFilter=e},t)}_hasUnreadMessages(){var e,t,i;const o=null!==(e=null!==(t=null===(i=this.unread)||void 0===i?void 0:i.counts)&&void 0!==t?t:this.unreadCounts)&&void 0!==e?e:{};return Object.values(o).some(e=>Number(e)>0)}_markAllRead(){var e,t;if(!this.unread)return;const i=Object.entries(null!==(e=null!==(t=this.unread.counts)&&void 0!==t?t:this.unreadCounts)&&void 0!==e?e:{});for(const[e,t]of i)e&&Number(t)>0&&this.unread.requestMarkRead(e)}_emptyMessage(){switch(this._activeFilter){case"unread":return"No unread conversations";case"dms":return"No direct messages";case"channels":return"No channels";default:return"No conversations yet"}}_renderConversation(e,t){const i="pubkey_prefix"in e,o=i?e.pubkey_prefix:String(e.channel_idx),a=i?e.adv_name:e.name,r=i?e.pubkey_prefix:`Channel ${e.channel_idx}`,s=i?e.pubkey_prefix.substring(0,2).toUpperCase():`#${e.channel_idx}`,n=this.activeId===o,l=this._getUnreadCount(o),d=l>0?`${a}, ${r}, ${l} unread`:`${a}, ${r}`,c=this._filteredConversations.some(e=>("pubkey_prefix"in e?e.pubkey_prefix:String(e.channel_idx))===this.activeId);return nn(u||(u=gs`
       <div
         class=${0}
         role="option"
@@ -1488,6 +1494,13 @@ let e,t,i,o,a,r,s,n,l,d,c,p,h,u,v,g,m,f,_,b,y,x,w,$,k,C,S,M,A,R,z,T,I,N,F,D,E,O,
     .compose-btn:hover {
       background: rgba(0, 0, 0, 0.05);
       color: var(--primary-text-color);
+    }
+
+    .compose-btn:disabled {
+      opacity: 0.35;
+      cursor: default;
+      background: transparent;
+      color: var(--secondary-text-color);
     }
 
     .apps-header-actions {
@@ -6109,6 +6122,18 @@ let e,t,i,o,a,r,s,n,l,d,c,p,h,u,v,g,m,f,_,b,y,x,w,$,k,C,S,M,A,R,z,T,I,N,F,D,E,O,
 
             <div id="hive-observability-settings-card" class="device-section" data-hive-native-host="observability">
               <div class="card-title">Alertas &amp; automações</div>
+            </div>
+
+            <!-- Console now belongs to Definições and spans the full grid width. -->
+            <div id="hive-console-settings-card"
+                 class="device-section"
+                 data-hive-native-host="console"
+                 style="grid-column:1 / -1;">
+              <div class="card-title">Consola</div>
+              <div style="font-size:12px;line-height:1.45;color:var(--secondary-text-color);margin-bottom:14px;">
+                Executa comandos diretamente no rádio ligado ao Home Assistant. Os comandos locais não geram tráfego LoRa, exceto quando o próprio comando envia dados para a mesh.
+              </div>
+              <div class="hive-console-settings-host"></div>
             </div>
 
             <!-- Location -->
