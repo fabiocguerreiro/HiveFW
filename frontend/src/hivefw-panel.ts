@@ -8065,7 +8065,7 @@ class HiveFWPanel extends BasePanel {
     }
 
     const refresh = document.createElement("button");
-    refresh.className = embedded ? "hivefw-console-action" : "mcr-btn";
+    refresh.className = "mcr-btn";
     refresh.disabled = this.__repeaterLoading;
     refresh.textContent = this.__repeaterLoading ? "A atualizar…" : "↻ Atualizar";
     refresh.addEventListener("click", () => void this.__loadRepeaterStatus());
@@ -9093,7 +9093,7 @@ class HiveFWPanel extends BasePanel {
     heading.append(eyebrow, title, subtitle);
 
     const refresh = document.createElement("button");
-    refresh.className = embedded ? "hivefw-console-action" : "mcr-btn";
+    refresh.className = "mcr-btn";
     refresh.disabled = this.__hiveNeighborsLoading;
     refresh.textContent = this.__hiveNeighborsLoading ? "A atualizar…" : "↻ Atualizar";
     refresh.addEventListener("click", () => void this.__loadHiveNeighbors());
