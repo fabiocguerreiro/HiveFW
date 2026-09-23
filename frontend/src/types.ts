@@ -460,6 +460,8 @@ export interface LocalRepeaterStatus {
   repeat: boolean;
   auto_advert_supported: boolean;
   auto_advert: boolean;
+  mesh_time_sync_supported?: boolean;
+  mesh_time_sync?: boolean;
   duty_cycle_supported: boolean;
   duty_cycle?: number;
   smart_advert?: {
