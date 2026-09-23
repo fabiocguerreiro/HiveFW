@@ -6820,38 +6820,39 @@ let e,t,i,o,a,r,s,n,l,d,c,p,h,u,v,g,m,f,_,b,y,x,w,$,k,C,S,M,R,A,z,N,T,I,F,D,E,P,
           </div>
 
           ${0}
-        </div>
-
-              <div
-                style="margin-top:12px;padding-top:12px;border-top:1px solid var(--divider-color);"
-                data-hive-duty-cycle-control>
+          <div
+            style="margin-top:12px;padding-top:12px;border-top:1px solid var(--divider-color);"
+            data-hive-duty-cycle-control>
             <div style="font-size:13px;font-weight:600;margin-bottom:10px;">Duty Cycle</div>
             <div style="display:grid;grid-template-columns:minmax(90px,1fr) auto auto;gap:8px;align-items:end;">
-              <div>
-                <label class="form-label">Valor</label>
-                <select
-                  class="form-select"
-                  ?disabled=${0}
-                  @change=${0}>
-                  ${0}
-                </select>
-              </div>
-              <button
-                class="apply-button"
-                style="width:auto;min-width:68px;padding:7px 12px;margin:0;"
-                ?disabled=${0}
-                @click=${0}>
-                ${0}
-              </button>
-              <button
-                class="apply-button"
-                style="width:auto;min-width:78px;padding:7px 12px;margin:0;"
-                ?disabled=${0}
-                @click=${0}>
-                ${0}
-              </button>
+          <div>
+            <label class="form-label">Valor</label>
+            <select
+              class="form-select"
+              ?disabled=${0}
+              @change=${0}>
+              ${0}
+            </select>
+          </div>
+          <button
+            class="apply-button"
+            style="width:auto;min-width:68px;padding:7px 12px;margin:0;"
+            ?disabled=${0}
+            @click=${0}>
+            ${0}
+          </button>
+          <button
+            class="apply-button"
+            style="width:auto;min-width:78px;padding:7px 12px;margin:0;"
+            ?disabled=${0}
+            @click=${0}>
+            ${0}
+          </button>
             </div>
           </div>
+
+
+        </div>
 
       </div>
 
@@ -7060,12 +7061,12 @@ let e,t,i,o,a,r,s,n,l,d,c,p,h,u,v,g,m,f,_,b,y,x,w,$,k,C,S,M,R,A,z,N,T,I,F,D,E,P,
               Atualiza o firmware HiveFW para ativar os controlos locais de CAD, AGC e delays.
             </div>
           `)),null!==this._dutyCycleBusy,e=>{this._dutyCycleValue=Number(e.target.value)},Array.from({length:41},(e,t)=>t+10).map(e=>vn(nr||(nr=ws`
-                      <option
-                        value=${0}
-                        ?selected=${0}>
-                        ${0}%
-                      </option>
-                    `),String(e),e===this._dutyCycleValue,e)),null!==this._dutyCycleBusy,this._readDutyCycle,"read"===this._dutyCycleBusy?"A ler...":"Ler",null!==this._dutyCycleBusy,this._applyDutyCycle,"apply"===this._dutyCycleBusy?"A aplicar...":"Aplicar",this._saving,this._applyRepeaterSettings,this._saving?"A aplicar...":"Aplicar configurações do Repeater")}_renderRepeaterAcl(e){const t=e.server_auth,i=Array.isArray(null==t?void 0:t.acl_entries)?t.acl_entries:[];return vn(lr||(lr=ws`
+                  <option
+                    value=${0}
+                    ?selected=${0}>
+                    ${0}%
+                  </option>
+                `),String(e),e===this._dutyCycleValue,e)),null!==this._dutyCycleBusy,this._readDutyCycle,"read"===this._dutyCycleBusy?"A ler...":"Ler",null!==this._dutyCycleBusy,this._applyDutyCycle,"apply"===this._dutyCycleBusy?"A aplicar...":"Aplicar",this._saving,this._applyRepeaterSettings,this._saving?"A aplicar...":"Aplicar configurações do Repeater")}_renderRepeaterAcl(e){const t=e.server_auth,i=Array.isArray(null==t?void 0:t.acl_entries)?t.acl_entries:[];return vn(lr||(lr=ws`
       <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--divider-color);">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;">
           <div>
