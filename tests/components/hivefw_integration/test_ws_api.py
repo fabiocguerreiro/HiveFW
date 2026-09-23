@@ -705,6 +705,67 @@ async def test_ws_get_channels_merges_persisted_scope(
     assert "scope" not in channels[0]
 
 
+async def test_ws_get_observed_channels_hides_configured_channel_after_mac_verify(
+    hass: HomeAssistant, coordinator: MagicMock
+) -> None:
+    """A configured channel must not be duplicated in Canais Observados 48H.
+
+    The one-byte observed hash is only a candidate selector. The handler must
+    verify the configured 16-byte secret against the captured packet MAC before
+    hiding it, so unrelated channels with the same one-byte hash remain visible.
+    """
+    class _ObservedEventType:
+        CUSTOM_VARS = "custom_vars"
+        ERROR = "error"
+        OK = "ok"
+
+    fake_events = types.ModuleType("meshcore.events")
+    fake_events.EventType = _ObservedEventType
+    fake_meshcore = types.ModuleType("meshcore")
+    fake_meshcore.events = fake_events
+
+    secret = bytes.fromhex("00112233445566778899aabbccddeeff")
+    hash_byte = ws_api.hashlib.sha256(secret).digest()[0]
+    coordinator._channel_info = {
+        0: {"channel_name": "Public", "channel_secret": secret},
+    }
+
+    observed = MagicMock()
+    observed.type = _ObservedEventType.CUSTOM_VARS
+    observed.payload = {
+        "obs_total": 1,
+        "obs_count": 1,
+        "o0": f"{hash_byte:02X}|15|4",
+    }
+    verified = MagicMock()
+    verified.type = _ObservedEventType.OK
+    verified.payload = {}
+
+    coordinator.api.mesh_core.commands.send = AsyncMock(
+        side_effect=[observed, verified]
+    )
+
+    with patch.dict(
+        sys.modules,
+        {"meshcore": fake_meshcore, "meshcore.events": fake_events},
+    ):
+        conn = _Connection()
+        await _call_ws(
+            ws_api.ws_get_observed_channels,
+            hass,
+            conn,
+            {"id": 1, "entry_id": "meshcore_entry"},
+        )
+
+    payload = conn.results[0][1]
+    assert payload["supported"] is True
+    assert payload["count"] == 0
+    assert payload["channels"] == []
+
+    verify_packet = coordinator.api.mesh_core.commands.send.await_args_list[1].args[0]
+    assert verify_packet == bytes((0x35, hash_byte)) + secret
+
+
 # ─── ws_get_flood_scopes ────────────────────────────────────────────────
 
 
