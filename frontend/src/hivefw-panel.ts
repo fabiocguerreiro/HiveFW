@@ -308,7 +308,7 @@ class HiveFWPanel extends BasePanel {
     if (this._activeTab !== "network") {
       this.__removeNetworkOverlay();
     }
-    if (!["neighbors", "network"].includes(this._activeTab)) {
+    if (this._activeTab !== "network") {
       this.__stopHiveNeighborDiscoveryPolling();
     }
     if (this._activeTab !== "settings") {
@@ -383,8 +383,7 @@ class HiveFWPanel extends BasePanel {
       return;
     }
 
-    if (this._activeTab === "neighbors" || this._activeTab === "network") {
-      const networkMode = this._activeTab === "network";
+    if (this._activeTab === "network") {
 
       if (entryId !== this.__hiveNeighborsLoadedEntry) {
         this.__hiveNeighbors = null;
@@ -403,20 +402,13 @@ class HiveFWPanel extends BasePanel {
       const container = root.querySelector(".page-container");
       if (!container) return;
 
-      if (networkMode) {
-        const overlay = this.__ensureNetworkOverlay(container);
-        if (!overlay.querySelector(".hive-network-page")) {
-          this.__renderHiveNetwork(overlay);
-        }
-      } else {
-        const overlay = this.__ensureNeighborsOverlay(container);
-        if (!overlay.querySelector(".hive-neighbors-three")) {
-          this.__renderHiveNeighbors(overlay);
-        }
+      const overlay = this.__ensureNetworkOverlay(container);
+      if (!overlay.querySelector(".hive-network-page")) {
+        this.__renderHiveNetwork(overlay);
       }
 
-      // Both pages consume the same local data, but Vizinhos keeps its
-      // presentation unchanged. Rede adds analytics on top of the copy.
+      // Rede combines the final zero-hop neighbour view, active discovery,
+      // map and local network analytics.
       if (!this.__hiveNeighbors && !this.__hiveNeighborsLoading) {
         void this.__loadHiveNeighbors();
       }
@@ -426,13 +418,11 @@ class HiveFWPanel extends BasePanel {
       if (!this.__repeaterStatus && !this.__repeaterLoading) {
         void this.__loadRepeaterStatus();
       }
-      if (networkMode) {
-        if (this.__peerActivityLoadedEntry !== entryId && !this.__peerActivityLoading) {
-          void this.__loadPeerActivity();
-        }
-        if ((!Array.isArray(this.__nodesMapContacts) || this.__nodesMapLoadedEntry !== entryId) && !this.__nodesMapLoading) {
-          void this.__loadNodesMapContacts().then(() => this.__rerenderHivePage());
-        }
+      if (this.__peerActivityLoadedEntry !== entryId && !this.__peerActivityLoading) {
+        void this.__loadPeerActivity();
+      }
+      if ((!Array.isArray(this.__nodesMapContacts) || this.__nodesMapLoadedEntry !== entryId) && !this.__nodesMapLoading) {
+        void this.__loadNodesMapContacts().then(() => this.__rerenderHivePage());
       }
     }
   }
@@ -1100,10 +1090,9 @@ class HiveFWPanel extends BasePanel {
     const chat = this.shadowRoot?.querySelector("hivefw-integration-page");
     let column = chatRoot.querySelector(".hive-observed-column");
 
-    // Mobile keeps the established list/thread switcher. The observed-channel
-    // view is a dedicated third column in the wide layout only.
-    if (chat?._isNarrow) {
-      column?.remove();
+    // Narrow mode exposes a native observed-channel host below the channel
+    // list. While the message thread is open that host is intentionally absent.
+    if (chat?._isNarrow && !column) {
       return;
     }
 
@@ -1531,10 +1520,12 @@ class HiveFWPanel extends BasePanel {
     const tabBar = root.querySelector(".tab-bar");
     if (!tabBar) return;
 
-    // Never move/remove Lit-managed tab buttons. Moving them with appendChild()
-    // breaks Lit's internal child-part bookkeeping after the injected Vizinhos
-    // page renders, which can leave the original tabs visually present but
-    // no longer navigable.
+    // Vizinhos was promoted into Rede. Any stale route is normalized here so
+    // old frontend state cannot resurrect the retired tab.
+    if (this._activeTab === "neighbors") {
+      this._activeTab = "network";
+    }
+
     const buttons = [...tabBar.querySelectorAll("button")];
     const byLabel = (...labels) => buttons.find((button) =>
       labels.includes(button.textContent?.trim())
@@ -1542,10 +1533,10 @@ class HiveFWPanel extends BasePanel {
 
     const state = byLabel("Estado");
     const settings = byLabel("Settings", "Dispositivo", "Definições");
-    const chat = byLabel("Chat", "Chat & Canais");
+    const chat = byLabel("Chat", "Chat & Canais", "Canais");
     const nodes = byLabel("Nodes", "Nós");
     const devices = byLabel("Devices");
-    let neighbors = byLabel("Vizinhos");
+    const legacyNeighbors = byLabel("Vizinhos");
     let network = byLabel("Rede");
     const consoleTab = byLabel("Console", "Consola");
 
@@ -1554,7 +1545,7 @@ class HiveFWPanel extends BasePanel {
       state.style.order = "1";
     }
     if (chat) {
-      chat.textContent = "Chat & Canais";
+      chat.textContent = "Canais";
       chat.style.order = "2";
     }
     if (nodes) {
@@ -1563,59 +1554,33 @@ class HiveFWPanel extends BasePanel {
     }
     if (settings) {
       settings.textContent = "Definições";
-      settings.style.order = "6";
+      settings.style.order = "5";
     }
 
-    // Reuse the legacy Devices Lit button as Vizinhos when required.
-    if (!neighbors && devices) {
-      neighbors = devices;
-      neighbors.textContent = "Vizinhos";
-      neighbors.dataset.hiveNeighborsTab = "1";
-
-      if (!neighbors.dataset.hiveNeighborsBound) {
-        neighbors.dataset.hiveNeighborsBound = "1";
-        neighbors.addEventListener("click", () => {
-          this._activeTab = "neighbors";
-          this.requestUpdate();
-        });
-      }
-    }
-
-    if (!neighbors) {
-      neighbors = document.createElement("button");
-      neighbors.dataset.hiveNeighborsTab = "1";
-      neighbors.textContent = "Vizinhos";
-      neighbors.addEventListener("click", () => {
-        this._activeTab = "neighbors";
-        this.requestUpdate();
-      });
-      tabBar.appendChild(neighbors);
-    }
-
-    neighbors.style.order = "4";
-    neighbors.classList.toggle("active", this._activeTab === "neighbors");
-    if (this._activeTab !== "neighbors") {
-      neighbors.classList.remove("active");
+    // The base panel still renders its historical Devices button. Hide it
+    // instead of moving/removing Lit-managed nodes; Rede owns this surface now.
+    for (const obsolete of [devices, legacyNeighbors]) {
+      if (obsolete && obsolete !== network) obsolete.hidden = true;
     }
 
     if (!network) {
       network = document.createElement("button");
       network.dataset.hiveNetworkTab = "1";
       network.textContent = "Rede";
+      tabBar.appendChild(network);
+    }
+    network.hidden = false;
+    network.style.order = "4";
+    if (!network.dataset.hiveNetworkBound) {
+      network.dataset.hiveNetworkBound = "1";
       network.addEventListener("click", () => {
         this._activeTab = "network";
         this.requestUpdate();
       });
-      tabBar.appendChild(network);
     }
-    network.style.order = "5";
     network.classList.toggle("active", this._activeTab === "network");
-    if (this._activeTab !== "network") {
-      network.classList.remove("active");
-    }
 
-    // Consola no longer has a top-level tab. Remove only the wrapper-owned
-    // compatibility tab; hide a hypothetical stale native one without moving it.
+    // Consola no longer has a top-level tab.
     if (consoleTab) {
       if (consoleTab.dataset.hiveConsoleTab) consoleTab.remove();
       else consoleTab.hidden = true;
@@ -1635,7 +1600,6 @@ class HiveFWPanel extends BasePanel {
     iconize(state, "mdi:monitor-dashboard");
     iconize(chat, "mdi:message-text-outline");
     iconize(nodes, "mdi:map-marker-multiple-outline");
-    iconize(neighbors, "mdi:access-point-network");
     iconize(network, "mdi:chart-timeline-variant");
     iconize(settings, "mdi:cog-outline");
   }
@@ -9579,8 +9543,7 @@ class HiveFWPanel extends BasePanel {
     page.append(analytics,copy);
     container.appendChild(page);
 
-    // Literal copy of the current Vizinhos content. The original tab keeps
-    // using __renderHiveNeighbors() and is not augmented with analytics.
+    // Final Vizinhos content now lives inside Rede beside discovery and map.
     this.__renderHiveNeighborsLeft(leftScroll);
     this.__renderHiveNeighborDiscovery(middle);
     void this.__renderHiveNeighborDiscoveryMap(right);
@@ -9626,21 +9589,16 @@ class HiveFWPanel extends BasePanel {
   }
 
   __rerenderHivePage() {
-    if (!["neighbors","network"].includes(this._activeTab)) return;
+    if (this._activeTab !== "network") return;
     const container = this.shadowRoot?.querySelector(".page-container");
     if (!container) return;
-    if(this._activeTab==="network"){
-      const overlay=this.__ensureNetworkOverlay(container);
-      this.__renderHiveNetwork(overlay);
-    }else{
-      const overlay=this.__ensureNeighborsOverlay(container);
-      this.__renderHiveNeighbors(overlay);
-    }
+    const overlay=this.__ensureNetworkOverlay(container);
+    this.__renderHiveNetwork(overlay);
   }
 
   __rerenderHiveNeighborsLeftOnly() {
-    if (!["neighbors","network"].includes(this._activeTab)) return;
-    const overlay = this._activeTab==="network" ? this.__networkOverlay : this.__neighborsOverlay;
+    if (this._activeTab !== "network") return;
+    const overlay = this.__networkOverlay;
     const left = overlay?.querySelector(".hive-neighbors-passive .hive-neighbors-left-scroll");
     if (!left) {
       this.__rerenderHivePage();
@@ -9652,8 +9610,8 @@ class HiveFWPanel extends BasePanel {
   }
 
   __rerenderHiveNeighborDiscoveryOnly(renderMap = false) {
-    if (!["neighbors","network"].includes(this._activeTab)) return;
-    const overlay = this._activeTab==="network" ? this.__networkOverlay : this.__neighborsOverlay;
+    if (this._activeTab !== "network") return;
+    const overlay = this.__networkOverlay;
     const middle = overlay?.querySelector(".hive-neighbors-discovery");
     if (!middle) {
       this.__rerenderHivePage();
@@ -9953,7 +9911,7 @@ class HiveFWPanel extends BasePanel {
   __startHiveNeighborDiscoveryPolling() {
     if (this.__hiveNeighborDiscoveryPollTimer) return;
     this.__hiveNeighborDiscoveryPollTimer = window.setInterval(async () => {
-      if (!this.hass || !["neighbors","network"].includes(this._activeTab)) return;
+      if (!this.hass || this._activeTab !== "network") return;
       try {
         const msg = { type: "hivefw_integration/get_hive_neighbor_discovery" };
         const entryId = this.__entryId();
