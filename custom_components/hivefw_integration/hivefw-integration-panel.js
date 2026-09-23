@@ -4261,6 +4261,7 @@ let e,t,i,o,a,r,s,n,l,d,c,p,h,u,v,g,m,f,_,b,y,x,w,$,k,S,C,M,A,R,z,I,T,N,F,D,E,O,
       grid-column: 3;
       grid-row: 2;
       min-width: 0;
+      margin-top: -28px;
       min-height: 0;
       overflow: hidden;
       background: var(--card-background-color, #fff);
