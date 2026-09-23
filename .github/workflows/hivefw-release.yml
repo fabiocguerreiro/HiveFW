@@ -106,16 +106,25 @@ jobs:
             -name 'Heltec_v3_companion_radio_wifi-*.bin' \
             ! -name '*-merged.bin' \
             -print -quit)"
+          V3_MERGED="$(find out -maxdepth 1 -type f \
+            -name 'Heltec_v3_companion_radio_wifi-*-merged.bin' \
+            -print -quit)"
 
           if [[ -z "$V3_BIN" || ! -s "$V3_BIN" ]]; then
             echo "Heltec V3 OTA application image was not produced"
             exit 1
           fi
 
-          cp "$V3_BIN" release-assets/
+          if [[ -z "$V3_MERGED" || ! -s "$V3_MERGED" ]]; then
+            echo "Heltec V3 Wi-Fi merged image was not produced"
+            exit 1
+          fi
+
+          cp "$V3_BIN" "$V3_MERGED" release-assets/
           (
             cd release-assets
             sha256sum "$(basename "$V3_BIN")" > "$(basename "$V3_BIN").sha256"
+            sha256sum "$(basename "$V3_MERGED")" > "$(basename "$V3_MERGED").sha256"
           )
 
           # Build a USB recovery package that repairs bootloader/partition
@@ -231,18 +240,30 @@ jobs:
             sha256sum "$(basename "$T114_UF2")" > "$(basename "$T114_UF2").sha256"
           )
 
+      - name: Add Heltec T114 erase formatter
+        shell: bash
+        run: |
+          T114_ERASER="FLASH_ERASE_nrf52_softdevice_v6.zip"
+          curl --fail --location --retry 3 \
+            "https://flasher.meshcore.io/firmware/$T114_ERASER" \
+            --output "release-assets/$T114_ERASER"
+          test -s "release-assets/$T114_ERASER"
+          sha256sum "release-assets/$T114_ERASER" > "release-assets/$T114_ERASER.sha256"
+
       - name: Validate device-specific release assets
         shell: bash
         run: |
-          V3_COUNT="$(find release-assets -maxdepth 1 -type f -name 'Heltec_v3_companion_radio_wifi-*.bin' ! -name '*.sha256' | wc -l)"
+          V3_COUNT="$(find release-assets -maxdepth 1 -type f -name 'Heltec_v3_companion_radio_wifi-*.bin' ! -name '*-merged.bin' ! -name '*.sha256' | wc -l)"
+          V3_MERGED_COUNT="$(find release-assets -maxdepth 1 -type f -name 'Heltec_v3_companion_radio_wifi-*-merged.bin' ! -name '*.sha256' | wc -l)"
           V3_RECOVERY_COUNT="$(find release-assets -maxdepth 1 -type f -name 'Heltec_v3_companion_radio_wifi-*-recovery.zip' ! -name '*.sha256' | wc -l)"
           V3_BLE_BIN_COUNT="$(find release-assets -maxdepth 1 -type f -name 'Heltec_v3_companion_radio_ble-*.bin' ! -name '*-merged.bin' ! -name '*.sha256' | wc -l)"
           V3_BLE_MERGED_COUNT="$(find release-assets -maxdepth 1 -type f -name 'Heltec_v3_companion_radio_ble-*-merged.bin' ! -name '*.sha256' | wc -l)"
           T114_ZIP_COUNT="$(find release-assets -maxdepth 1 -type f -name 'Heltec_t114_companion_radio_ble-*.zip' ! -name '*.sha256' | wc -l)"
           T114_UF2_COUNT="$(find release-assets -maxdepth 1 -type f -name 'Heltec_t114_companion_radio_ble-*.uf2' ! -name '*.sha256' | wc -l)"
+          T114_ERASER_COUNT="$(find release-assets -maxdepth 1 -type f -name 'FLASH_ERASE_nrf52_softdevice_v6.zip' ! -name '*.sha256' | wc -l)"
 
-          if [[ "$V3_COUNT" -lt 1 || "$V3_RECOVERY_COUNT" -lt 1 || "$V3_BLE_BIN_COUNT" -lt 1 || "$V3_BLE_MERGED_COUNT" -lt 1 || "$T114_ZIP_COUNT" -lt 1 || "$T114_UF2_COUNT" -lt 1 ]]; then
-            echo "Release blocked: V3 Wi-Fi OTA/recovery + V3 BLE BIN/merged + T114 DFU/UF2 assets are required."
+          if [[ "$V3_COUNT" -lt 1 || "$V3_MERGED_COUNT" -lt 1 || "$V3_RECOVERY_COUNT" -lt 1 || "$V3_BLE_BIN_COUNT" -lt 1 || "$V3_BLE_MERGED_COUNT" -lt 1 || "$T114_ZIP_COUNT" -lt 1 || "$T114_UF2_COUNT" -lt 1 || "$T114_ERASER_COUNT" -lt 1 ]]; then
+            echo "Release blocked: V3 Wi-Fi BIN/merged/recovery + V3 BLE BIN/merged + T114 DFU/UF2/erase formatter assets are required."
             ls -lh release-assets
             exit 1
           fi
