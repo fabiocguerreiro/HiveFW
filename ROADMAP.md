@@ -4,7 +4,7 @@ O HiveFW é um projeto unificado: firmware Companion + Repeater e integração
 Home Assistant vivem no mesmo repositório, partilham a mesma linha de versão e
 são publicados pela mesma linha de Releases.
 
-## Estado atual — 1.14.6.1+
+## Estado atual — 1.14.8+
 
 ### Projeto / manutenção
 
@@ -110,10 +110,10 @@ Plano aprovado para uma implementação futura:
 ### Home Assistant / UI
 
 - [x] Estado/identidade/telemetria;
-- [x] Chat & Canais;
-- [x] Canais Observados 48H;
-- [x] Nós em lista + mapa + atividade;
-- [x] Vizinhos passivos e Discovery ativo;
+- [x] Canais;
+- [x] Canais Observados 48H, incluindo apresentação mobile e exclusão de canais já configurados após validação do MAC real;
+- [x] Nós em lista + mapa + atividade, com pesquisa/ordenação na coluna da lista e Import/Export separado sobre Atividade;
+- [x] Rede consolidada: Vizinhos 48H zero-hop, Discovery ativo, mapa e Network Analytics; a aba Vizinhos foi retirada;
 - [x] Console integrado em Definições;
 - [x] Regions & Scopes;
 - [x] RX Log e observabilidade RF;
@@ -139,6 +139,7 @@ Plano aprovado para uma implementação futura:
 - [x] passwords Admin/Guest nunca são exportadas;
 - [x] popup do mapa dos Nós com idade do último advert, `Criado localmente`,
   contraste corrigido e botão Fechar acessível em mobile;
+- [ ] permitir abrir sempre o painel HiveFW mesmo quando o rádio está offline/desligado; o shell da integração deve carregar normalmente e o cabeçalho deve indicar `Desligado` sem bloquear a restante navegação;
 - [ ] validar em hardware o novo Owner Info / RX Gain / ADC / ACL /
   Backup Repeater antes da próxima release.
 
