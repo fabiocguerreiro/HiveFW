@@ -1037,7 +1037,7 @@ export const LOCAL_COMMANDS: CommandDef[] = [
         name: 'scope',
         type: 'string',
         description: 'Channel/region name (e.g. "public"), or empty / "*" / "0" / "None" to clear',
-        required: true,
+        required: false,
       },
     ],
     responseFormat: 'OK',
