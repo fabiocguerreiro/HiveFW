@@ -728,6 +728,8 @@ def async_register_ws_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_remove_channel)
     websocket_api.async_register_command(hass, ws_export_backup)
     websocket_api.async_register_command(hass, ws_restore_backup)
+    websocket_api.async_register_command(hass, ws_export_repeater_backup)
+    websocket_api.async_register_command(hass, ws_restore_repeater_backup)
 
     # Neighbor management commands
     websocket_api.async_register_command(hass, ws_get_hive_neighbors)
@@ -5253,6 +5255,410 @@ async def ws_restore_backup(hass, connection, msg):
         )
     except Exception as ex:
         _ws_send_error_safe(connection, msg["id"], ex, handler="ws_restore_backup")
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hivefw_integration/export_repeater_backup",
+        vol.Optional("entry_id"): str,
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_export_repeater_backup(hass, connection, msg):
+    """Export HiveFW Repeater-only configuration without secret passwords."""
+    from meshcore.events import EventType
+
+    coordinator = _get_coordinator(hass, msg.get("entry_id"))
+    if not coordinator or not coordinator.api.mesh_core:
+        connection.send_error(msg["id"], "not_found", "No active HiveFW radio coordinator")
+        return
+
+    commands = coordinator.api.mesh_core.commands
+    request_lock = commands._mesh_request_lock
+    await request_lock.acquire()
+
+    try:
+        self_event = await commands.send_appstart()
+        device_event = await commands.send_device_query()
+        custom_event = await commands.get_custom_vars()
+
+        if _backup_event_failed(self_event, EventType):
+            raise ValueError("Unable to read Companion state")
+        if _backup_event_failed(device_event, EventType):
+            raise ValueError("Unable to read Repeater device state")
+        if _backup_event_failed(custom_event, EventType):
+            raise ValueError("Unable to read Repeater custom variables")
+
+        self_info = dict(getattr(self_event, "payload", None) or {})
+        device = dict(getattr(device_event, "payload", None) or {})
+        custom = dict(getattr(custom_event, "payload", None) or {})
+
+        profile, reason = await _read_repeater_profile(commands)
+        if profile is None:
+            raise ValueError(f"Unable to read Repeater profile: {reason}")
+
+        rf_config, reason = await _read_repeater_rf_config(commands)
+        if rf_config is None:
+            raise ValueError(f"Unable to read Repeater RF config: {reason}")
+
+        auth, reason = await _read_repeater_auth_config(commands)
+        if auth is None:
+            raise ValueError(f"Unable to read Repeater access state: {reason}")
+
+        acl, reason = await _read_repeater_acl(
+            commands,
+            int(auth.get("acl_count") or 0),
+        )
+        if acl is None:
+            raise ValueError(f"Unable to read Repeater ACL: {reason}")
+
+        regions, reason = await _read_local_repeater_regions(commands)
+        if regions is None:
+            raise ValueError(f"Unable to read Repeater RegionMap: {reason}")
+
+        route_parts = []
+        try:
+            route_parts = [int(part) for part in str(custom.get("route", "")).split("/")]
+        except (TypeError, ValueError):
+            route_parts = []
+        if len(route_parts) != 4:
+            raise ValueError("Firmware did not return a valid Repeater routing configuration")
+
+        duty_cycle = None
+        try:
+            duty_cycle = int(str(custom.get("duty_cycle", "")).strip())
+        except (TypeError, ValueError):
+            pass
+
+        backup = {
+            "format": "hivefw_repeater_backup",
+            "schema": 1,
+            "created_at": int(time.time()),
+            "device_name": str(self_info.get("name") or coordinator.name or ""),
+            "repeater": {
+                "enabled": bool(device.get("repeat", False)),
+                "owner_info": profile["owner_info"],
+                "rx_boosted_gain": bool(profile["rx_boosted_gain"]),
+                "adc_multiplier": float(profile["adc_multiplier"]),
+                "path_hash_mode": int(
+                    device.get("path_hash_mode", self_info.get("path_hash_mode", 0)) or 0
+                ),
+                "multi_acks": int(self_info.get("multi_acks", 0) or 0),
+                "auto_advert": str(custom.get("auto_advert", "0")).strip().lower()
+                    in {"1", "true", "on", "yes"},
+                "mesh_time_sync": str(custom.get("mt", "0")).strip().lower()
+                    in {"1", "true", "on", "yes"},
+                "duty_cycle": duty_cycle,
+                "routing": {
+                    "flood_max": route_parts[0],
+                    "flood_max_unscoped": route_parts[1],
+                    "flood_max_advert": route_parts[2],
+                    "loop_detect": route_parts[3],
+                },
+                "radio_guard": {
+                    key: rf_config.get(key)
+                    for key in (
+                        "cad_enabled",
+                        "interference_threshold",
+                        "agc_reset_interval",
+                        "rx_delay",
+                        "flood_tx_delay",
+                        "direct_tx_delay",
+                    )
+                },
+                "access": {
+                    "admin_password_set": bool(auth["admin_password_set"]),
+                    "guest_password_set": bool(auth["guest_password_set"]),
+                    "passwords_exported": False,
+                    "acl": [
+                        {
+                            "public_key": entry["public_key"],
+                            "permissions": int(entry["permissions"]),
+                        }
+                        for entry in acl
+                    ],
+                },
+                "regions": regions,
+            },
+        }
+
+        connection.send_result(
+            msg["id"],
+            {
+                "success": True,
+                "backup": backup,
+                "acl_count": len(acl),
+                "region_count": int(regions.get("count") or 0),
+            },
+        )
+    except Exception as ex:
+        _ws_send_error_safe(
+            connection,
+            msg["id"],
+            ex,
+            handler="ws_export_repeater_backup",
+        )
+    finally:
+        if request_lock.locked():
+            request_lock.release()
+
+
+async def _restore_repeater_regions(commands, backup_regions: dict):
+    """Replace RegionMap contents using the existing local Region API."""
+    current, reason = await _read_local_repeater_regions(commands)
+    if current is None:
+        return reason or "unable to read current RegionMap"
+
+    current_rows = list(current.get("regions") or [])
+    # Remove children before likely parents. The stored list is stable and
+    # reversing it matches the normal parent-before-child creation order.
+    for entry in reversed(current_rows):
+        name = str(entry.get("name") or "")
+        if not name or name == "*":
+            continue
+        reason = await _mutate_local_repeater_region(commands, "remove", name)
+        if reason is not None:
+            return f"remove region {name}: {reason}"
+
+    wanted = list(backup_regions.get("regions") or [])
+    wildcard = next((row for row in wanted if row.get("name") == "*"), None)
+    if wildcard is not None:
+        op = "allow" if bool(wildcard.get("allow_flood", True)) else "deny"
+        reason = await _mutate_local_repeater_region(commands, op, "*")
+        if reason is not None:
+            return f"restore wildcard region: {reason}"
+
+    pending = [
+        dict(row)
+        for row in wanted
+        if str(row.get("name") or "") not in {"", "*"}
+    ]
+    created = {"*"}
+    while pending:
+        progress = False
+        for row in list(pending):
+            name = str(row.get("name") or "")
+            parent = str(row.get("parent") or "*")
+            if parent not in created:
+                continue
+            reason = await _mutate_local_repeater_region(
+                commands,
+                "put",
+                name,
+                parent,
+            )
+            if reason is not None:
+                return f"restore region {name}: {reason}"
+            created.add(name)
+            pending.remove(row)
+            progress = True
+        if not progress:
+            return "RegionMap backup contains a missing/cyclic parent"
+
+    for row in wanted:
+        name = str(row.get("name") or "")
+        if not name:
+            continue
+        op = "allow" if bool(row.get("allow_flood", True)) else "deny"
+        reason = await _mutate_local_repeater_region(commands, op, name)
+        if reason is not None:
+            return f"restore flood policy for {name}: {reason}"
+
+    home = backup_regions.get("home")
+    if home:
+        reason = await _mutate_local_repeater_region(commands, "home", str(home))
+        if reason is not None:
+            return f"restore HOME region: {reason}"
+
+    default = backup_regions.get("default")
+    if default:
+        reason = await _mutate_local_repeater_region(commands, "default", str(default))
+    else:
+        reason = await _mutate_local_repeater_region(commands, "clear_default")
+    if reason is not None:
+        return f"restore DEFAULT region: {reason}"
+
+    return await _mutate_local_repeater_region(commands, "save")
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hivefw_integration/restore_repeater_backup",
+        vol.Optional("entry_id"): str,
+        vol.Required("backup"): dict,
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_restore_repeater_backup(hass, connection, msg):
+    """Restore a HiveFW Repeater-only backup, leaving passwords untouched."""
+    from meshcore.events import EventType
+
+    coordinator = _get_coordinator(hass, msg.get("entry_id"))
+    if not coordinator or not coordinator.api.mesh_core:
+        connection.send_error(msg["id"], "not_found", "No active HiveFW radio coordinator")
+        return
+
+    backup = msg.get("backup")
+    if not isinstance(backup, dict) or backup.get("format") != "hivefw_repeater_backup":
+        connection.send_error(msg["id"], "invalid_backup", "Not a HiveFW Repeater backup")
+        return
+
+    repeater = backup.get("repeater")
+    if not isinstance(repeater, dict):
+        connection.send_error(msg["id"], "invalid_backup", "Missing Repeater backup section")
+        return
+
+    commands = coordinator.api.mesh_core.commands
+    request_lock = commands._mesh_request_lock
+    await request_lock.acquire()
+
+    try:
+        self_event = await commands.send_appstart()
+        if _backup_event_failed(self_event, EventType):
+            raise ValueError("Unable to read current Companion radio settings")
+        self_info = dict(getattr(self_event, "payload", None) or {})
+
+        # Mode Repeater uses the normal Companion radio command, preserving
+        # the current RF parameters.
+        required_radio = (
+            self_info.get("radio_freq"),
+            self_info.get("radio_bw"),
+            self_info.get("radio_sf"),
+            self_info.get("radio_cr"),
+        )
+        if all(value is not None for value in required_radio):
+            result = await commands.set_radio(
+                required_radio[0],
+                required_radio[1],
+                int(required_radio[2]),
+                int(required_radio[3]),
+                repeat=bool(repeater.get("enabled", False)),
+            )
+            reason = _device_config_failure_reason(result)
+            if reason is not None:
+                raise ValueError(f"Repeater mode restore failed: {reason}")
+
+        if "path_hash_mode" in repeater:
+            result = await commands.set_path_hash_mode(int(repeater["path_hash_mode"]))
+            reason = _device_config_failure_reason(result)
+            if reason is not None:
+                raise ValueError(f"Path Hash restore failed: {reason}")
+
+        if "multi_acks" in repeater:
+            result = await commands.set_multi_acks(int(repeater["multi_acks"]))
+            reason = _device_config_failure_reason(result)
+            if reason is not None:
+                raise ValueError(f"Multi ACK restore failed: {reason}")
+
+        scalar_vars = (
+            ("auto_advert", "1" if bool(repeater.get("auto_advert")) else "0"),
+            ("mt", "1" if bool(repeater.get("mesh_time_sync")) else "0"),
+            ("owner", str(repeater.get("owner_info") or "")),
+            ("rxg", "1" if bool(repeater.get("rx_boosted_gain")) else "0"),
+            (
+                "adc_m",
+                str(int(round(float(repeater.get("adc_multiplier", 0.0)) * 1000.0))),
+            ),
+        )
+        if repeater.get("duty_cycle") is not None:
+            scalar_vars += (("duty_cycle", str(int(repeater["duty_cycle"]))),)
+
+        routing = repeater.get("routing") or {}
+        route = "/".join(
+            str(int(routing[key]))
+            for key in (
+                "flood_max",
+                "flood_max_unscoped",
+                "flood_max_advert",
+                "loop_detect",
+            )
+        )
+        scalar_vars += (("route", route),)
+
+        rf = repeater.get("radio_guard") or {}
+        rf_vars = (
+            ("cad", "1" if bool(rf.get("cad_enabled")) else "0"),
+            ("int_thr", str(int(rf.get("interference_threshold", 0) or 0))),
+            ("agc_s", str(int(rf.get("agc_reset_interval", 0) or 0))),
+            ("rxdelay", str(float(rf.get("rx_delay", 0.0) or 0.0))),
+            ("f_txdelay", str(float(rf.get("flood_tx_delay", 0.5) or 0.0))),
+            ("d_txdelay", str(float(rf.get("direct_tx_delay", 0.3) or 0.0))),
+        )
+
+        for key, value in scalar_vars + rf_vars:
+            result = await commands.set_custom_var(key, value)
+            reason = _device_config_failure_reason(result)
+            if reason is not None:
+                raise ValueError(f"Restore {key} failed: {reason}")
+
+        access = repeater.get("access") or {}
+        result = await commands.set_custom_var("acl_clear", "1")
+        reason = _device_config_failure_reason(result)
+        if reason is not None:
+            raise ValueError(f"ACL clear failed: {reason}")
+
+        restored_acl = 0
+        for row in access.get("acl") or []:
+            if not isinstance(row, dict):
+                continue
+            public_key = str(row.get("public_key") or "")
+            permissions = int(row.get("permissions", 0) or 0)
+            if permissions not in (1, 2, 3):
+                raise ValueError("ACL backup contains an invalid role")
+            reason = await _set_repeater_acl_entry(
+                commands,
+                public_key,
+                permissions,
+            )
+            if reason is not None:
+                raise ValueError(f"ACL restore failed: {reason}")
+            restored_acl += 1
+
+        regions = repeater.get("regions")
+        if not isinstance(regions, dict):
+            raise ValueError("Repeater backup is missing RegionMap data")
+        reason = await _restore_repeater_regions(commands, regions)
+        if reason is not None:
+            raise ValueError(reason)
+
+        # Verify the high-value sections after restore.
+        profile, reason = await _read_repeater_profile(commands)
+        if profile is None:
+            raise ValueError(f"Profile verification failed: {reason}")
+        auth, reason = await _read_repeater_auth_config(commands)
+        if auth is None:
+            raise ValueError(f"ACL verification failed: {reason}")
+        if int(auth.get("acl_count") or 0) != restored_acl:
+            raise ValueError("ACL verification count mismatch")
+        verified_regions, reason = await _read_local_repeater_regions(commands)
+        if verified_regions is None:
+            raise ValueError(f"RegionMap verification failed: {reason}")
+
+        connection.send_result(
+            msg["id"],
+            {
+                "success": True,
+                "acl_count": restored_acl,
+                "region_count": int(verified_regions.get("count") or 0),
+                "passwords_restored": False,
+                "password_note": (
+                    "Admin/Guest passwords are write-only and were intentionally "
+                    "left unchanged."
+                ),
+            },
+        )
+    except Exception as ex:
+        _ws_send_error_safe(
+            connection,
+            msg["id"],
+            ex,
+            handler="ws_restore_repeater_backup",
+        )
+    finally:
+        if request_lock.locked():
+            request_lock.release()
 
 
 # ─── HiveFW APPS/SOS channel sync ───────────────────────────────────────
