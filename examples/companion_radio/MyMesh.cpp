@@ -199,9 +199,9 @@ static size_t hivefwBase64Encode(
 // - state version 1 distinguishes this scheme from the old "seed timestamp"
 //   implementation that could store a reference without transmitting.
 static constexpr uint32_t HIVEFW_SMART_ADVERT_INTERVAL_SECONDS = 24UL * 60UL * 60UL;
-// Match the official SimpleRepeater local advert cadence: advert_interval=1
-// means one direct/zero-hop Repeater advert every two minutes.
-static constexpr uint32_t HIVEFW_NEIGHBOR_ADVERT_INTERVAL_MILLIS = 2UL * 60UL * 1000UL;
+// Local neighbour adverts follow the official SimpleRepeater interval rules:
+// 0 disables; otherwise 60..240 minutes, in two-minute steps. The persisted
+// HiveFW default is the maximum (240 min) to minimise airtime.
 static constexpr uint32_t HIVEFW_SMART_ADVERT_ENABLE_GRACE_SECONDS = 5UL * 60UL;
 static constexpr uint32_t HIVEFW_SMART_ADVERT_VALID_EPOCH_MIN = 1577836800UL;
 static constexpr uint8_t HIVEFW_SMART_ADVERT_STATE_VERSION = 1;
@@ -1870,6 +1870,43 @@ bool MyMesh::handleRepeaterRemoteCommand(
 
     _prefs.radio_fem_txgain = enabled ? 1 : 0;
     save_ok();
+    return true;
+  }
+
+  if (strcmp(command, "get advert.interval") == 0) {
+    snprintf(
+      reply,
+      reply_size,
+      "> %u",
+      (unsigned)_prefs.getNeighborAdvertIntervalMinutes()
+    );
+    return true;
+  }
+
+  if (strncmp(command, "set advert.interval ", 20) == 0) {
+    char* endp = nullptr;
+    long minutes = strtol(command + 20, &endp, 10);
+
+    if (
+      endp == command + 20 ||
+      *endp != '\0' ||
+      !(
+        minutes == 0 ||
+        (
+          minutes >= 60 &&
+          minutes <= 240 &&
+          (minutes % 2) == 0
+        )
+      )
+    ) {
+      snprintf(reply, reply_size, "Error: interval range is 60-240 minutes, step 2, or 0");
+      return true;
+    }
+
+    _prefs.setNeighborAdvertIntervalMinutes((uint16_t)minutes);
+    next_neighbor_advert = 0;
+    savePrefs();
+    snprintf(reply, reply_size, "OK");
     return true;
   }
 
@@ -5830,6 +5867,15 @@ void MyMesh::handleCmdFrame(size_t len) {
       "auto_advert",
       _prefs.isAutoAdvertEn() ? "1" : "0"
     );
+
+    char neighbor_adv_value[4];
+    snprintf(
+      neighbor_adv_value,
+      sizeof(neighbor_adv_value),
+      "%u",
+      (unsigned)_prefs.getNeighborAdvertIntervalMinutes()
+    );
+    appendCustomVar("nbr_adv", neighbor_adv_value);
     appendCustomVar(
       "mt",
       _prefs.mesh_time_sync ? "1" : "0"
@@ -5968,6 +6014,26 @@ void MyMesh::handleCmdFrame(size_t len) {
       if (strcmp(sp, "auto_advert") == 0) {
         if (strcmp(np, "0") == 0 || strcmp(np, "1") == 0) {
           setAutoAdvertEnabled(np[0] == '1');
+          success = true;
+        }
+      } else if (strcmp(sp, "nbr_adv") == 0) {
+        char* endp = nullptr;
+        long minutes = strtol(np, &endp, 10);
+        if (
+          endp != np &&
+          *endp == '\0' &&
+          (
+            minutes == 0 ||
+            (
+              minutes >= 60 &&
+              minutes <= 240 &&
+              (minutes % 2) == 0
+            )
+          )
+        ) {
+          _prefs.setNeighborAdvertIntervalMinutes((uint16_t)minutes);
+          next_neighbor_advert = 0;
+          savePrefs();
           success = true;
         }
       } else if (strcmp(sp, "mt") == 0) {
@@ -8911,13 +8977,15 @@ bool MyMesh::getSmartAdvertSecondsUntilNext(uint32_t& seconds) {
 }
 
 void MyMesh::updateNeighborAdvertTimer() {
-  if (!_prefs.isRepeatEn()) {
+  const uint16_t minutes = _prefs.getNeighborAdvertIntervalMinutes();
+
+  if (!_prefs.isRepeatEn() || minutes == 0) {
     next_neighbor_advert = 0;
     return;
   }
 
   next_neighbor_advert =
-      futureMillis((int)HIVEFW_NEIGHBOR_ADVERT_INTERVAL_MILLIS);
+      futureMillis((int)((uint32_t)minutes * 60UL * 1000UL));
 }
 
 void MyMesh::updateSmartAdvertTimer() {
