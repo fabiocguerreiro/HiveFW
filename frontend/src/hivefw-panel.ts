@@ -6943,6 +6943,9 @@ class HiveFWPanel extends BasePanel {
 
   __fullPublicKey(contact) {
     const readKey=(value)=>{
+      if(value && typeof value==="object"){
+        value=value.hex ?? value.public_key ?? value.key ?? "";
+      }
       const key=String(value||"").trim().replace(/[^0-9a-f]/gi,"").toLowerCase();
       return /^[0-9a-f]{64}$/.test(key)?key:"";
     };
@@ -9418,6 +9421,23 @@ class HiveFWPanel extends BasePanel {
     ];
     const freshMax=Math.max(1,...freshBuckets.map(([,value])=>value));
     for(const [label,value] of freshBuckets)freshness.appendChild(this.__networkBarRow(label,value,freshMax));
+
+    const sampledNodes=Object.values(history.nodes||{}).filter((node)=>{
+      const first=Math.max(1,Number(node?.first_sample)||1);
+      return (Number(history.samples)||0)-first+1>=2;
+    });
+    if(sampledNodes.length){
+      const presence=sampledNodes.map((node)=>{
+        const first=Math.max(1,Number(node?.first_sample)||1);
+        const possible=Math.max(1,(Number(history.samples)||0)-first+1);
+        return Math.max(0,Math.min(100,(Number(node?.seen_samples)||0)/possible*100));
+      });
+      const average=presence.reduce((sum,value)=>sum+value,0)/presence.length;
+      const note=document.createElement("div");
+      note.style.cssText="margin-top:9px;padding-top:8px;border-top:1px solid var(--divider-color);color:var(--secondary-text-color);font-size:9px;line-height:1.35;";
+      note.textContent="Estabilidade observada · "+average.toFixed(0)+"% de presença média · "+String(history.samples||0)+" amostras";
+      freshness.appendChild(note);
+    }
 
     const signals=document.createElement("section");
     signals.className="hive-network-panel";
