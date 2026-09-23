@@ -2463,7 +2463,7 @@ class HiveFWPanel extends BasePanel {
       }
       .hive-network-metrics {
         display:grid;
-        grid-template-columns:repeat(6,minmax(105px,1fr));
+        grid-template-columns:repeat(auto-fit,minmax(118px,1fr));
         gap:8px;
         margin-bottom:10px;
       }
@@ -9379,6 +9379,7 @@ class HiveFWPanel extends BasePanel {
     container.appendChild(head);
 
     const new24=Object.values(history.nodes||{}).filter((node)=>Number(node?.first_seen_at)>0&&now-Number(node.first_seen_at)<=86400000).length;
+    const new48=Object.values(history.nodes||{}).filter((node)=>Number(node?.first_seen_at)>0&&now-Number(node.first_seen_at)<=2*86400000).length;
     const missing7=Object.values(history.nodes||{}).filter((node)=>Number(node?.missing_since)>0&&now-Number(node.missing_since)<=7*86400000).length;
     const active1=all.filter((neighbor)=>Number(neighbor?.secs_ago||0)<=3600).length;
     const adverts1h=(history.advert_events||[]).filter((event)=>now-Number(event.timestamp||0)<=3600000).length;
@@ -9393,16 +9394,25 @@ class HiveFWPanel extends BasePanel {
     const floodHour=([rxFlood,txFlood].some(Number.isFinite))
       ? (((Number.isFinite(rxFlood)?rxFlood:0)+(Number.isFinite(txFlood)?txFlood:0))*60).toFixed(0)
       : "—";
+    const txAirtime=this.__readMetricState(null,"airtime_utilization").value;
+    const rxAirtime=this.__readMetricState(null,"rx_airtime_utilization").value;
+    const airtimePrimary=Number.isFinite(txAirtime)?txAirtime.toFixed(1)+"%":"—";
+    const airtimeDetail=[
+      Number.isFinite(txAirtime)?"TX "+txAirtime.toFixed(1)+"%":null,
+      Number.isFinite(rxAirtime)?"RX "+rxAirtime.toFixed(1)+"%":null,
+    ].filter(Boolean).join(" · ")||"sem métrica";
 
     const metrics=document.createElement("div");
     metrics.className="hive-network-metrics";
     metrics.append(
       this.__networkMetric("Vizinhos "+hours+"H",visible.length,"zero-hop observados"),
       this.__networkMetric("Ativos <1H",active1,"advert recente"),
-      this.__networkMetric("Novos 24H",new24,"desde o baseline"),
+      this.__networkMetric("Novos 24H",new24,new48+" em 48H · desde o baseline"),
       this.__networkMetric("Desaparecidos",missing7,"últimos 7 dias"),
       this.__networkMetric("Adverts/H",adverts1h,"eventos observados"),
-      this.__networkMetric("Tráfego",traffic,traffic==="—"?"sem métrica":("msg/min · flood "+floodHour+"/h"))
+      this.__networkMetric("Flood/H",floodHour,floodHour==="—"?"sem métrica":"RX + TX atual"),
+      this.__networkMetric("Airtime",airtimePrimary,airtimeDetail),
+      this.__networkMetric("Tráfego",traffic,traffic==="—"?"sem métrica":"msg/min · RX + TX")
     );
     container.appendChild(metrics);
 
