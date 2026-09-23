@@ -18,6 +18,10 @@ import {
   executeRemote,
   subscribeIdentityChange,
   setLocationSource,
+  exportCompanionBackup,
+  restoreCompanionBackup,
+  exportRepeaterBackup,
+  restoreRepeaterBackup,
 } from '../api';
 import type {
   FirmwareOtaStatus,
@@ -136,6 +140,12 @@ export class SettingsPage extends LitElement {
   @state() private _guestPasswordDraft = '';
   @state() private _repeaterAccessBusy: 'admin' | 'guest' | 'acl' | 'acl-entry' | null = null;
   @state() private _repeaterReadBusy = false;
+  @state() private _backupBusy:
+    | 'companion-export'
+    | 'companion-restore'
+    | 'repeater-export'
+    | 'repeater-restore'
+    | null = null;
   @state() private _confirmAction: ConfirmAction | null = null;
   @state() private _confirmDialogOpen = false;
   @state() private _locationSource: 'gps' | 'manual' | 'ha_location' = 'manual';
@@ -1242,6 +1252,8 @@ export class SettingsPage extends LitElement {
           <!-- Firmware manager is the third full-width card. -->
           ${this.selectedDevice ? this._renderFirmwareOta() : nothing}
 
+          ${this.selectedDevice ? this._renderBackupRestore() : nothing}
+
           <!-- Two-column grid for the remaining device settings cards -->
           <div class="settings-grid">
             <!-- Radio & RF Settings -->
@@ -1623,8 +1635,234 @@ export class SettingsPage extends LitElement {
 
   // _renderSection removed — replaced with always-visible card layout
 
+  private _backupFileName(prefix: string, rawName: unknown) {
+    const safeName = String(rawName || 'HiveFW')
+      .normalize('NFKD')
+      .replace(/[^\w.-]+/g, '_')
+      .replace(/^_+|_+$/g, '')
+      .slice(0, 48) || 'HiveFW';
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const stamp =
+      String(now.getFullYear()) +
+      pad(now.getMonth() + 1) +
+      pad(now.getDate()) + '_' +
+      pad(now.getHours()) +
+      pad(now.getMinutes()) +
+      pad(now.getSeconds());
+    return `${prefix}_${safeName}_${stamp}.json`;
+  }
+
+  private _downloadJson(data: Record<string, unknown>, filename: string) {
+    const blob = new Blob(
+      [JSON.stringify(data, null, 2) + '\n'],
+      { type: 'application/json;charset=utf-8' },
+    );
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  private async _exportCompanionBackup() {
+    if (!this.hass || this._backupBusy) return;
+    this._backupBusy = 'companion-export';
+    try {
+      const result = await exportCompanionBackup(this.hass, this.config?.entry_id);
+      const backup = result.backup as Record<string, unknown> | undefined;
+      if (!backup) throw new Error('O rádio não devolveu um backup Companion válido.');
+      this._downloadJson(
+        backup,
+        this._backupFileName('meshcore_backup', backup.name),
+      );
+      this._showStatusMessage(
+        `Backup Companion criado: ${Number(result.channel_count || 0)} canais, ${Number(result.contact_count || 0)} contactos.`,
+        'success',
+      );
+    } catch (error) {
+      this._showStatusMessage('Backup Companion: ' + String(error), 'error');
+    } finally {
+      this._backupBusy = null;
+    }
+  }
+
+  private async _exportRepeaterBackup() {
+    if (!this.hass || this._backupBusy) return;
+    this._backupBusy = 'repeater-export';
+    try {
+      const result = await exportRepeaterBackup(this.hass, this.config?.entry_id);
+      const backup = result.backup as Record<string, unknown> | undefined;
+      if (!backup || backup.format !== 'hivefw_repeater_backup') {
+        throw new Error('O rádio não devolveu um backup Repeater válido.');
+      }
+      this._downloadJson(
+        backup,
+        this._backupFileName('hivefw_repeater_backup', backup.device_name),
+      );
+      this._showStatusMessage(
+        `Backup Repeater criado: ${Number(result.region_count || 0)} regiões, ${Number(result.acl_count || 0)} ACL.`,
+        'success',
+      );
+    } catch (error) {
+      this._showStatusMessage('Backup Repeater: ' + String(error), 'error');
+    } finally {
+      this._backupBusy = null;
+    }
+  }
+
+  private async _restoreBackupFile(kind: 'companion' | 'repeater', file: File) {
+    if (!this.hass || this._backupBusy) return;
+
+    try {
+      const backup = JSON.parse(await file.text()) as Record<string, unknown>;
+      if (kind === 'companion') {
+        const required = [
+          'name', 'public_key', 'private_key', 'radio_settings',
+          'position_settings', 'other_settings', 'auto_add_settings',
+          'channels', 'contacts',
+        ];
+        const missing = required.filter((key) => !(key in backup));
+        if (missing.length) {
+          throw new Error('Ficheiro Companion inválido. Falta: ' + missing.join(', '));
+        }
+        const channels = Array.isArray(backup.channels) ? backup.channels.length : 0;
+        const contacts = Array.isArray(backup.contacts) ? backup.contacts.length : 0;
+        if (!window.confirm(
+          'Restaurar o backup Companion vai substituir identidade, rádio, posição, canais e contactos.\n\n' +
+          `Canais: ${channels}\nContactos: ${contacts}\n\nPretendes continuar?`,
+        )) return;
+
+        this._backupBusy = 'companion-restore';
+        const result = await restoreCompanionBackup(
+          this.hass,
+          backup,
+          this.config?.entry_id,
+        );
+        if (!result.success) throw new Error('O restauro Companion não foi concluído.');
+        await this._loadDeviceConfig();
+        this._showStatusMessage('Backup Companion restaurado.', 'success');
+      } else {
+        if (
+          backup.format !== 'hivefw_repeater_backup' ||
+          typeof backup.repeater !== 'object'
+        ) {
+          throw new Error('Ficheiro HiveFW Repeater inválido.');
+        }
+        const repeater = backup.repeater as Record<string, unknown>;
+        const access = (repeater.access || {}) as Record<string, unknown>;
+        const acl = Array.isArray(access.acl) ? access.acl.length : 0;
+        const regionsBlock = (repeater.regions || {}) as Record<string, unknown>;
+        const regions = Array.isArray(regionsBlock.regions) ? regionsBlock.regions.length : 0;
+
+        if (!window.confirm(
+          'Restaurar o backup Repeater vai substituir Owner Info, RX Gain, ADC, routing, RF avançado, RegionMap e ACL persistente.\n\n' +
+          'As passwords Admin/Guest NÃO são exportadas nem alteradas.\n\n' +
+          `ACL: ${acl}\nRegiões: ${regions}\n\nPretendes continuar?`,
+        )) return;
+
+        this._backupBusy = 'repeater-restore';
+        const result = await restoreRepeaterBackup(
+          this.hass,
+          backup,
+          this.config?.entry_id,
+        );
+        if (!result.success) throw new Error('O restauro Repeater não foi concluído.');
+        await this._readRepeaterStatus(false, true);
+        await this._loadLocalRegions();
+        this._showStatusMessage(
+          'Backup Repeater restaurado. As passwords Admin/Guest foram mantidas.',
+          'success',
+        );
+      }
+    } catch (error) {
+      this._showStatusMessage(
+        `Restauro ${kind === 'companion' ? 'Companion' : 'Repeater'}: ${String(error)}`,
+        'error',
+      );
+    } finally {
+      this._backupBusy = null;
+    }
+  }
+
+  private _renderBackupRestore() {
+    const busy = this._backupBusy !== null;
+    return html`
+      <div class="device-section" style="margin-bottom:16px;">
+        <div class="card-title">Backup &amp; Restore</div>
+        <div style="font-size:12px;line-height:1.45;color:var(--secondary-text-color);margin-bottom:12px;">
+          Companion e Repeater são guardados separadamente para distinguir os dados de identidade/app da configuração específica do serviço Repeater.
+        </div>
+
+        <div class="section-row">
+          <div style="padding:12px;border:1px solid var(--divider-color);border-radius:8px;">
+            <div style="font-size:13px;font-weight:650;">Companion</div>
+            <div style="font-size:11px;color:var(--secondary-text-color);line-height:1.45;margin:4px 0 9px;">
+              Identidade/chave privada, nome, rádio, posição, auto-add, canais e contactos. Formato compatível com MeshCore.
+            </div>
+            <div style="font-size:10px;color:var(--warning-color,#ff9800);margin-bottom:9px;">
+              Contém a chave privada do dispositivo: trata o ficheiro como credencial sensível.
+            </div>
+            <div class="actions-row">
+              <button class="action-btn" ?disabled=${busy} @click=${this._exportCompanionBackup}>
+                ${this._backupBusy === 'companion-export' ? 'A criar…' : 'Backup Companion'}
+              </button>
+              <button class="action-btn" ?disabled=${busy}
+                @click=${() => (this.shadowRoot?.querySelector('#companion-backup-input') as HTMLInputElement | null)?.click()}>
+                ${this._backupBusy === 'companion-restore' ? 'A restaurar…' : 'Restaurar Companion'}
+              </button>
+              <input id="companion-backup-input" type="file" accept=".json,application/json" hidden
+                @change=${(e: Event) => {
+                  const input = e.target as HTMLInputElement;
+                  const file = input.files?.[0];
+                  input.value = '';
+                  if (file) void this._restoreBackupFile('companion', file);
+                }} />
+            </div>
+          </div>
+
+          <div style="padding:12px;border:1px solid var(--divider-color);border-radius:8px;">
+            <div style="font-size:13px;font-weight:650;">Repeater</div>
+            <div style="font-size:11px;color:var(--secondary-text-color);line-height:1.45;margin:4px 0 9px;">
+              Owner Info, RX Gain, ADC, modo Repeater, Path Hash, Multi ACK, Smart Advert, RTC Mesh, Duty Cycle, routing, RF avançado, RegionMap e ACL.
+            </div>
+            <div style="font-size:10px;color:var(--secondary-text-color);margin-bottom:9px;">
+              Passwords Admin/Guest são write-only: nunca entram no backup e são mantidas durante o restore.
+            </div>
+            <div class="actions-row">
+              <button class="action-btn" ?disabled=${busy} @click=${this._exportRepeaterBackup}>
+                ${this._backupBusy === 'repeater-export' ? 'A criar…' : 'Backup Repeater'}
+              </button>
+              <button class="action-btn" ?disabled=${busy}
+                @click=${() => (this.shadowRoot?.querySelector('#repeater-backup-input') as HTMLInputElement | null)?.click()}>
+                ${this._backupBusy === 'repeater-restore' ? 'A restaurar…' : 'Restaurar Repeater'}
+              </button>
+              <input id="repeater-backup-input" type="file" accept=".json,application/json" hidden
+                @change=${(e: Event) => {
+                  const input = e.target as HTMLInputElement;
+                  const file = input.files?.[0];
+                  input.value = '';
+                  if (file) void this._restoreBackupFile('repeater', file);
+                }} />
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
   private _renderRadioSettings() {
     if (!this._deviceConfig) return;
+
+    const profile = this._repeaterStatus?.repeater_profile;
+    const profileChanged =
+      (this._editValues['rx_boosted_gain'] !== undefined &&
+        Boolean(this._editValues['rx_boosted_gain']) !== Boolean(profile?.rx_boosted_gain)) ||
+      (this._editValues['adc_multiplier'] !== undefined &&
+        Number(this._editValues['adc_multiplier']) !== Number(profile?.adc_multiplier ?? 0));
 
     const changed = this._hasChanges('radio-settings', [
       'tx_power',
@@ -1633,7 +1871,7 @@ export class SettingsPage extends LitElement {
       'spreading_factor',
       'coding_rate',
       'path_hash_mode',
-    ]);
+    ]) || profileChanged;
 
     return html`
       <div class="section-row">
@@ -1719,6 +1957,47 @@ export class SettingsPage extends LitElement {
               return html`<option value=${val} ?selected=${Number(current) === val}>${label}</option>`;
             })}
           </select>
+        </div>
+      </div>
+
+      <div class="section-row">
+        <div class="form-group-inline">
+          <label class="form-label">RX Boosted Gain</label>
+          <select
+            class="form-select"
+            .value=${rxBoostedGain ? '1' : '0'}
+            ?disabled=${!profile?.supported}
+            @change=${(e: Event) => {
+              this._editValues['rx_boosted_gain'] =
+                (e.target as HTMLSelectElement).value === '1';
+              this._editValues = { ...this._editValues };
+            }}>
+            <option value="0">Desligado</option>
+            <option value="1">Ligado</option>
+          </select>
+          <div style="font-size:11px;color:var(--secondary-text-color);margin-top:4px;">
+            Aumenta a sensibilidade RX do SX126x, com algum aumento de consumo.
+          </div>
+        </div>
+        <div class="form-group-inline">
+          <label class="form-label">ADC multiplier</label>
+          <input
+            type="number"
+            class="form-input"
+            min="0"
+            max="10"
+            step="0.001"
+            .value=${String(adcMultiplier)}
+            ?disabled=${!profile?.supported}
+            @input=${(e: Event) => {
+              this._editValues['adc_multiplier'] =
+                Number((e.target as HTMLInputElement).value);
+              this._editValues = { ...this._editValues };
+            }}
+          />
+          <div style="font-size:11px;color:var(--secondary-text-color);margin-top:4px;">
+            Corrige a calibração da tensão da bateria. 0 usa o valor padrão da placa; intervalo aceite 0–10.
+          </div>
         </div>
       </div>
 
@@ -2395,37 +2674,6 @@ export class SettingsPage extends LitElement {
                     this._editValues = { ...this._editValues };
                   }} />
               </div>
-              <div>
-                <label class="form-label">RX Boosted Gain</label>
-                <select class="form-select"
-                  .value=${rxBoostedGain ? '1' : '0'}
-                  ?disabled=${!profile?.supported}
-                  @change=${(e: Event) => {
-                    this._editValues['rx_boosted_gain'] =
-                      (e.target as HTMLSelectElement).value === '1';
-                    this._editValues = { ...this._editValues };
-                  }}>
-                  <option value="0">Desligado</option>
-                  <option value="1">Ligado</option>
-                </select>
-                <div style="font-size:10px;color:var(--secondary-text-color);margin-top:3px;line-height:1.35;">
-                  Maior sensibilidade RX em SX126x, com aumento de consumo.
-                </div>
-              </div>
-              <div>
-                <label class="form-label">ADC multiplier</label>
-                <input class="form-input" type="number" min="0" max="10" step="0.001"
-                  .value=${String(adcMultiplier)}
-                  ?disabled=${!profile?.supported}
-                  @input=${(e: Event) => {
-                    this._editValues['adc_multiplier'] =
-                      Number((e.target as HTMLInputElement).value);
-                    this._editValues = { ...this._editValues };
-                  }} />
-                <div style="font-size:10px;color:var(--secondary-text-color);margin-top:3px;line-height:1.35;">
-                  Calibra a leitura da tensão da bateria. 0 usa o valor padrão da placa; intervalo 0–10.
-                </div>
-              </div>
             </div>
           ` : html`
             <div style="font-size:11px;color:var(--secondary-text-color);">
@@ -2985,12 +3233,6 @@ export class SettingsPage extends LitElement {
       if (this._editValues['owner_info'] !== undefined) {
         settings.owner_info = String(this._editValues['owner_info']);
       }
-      if (this._editValues['rx_boosted_gain'] !== undefined) {
-        settings.rx_boosted_gain = Boolean(this._editValues['rx_boosted_gain']);
-      }
-      if (this._editValues['adc_multiplier'] !== undefined) {
-        settings.adc_multiplier = Number(this._editValues['adc_multiplier']);
-      }
     }
     for (const key of [
       'path_hash_mode',
@@ -3142,7 +3384,16 @@ export class SettingsPage extends LitElement {
         keysToApply = ['name'];
         break;
       case 'radio-settings':
-        keysToApply = ['tx_power', 'frequency', 'bandwidth', 'spreading_factor', 'coding_rate', 'path_hash_mode'];
+        keysToApply = [
+          'tx_power',
+          'frequency',
+          'bandwidth',
+          'spreading_factor',
+          'coding_rate',
+          'path_hash_mode',
+          'rx_boosted_gain',
+          'adc_multiplier',
+        ];
         break;
     }
 
@@ -3170,6 +3421,13 @@ export class SettingsPage extends LitElement {
           delete this._editValues[key];
         }
         this._editValues = { ...this._editValues };
+
+        if (
+          sectionId === 'radio-settings' &&
+          ('rx_boosted_gain' in settings || 'adc_multiplier' in settings)
+        ) {
+          await this._readRepeaterStatus(false, false);
+        }
 
         if (result.rename) {
           // Rename triggers a persistent post-rename dialog
