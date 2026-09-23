@@ -3208,6 +3208,30 @@ bool MyMesh::onContactPathRecv(ContactInfo& contact, uint8_t* in_path, uint8_t i
       return false;  // DON'T send reciprocal path!
     }
   }
+  // Keep the Repeater ACL session path aligned with the transient
+  // Companion contact used by BaseChatMesh. This lets the official app switch
+  // from flood login to direct remote administration exactly like
+  // simple_repeater.
+  if (
+    contact.type == ADV_TYPE_NONE &&
+    _prefs.isRepeatEn() &&
+    mesh::Packet::isValidPathLen(out_path_len)
+  ) {
+    ClientInfo* client =
+      repeater_acl.getClient(contact.id.pub_key, PUB_KEY_SIZE);
+
+    if (client != NULL) {
+      client->out_path_len =
+        mesh::Packet::copyPath(
+          client->out_path,
+          out_path,
+          out_path_len
+        );
+      client->last_activity =
+        getRTCClock()->getCurrentTime();
+    }
+  }
+
   // let base class handle received path and data
   return BaseChatMesh::onContactPathRecv(contact, in_path, in_path_len, out_path, out_path_len, extra_type, extra, extra_len);
 }
