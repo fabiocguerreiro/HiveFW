@@ -134,7 +134,7 @@ export class SettingsPage extends LitElement {
   @state() private _dutyCycleBusy: 'read' | 'apply' | null = null;
   @state() private _adminPasswordDraft = '';
   @state() private _guestPasswordDraft = '';
-  @state() private _repeaterAccessBusy: 'admin' | 'guest' | 'acl' | null = null;
+  @state() private _repeaterAccessBusy: 'admin' | 'guest' | 'acl' | 'acl-entry' | null = null;
   @state() private _repeaterReadBusy = false;
   @state() private _confirmAction: ConfirmAction | null = null;
   @state() private _confirmDialogOpen = false;
@@ -2142,6 +2142,16 @@ export class SettingsPage extends LitElement {
     const rxDelay = Number(this._editValues['rx_delay'] ?? status.tuning.rx_delay ?? 0);
     const routing = status.routing;
     const radioGuard = status.radio_guard;
+    const profile = status.repeater_profile;
+    const ownerInfo = String(
+      this._editValues['owner_info'] ?? profile?.owner_info ?? ''
+    );
+    const rxBoostedGain = Boolean(
+      this._editValues['rx_boosted_gain'] ?? profile?.rx_boosted_gain ?? false
+    );
+    const adcMultiplier = Number(
+      this._editValues['adc_multiplier'] ?? profile?.adc_multiplier ?? 0
+    );
     const floodMax = Number(this._editValues['flood_max'] ?? routing?.flood_max ?? 64);
     const floodMaxUnscoped = Number(this._editValues['flood_max_unscoped'] ?? routing?.flood_max_unscoped ?? 64);
     const floodMaxAdvert = Number(this._editValues['flood_max_advert'] ?? routing?.flood_max_advert ?? 8);
@@ -2219,6 +2229,22 @@ export class SettingsPage extends LitElement {
             ? (meshTimeSync ? 'Ativada' : 'Desativada')
             : 'Não suportada'}
         </label>
+      </div>
+
+      <div style="margin-bottom:14px;padding:10px 12px;border-radius:8px;background:var(--secondary-background-color);">
+        <div style="font-size:13px;font-weight:600;">Owner Info</div>
+        <div style="font-size:11px;color:var(--secondary-text-color);margin:2px 0 8px;line-height:1.45;">
+          Texto livre anunciado pelo Repeater através do protocolo MeshCore. Máximo 119 bytes UTF-8.
+        </div>
+        <textarea
+          class="form-input"
+          style="width:100%;min-height:74px;resize:vertical;box-sizing:border-box;"
+          .value=${ownerInfo}
+          ?disabled=${!profile?.supported}
+          @input=${(e: Event) => {
+            this._editValues['owner_info'] = (e.target as HTMLTextAreaElement).value;
+            this._editValues = { ...this._editValues };
+          }}></textarea>
       </div>
 
       <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;padding:10px 12px;border-radius:8px;background:var(--secondary-background-color);">
@@ -2369,6 +2395,37 @@ export class SettingsPage extends LitElement {
                     this._editValues = { ...this._editValues };
                   }} />
               </div>
+              <div>
+                <label class="form-label">RX Boosted Gain</label>
+                <select class="form-select"
+                  .value=${rxBoostedGain ? '1' : '0'}
+                  ?disabled=${!profile?.supported}
+                  @change=${(e: Event) => {
+                    this._editValues['rx_boosted_gain'] =
+                      (e.target as HTMLSelectElement).value === '1';
+                    this._editValues = { ...this._editValues };
+                  }}>
+                  <option value="0">Desligado</option>
+                  <option value="1">Ligado</option>
+                </select>
+                <div style="font-size:10px;color:var(--secondary-text-color);margin-top:3px;line-height:1.35;">
+                  Maior sensibilidade RX em SX126x, com aumento de consumo.
+                </div>
+              </div>
+              <div>
+                <label class="form-label">ADC multiplier</label>
+                <input class="form-input" type="number" min="0" max="10" step="0.001"
+                  .value=${String(adcMultiplier)}
+                  ?disabled=${!profile?.supported}
+                  @input=${(e: Event) => {
+                    this._editValues['adc_multiplier'] =
+                      Number((e.target as HTMLInputElement).value);
+                    this._editValues = { ...this._editValues };
+                  }} />
+                <div style="font-size:10px;color:var(--secondary-text-color);margin-top:3px;line-height:1.35;">
+                  Calibra a leitura da tensão da bateria. 0 usa o valor padrão da placa; intervalo 0–10.
+                </div>
+              </div>
             </div>
           ` : html`
             <div style="font-size:11px;color:var(--secondary-text-color);">
@@ -2479,6 +2536,8 @@ export class SettingsPage extends LitElement {
             </div>
           </div>
 
+          ${this._renderRepeaterAcl(status)}
+
           <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:12px;padding-top:10px;border-top:1px solid var(--divider-color);">
             <div style="font-size:11px;color:var(--secondary-text-color);line-height:1.4;">
               Admin permite remote CLI e gestão completa. Guest permite operações limitadas ao perfil Guest.
@@ -2546,6 +2605,127 @@ export class SettingsPage extends LitElement {
     `;
   }
 
+  private _renderRepeaterAcl(status: LocalRepeaterStatus) {
+    const auth = status.server_auth;
+    const entries = Array.isArray(auth?.acl_entries) ? auth!.acl_entries! : [];
+
+    return html`
+      <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--divider-color);">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;">
+          <div>
+            <div style="font-size:12px;font-weight:600;">ACL persistente</div>
+            <div style="font-size:10px;color:var(--secondary-text-color);margin-top:2px;">
+              Read Only, Read Write e Admin são identidades guardadas. Guest é transitório e não é persistido.
+            </div>
+          </div>
+          <span style="font-size:11px;color:var(--secondary-text-color);">
+            ${entries.length} entrada${entries.length === 1 ? '' : 's'}
+          </span>
+        </div>
+
+        ${auth?.acl_entries_error ? html`
+          <div style="font-size:11px;color:var(--error-color);margin-bottom:8px;">
+            Não foi possível ler a ACL: ${auth.acl_entries_error}
+          </div>
+        ` : nothing}
+
+        ${entries.length ? html`
+          <div style="display:flex;flex-direction:column;gap:7px;">
+            ${entries.map((entry) => {
+              const draftKey = `acl_perm_${entry.public_key}`;
+              const role = Number(this._editValues[draftKey] ?? entry.permissions);
+              return html`
+                <div style="display:grid;grid-template-columns:minmax(115px,1fr) minmax(120px,150px) auto auto;gap:7px;align-items:center;padding:7px;border:1px solid var(--divider-color);border-radius:7px;">
+                  <div style="min-width:0;">
+                    <div style="font:11px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;overflow-wrap:anywhere;">
+                      ${entry.pubkey_prefix.toUpperCase()}
+                    </div>
+                    <div style="font-size:9px;color:var(--secondary-text-color);overflow-wrap:anywhere;">
+                      ${entry.public_key}
+                    </div>
+                  </div>
+                  <select
+                    class="form-select"
+                    .value=${String(role)}
+                    ?disabled=${this._repeaterAccessBusy !== null}
+                    @change=${(e: Event) => {
+                      this._editValues[draftKey] =
+                        Number((e.target as HTMLSelectElement).value);
+                      this._editValues = { ...this._editValues };
+                    }}>
+                    <option value="1">Read Only</option>
+                    <option value="2">Read Write</option>
+                    <option value="3">Admin</option>
+                  </select>
+                  <button
+                    class="action-btn"
+                    ?disabled=${this._repeaterAccessBusy !== null || role === entry.permissions}
+                    @click=${() => this._setRepeaterAclEntry(entry.public_key, role)}>
+                    Guardar
+                  </button>
+                  <button
+                    class="danger-button"
+                    ?disabled=${this._repeaterAccessBusy !== null}
+                    @click=${() => this._confirmRemoveRepeaterAclEntry(entry.public_key, entry.pubkey_prefix)}>
+                    Remover
+                  </button>
+                </div>
+              `;
+            })}
+          </div>
+        ` : html`
+          <div style="font-size:11px;color:var(--secondary-text-color);">
+            Nenhuma identidade persistida na ACL.
+          </div>
+        `}
+      </div>
+    `;
+  }
+
+  private async _setRepeaterAclEntry(publicKey: string, permissions: number) {
+    if (!this.hass) return;
+    this._repeaterAccessBusy = 'acl-entry';
+    try {
+      const result = await setDeviceConfig(
+        this.hass,
+        {
+          acl_public_key: publicKey,
+          acl_permissions: permissions,
+        },
+        this.config?.entry_id,
+      );
+      if (!result.success) {
+        this._showStatusMessage(
+          result.error || 'Não foi possível atualizar a ACL.',
+          'error',
+        );
+        return;
+      }
+      delete this._editValues[`acl_perm_${publicKey}`];
+      this._editValues = { ...this._editValues };
+      await this._readRepeaterStatus(false, false);
+      this._showStatusMessage(
+        permissions === 0 ? 'Entrada ACL removida.' : 'Permissão ACL atualizada.',
+        'success',
+      );
+    } catch (error) {
+      this._showStatusMessage('ACL: ' + String(error), 'error');
+    } finally {
+      this._repeaterAccessBusy = null;
+    }
+  }
+
+  private _confirmRemoveRepeaterAclEntry(publicKey: string, prefix: string) {
+    this._confirmAction = {
+      title: 'Remover identidade da ACL',
+      message:
+        `Remover ${prefix.toUpperCase()} da ACL persistente do Repeater? ` +
+        'Esta operação não altera as passwords Admin/Guest.',
+      onConfirm: () => this._setRepeaterAclEntry(publicKey, 0),
+    };
+    this._confirmDialogOpen = true;
+  }
+
   private async _readRepeaterStatus(
     showMessage = false,
     resetDrafts = false,
@@ -2570,6 +2750,9 @@ export class SettingsPage extends LitElement {
           'repeat',
           'auto_advert',
           'mesh_time_sync',
+          'owner_info',
+          'rx_boosted_gain',
+          'adc_multiplier',
           'multi_acks',
           'rx_delay',
           'flood_max',
@@ -2798,6 +2981,17 @@ export class SettingsPage extends LitElement {
     ) {
       settings.mesh_time_sync = Boolean(this._editValues['mesh_time_sync']);
     }
+    if (status.repeater_profile?.supported) {
+      if (this._editValues['owner_info'] !== undefined) {
+        settings.owner_info = String(this._editValues['owner_info']);
+      }
+      if (this._editValues['rx_boosted_gain'] !== undefined) {
+        settings.rx_boosted_gain = Boolean(this._editValues['rx_boosted_gain']);
+      }
+      if (this._editValues['adc_multiplier'] !== undefined) {
+        settings.adc_multiplier = Number(this._editValues['adc_multiplier']);
+      }
+    }
     for (const key of [
       'path_hash_mode',
       'flood_max',
@@ -2836,6 +3030,9 @@ export class SettingsPage extends LitElement {
         'repeat',
         'auto_advert',
         'mesh_time_sync',
+        'owner_info',
+        'rx_boosted_gain',
+        'adc_multiplier',
         'multi_acks',
         'rx_delay',
         'flood_max',
