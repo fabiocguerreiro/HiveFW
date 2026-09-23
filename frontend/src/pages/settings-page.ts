@@ -2858,48 +2858,49 @@ export class SettingsPage extends LitElement {
               Atualiza o firmware HiveFW para ativar os controlos locais de CAD, AGC e delays.
             </div>
           `}
-        </div>
-
-              <div
-                style="margin-top:12px;padding-top:12px;border-top:1px solid var(--divider-color);"
-                data-hive-duty-cycle-control>
+          <div
+            style="margin-top:12px;padding-top:12px;border-top:1px solid var(--divider-color);"
+            data-hive-duty-cycle-control>
             <div style="font-size:13px;font-weight:600;margin-bottom:10px;">Duty Cycle</div>
             <div style="display:grid;grid-template-columns:minmax(90px,1fr) auto auto;gap:8px;align-items:end;">
-              <div>
-                <label class="form-label">Valor</label>
-                <select
-                  class="form-select"
-                  ?disabled=${this._dutyCycleBusy !== null}
-                  @change=${(e: Event) => {
-                    this._dutyCycleValue = Number((e.target as HTMLSelectElement).value);
-                  }}>
-                  ${Array.from({ length: 41 }, (_, i) => i + 10).map(
-                    (value) => html`
-                      <option
-                        value=${String(value)}
-                        ?selected=${value === this._dutyCycleValue}>
-                        ${value}%
-                      </option>
-                    `,
-                  )}
-                </select>
-              </div>
-              <button
-                class="apply-button"
-                style="width:auto;min-width:68px;padding:7px 12px;margin:0;"
-                ?disabled=${this._dutyCycleBusy !== null}
-                @click=${this._readDutyCycle}>
-                ${this._dutyCycleBusy === 'read' ? 'A ler...' : 'Ler'}
-              </button>
-              <button
-                class="apply-button"
-                style="width:auto;min-width:78px;padding:7px 12px;margin:0;"
-                ?disabled=${this._dutyCycleBusy !== null}
-                @click=${this._applyDutyCycle}>
-                ${this._dutyCycleBusy === 'apply' ? 'A aplicar...' : 'Aplicar'}
-              </button>
+          <div>
+            <label class="form-label">Valor</label>
+            <select
+              class="form-select"
+              ?disabled=${this._dutyCycleBusy !== null}
+              @change=${(e: Event) => {
+                this._dutyCycleValue = Number((e.target as HTMLSelectElement).value);
+              }}>
+              ${Array.from({ length: 41 }, (_, i) => i + 10).map(
+                (value) => html`
+                  <option
+                    value=${String(value)}
+                    ?selected=${value === this._dutyCycleValue}>
+                    ${value}%
+                  </option>
+                `,
+              )}
+            </select>
+          </div>
+          <button
+            class="apply-button"
+            style="width:auto;min-width:68px;padding:7px 12px;margin:0;"
+            ?disabled=${this._dutyCycleBusy !== null}
+            @click=${this._readDutyCycle}>
+            ${this._dutyCycleBusy === 'read' ? 'A ler...' : 'Ler'}
+          </button>
+          <button
+            class="apply-button"
+            style="width:auto;min-width:78px;padding:7px 12px;margin:0;"
+            ?disabled=${this._dutyCycleBusy !== null}
+            @click=${this._applyDutyCycle}>
+            ${this._dutyCycleBusy === 'apply' ? 'A aplicar...' : 'Aplicar'}
+          </button>
             </div>
           </div>
+
+
+        </div>
 
       </div>
 
