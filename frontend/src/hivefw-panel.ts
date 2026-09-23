@@ -3090,7 +3090,7 @@ class HiveFWPanel extends BasePanel {
     description.className = "hive-settings-note";
     description.style.marginTop = "0";
     description.textContent =
-      "O relógio continua a usar APP/GPS como fontes principais. Opcionalmente, o HiveFW pode usar como fonte secundária os adverts assinados pelo Timekeeper da rede portuguesa, validados pela respetiva public key.";
+      "O relógio continua a usar APP/GPS como fontes principais. Opcionalmente, o HiveFW pode usar como fonte secundária os adverts assinados pelo Timekeeper da rede portuguesa, validados pela public key 01B2F5DA…1734D462.";
     card.appendChild(description);
 
     const status = this.__repeaterStatus;
