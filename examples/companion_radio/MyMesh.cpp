@@ -59,7 +59,7 @@ extern bool hivefw_set_ota_token(const char* token);
 #define CMD_GET_REPEATER_AUTH_CONFIG   46   // HiveFW local Repeater login/ACL status
 #define CMD_GET_REPEATER_REGION        47   // HiveFW local RegionMap entry/status
 #define CMD_SET_REPEATER_REGION        48   // HiveFW local RegionMap mutation
-// NOTE: CMD 49 remains parked for future local extensions
+#define CMD_GET_OBSERVED_CHANNELS      49   // HiveFW passive forwarded-channel activity
 #define CMD_SEND_BINARY_REQ           50
 #define CMD_FACTORY_RESET             51
 #define CMD_SEND_PATH_DISCOVERY_REQ   52
@@ -1018,6 +1018,60 @@ bool MyMesh::isRepeaterLooped(
 }
 
 
+void MyMesh::noteObservedForwardedChannel(
+  const mesh::Packet* packet
+) {
+  if (
+    packet == NULL ||
+    packet->getPayloadType() != PAYLOAD_TYPE_GRP_TXT ||
+    packet->payload_len < 1
+  ) {
+    return;
+  }
+
+  const uint8_t channel_hash = packet->payload[0];
+
+  // A configured channel with the same hash is already visible in Chat.
+  // Suggestions are only for group traffic the Companion cannot decrypt.
+  mesh::GroupChannel matches[4];
+  if (searchChannelsByHash(&channel_hash, matches, 4) > 0) {
+    return;
+  }
+
+  const uint32_t now = getRTCClock()->getCurrentTime();
+  if (now == 0) {
+    return;
+  }
+
+  int free_slot = -1;
+  int oldest_slot = -1;
+  uint32_t oldest_timestamp = 0xFFFFFFFFUL;
+
+  for (int i = 0; i < MAX_OBSERVED_CHANNELS; i++) {
+    ObservedChannel& observed = observed_channels[i];
+
+    if (observed.heard_timestamp > 0 && observed.hash == channel_hash) {
+      observed.heard_timestamp = now;
+      if (observed.message_count < 0xFFFF) observed.message_count++;
+      return;
+    }
+
+    if (observed.heard_timestamp == 0 && free_slot < 0) free_slot = i;
+    if (observed.heard_timestamp > 0 && observed.heard_timestamp < oldest_timestamp) {
+      oldest_timestamp = observed.heard_timestamp;
+      oldest_slot = i;
+    }
+  }
+
+  const int slot = free_slot >= 0 ? free_slot : oldest_slot;
+  if (slot < 0) return;
+
+  observed_channels[slot].hash = channel_hash;
+  observed_channels[slot].heard_timestamp = now;
+  observed_channels[slot].message_count = 1;
+}
+
+
 bool MyMesh::allowPacketForward(
   const mesh::Packet* packet
 ) {
@@ -1076,6 +1130,7 @@ bool MyMesh::allowPacketForward(
   // explícita, preservar o comportamento anterior para Regions. Flood limits
   // e Loop Detect acima continuam ativos.
   if (!region_policy_configured) {
+    noteObservedForwardedChannel(packet);
     return true;
   }
 
@@ -1097,6 +1152,7 @@ bool MyMesh::allowPacketForward(
   }
 
 
+  noteObservedForwardedChannel(packet);
   return true;
 }
 
@@ -5684,6 +5740,73 @@ void MyMesh::handleCmdFrame(size_t len) {
       return;
     }
 
+    dp += written;
+    _serial->writeFrame(out_frame, dp - (char*)out_frame);
+
+  } else if (cmd_frame[0] == CMD_GET_OBSERVED_CHANNELS) {
+    // Passive local view of unknown group-text channels that this radio has
+    // actually forwarded. Reading this table never emits LoRa traffic.
+    const uint8_t offset = len >= 2 ? cmd_frame[1] : 0;
+    const uint32_t now = getRTCClock()->getCurrentTime();
+    const ObservedChannel* sorted[MAX_OBSERVED_CHANNELS];
+    int observed_count = 0;
+
+    for (int n = 0; n < MAX_OBSERVED_CHANNELS; n++) {
+      const ObservedChannel& observed = observed_channels[n];
+      if (observed.heard_timestamp == 0) continue;
+
+      const uint32_t secs_ago =
+        now >= observed.heard_timestamp ? now - observed.heard_timestamp : 0;
+      if (secs_ago > 48UL * 60UL * 60UL) continue;
+
+      mesh::GroupChannel matches[4];
+      const uint8_t hash = observed.hash;
+      if (searchChannelsByHash(&hash, matches, 4) > 0) continue;
+
+      sorted[observed_count++] = &observed;
+    }
+
+    for (int a = 0; a < observed_count - 1; a++) {
+      for (int b = a + 1; b < observed_count; b++) {
+        if (sorted[b]->heard_timestamp > sorted[a]->heard_timestamp) {
+          const ObservedChannel* tmp = sorted[a];
+          sorted[a] = sorted[b];
+          sorted[b] = tmp;
+        }
+      }
+    }
+
+    out_frame[0] = RESP_CODE_CUSTOM_VARS;
+    char* dp = (char*)&out_frame[1];
+    size_t remaining = sizeof(out_frame) - 1;
+    int written = snprintf(dp, remaining, "obs_total:%d,obs_offset:%u", observed_count, offset);
+    if (written < 0 || (size_t)written >= remaining) {
+      writeErrFrame(ERR_CODE_BAD_STATE);
+      return;
+    }
+    dp += written;
+    remaining -= written;
+
+    uint8_t page_count = 0;
+    for (int n = offset; n < observed_count && page_count < 4; n++) {
+      const uint32_t secs_ago =
+        now >= sorted[n]->heard_timestamp ? now - sorted[n]->heard_timestamp : 0;
+      written = snprintf(
+        dp, remaining, ",o%u:%02X|%lu|%u",
+        page_count, (unsigned)sorted[n]->hash,
+        (unsigned long)secs_ago, (unsigned)sorted[n]->message_count
+      );
+      if (written < 0 || (size_t)written >= remaining) break;
+      dp += written;
+      remaining -= written;
+      page_count++;
+    }
+
+    written = snprintf(dp, remaining, ",obs_count:%u", page_count);
+    if (written < 0 || (size_t)written >= remaining) {
+      writeErrFrame(ERR_CODE_BAD_STATE);
+      return;
+    }
     dp += written;
     _serial->writeFrame(out_frame, dp - (char*)out_frame);
 

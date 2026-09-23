@@ -292,6 +292,10 @@ protected:
     const mesh::Packet* packet
   ) override;
 
+  void noteObservedForwardedChannel(
+    const mesh::Packet* packet
+  );
+
   void sendFloodScoped(const TransportKey& scope, mesh::Packet* pkt, uint32_t delay_millis);
   void sendRepeaterFloodReply(mesh::Packet* packet, uint32_t delay_millis, uint8_t path_hash_size);
   uint8_t handleRepeaterLoginReq(
@@ -596,6 +600,17 @@ private:
   // Match the normal MeshCore repeater capacity on Heltec-class hardware.
   #define MAX_REPEATER_NEIGHBOURS 50
   RepeaterNeighbour repeater_neighbours[MAX_REPEATER_NEIGHBOURS];
+
+  struct ObservedChannel {
+    uint8_t hash;
+    uint32_t heard_timestamp;
+    uint16_t message_count;
+  };
+
+  // Unknown group-text channels that this Repeater actually forwarded.
+  // Runtime-only by design: passive observation must never write flash.
+  #define MAX_OBSERVED_CHANNELS 32
+  ObservedChannel observed_channels[MAX_OBSERVED_CHANNELS];
 };
 
 

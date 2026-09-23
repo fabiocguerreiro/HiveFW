@@ -2272,6 +2272,69 @@ export class SettingsPage extends LitElement {
           `}
         </div>
 
+        <div style="padding:12px;border:1px solid var(--divider-color);border-radius:8px;background:var(--secondary-background-color);">
+          <div style="font-size:13px;font-weight:600;margin-bottom:4px;">RF &amp; Retransmissão</div>
+          <div style="font-size:11px;color:var(--secondary-text-color);line-height:1.45;margin-bottom:10px;">
+            Proteção contra canal ocupado, AGC e timings de retransmissão do Repeater.
+          </div>
+
+          ${radioGuard?.supported ? html`
+            <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 10px;">
+              <div>
+                <label class="form-label">CAD</label>
+                <select class="form-select"
+                  .value=${cadEnabled ? '1' : '0'}
+                  @change=${(e: Event) => {
+                    this._editValues['cad_enabled'] = (e.target as HTMLSelectElement).value === '1';
+                    this._editValues = { ...this._editValues };
+                  }}>
+                  <option value="0">Desligado</option>
+                  <option value="1">Ligado</option>
+                </select>
+              </div>
+              <div>
+                <label class="form-label">Interference Threshold</label>
+                <input class="form-input" type="number" min="0" max="255"
+                  .value=${String(interferenceThreshold)}
+                  @input=${(e: Event) => {
+                    this._editValues['interference_threshold'] = Number((e.target as HTMLInputElement).value);
+                    this._editValues = { ...this._editValues };
+                  }} />
+              </div>
+              <div>
+                <label class="form-label">AGC Reset (s)</label>
+                <input class="form-input" type="number" min="0" max="1020" step="4"
+                  .value=${String(agcResetInterval)}
+                  @input=${(e: Event) => {
+                    this._editValues['agc_reset_interval'] = Number((e.target as HTMLInputElement).value);
+                    this._editValues = { ...this._editValues };
+                  }} />
+              </div>
+              <div>
+                <label class="form-label">Flood TX Delay</label>
+                <input class="form-input" type="number" min="0" max="2" step="0.001"
+                  .value=${String(floodTxDelay)}
+                  @input=${(e: Event) => {
+                    this._editValues['flood_tx_delay'] = Number((e.target as HTMLInputElement).value);
+                    this._editValues = { ...this._editValues };
+                  }} />
+              </div>
+              <div>
+                <label class="form-label">Direct TX Delay</label>
+                <input class="form-input" type="number" min="0" max="2" step="0.001"
+                  .value=${String(directTxDelay)}
+                  @input=${(e: Event) => {
+                    this._editValues['direct_tx_delay'] = Number((e.target as HTMLInputElement).value);
+                    this._editValues = { ...this._editValues };
+                  }} />
+              </div>
+            </div>
+          ` : html`
+            <div style="font-size:11px;color:var(--secondary-text-color);">
+              Atualiza o firmware HiveFW para ativar os controlos locais de CAD, AGC e delays.
+            </div>
+          `}
+        </div>
 
       </div>
 
@@ -2282,6 +2345,117 @@ export class SettingsPage extends LitElement {
         @click=${this._applyRepeaterSettings}>
         ${this._saving ? 'A aplicar...' : 'Aplicar configurações do Repeater'}
       </button>
+
+      <div
+        style="margin:0 0 10px;padding:12px;border:1px solid var(--divider-color);border-radius:8px;background:var(--secondary-background-color);"
+        data-hive-repeater-access>
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:10px;">
+          <div>
+            <div style="font-size:13px;font-weight:600;">Acesso remoto</div>
+            <div style="font-size:11px;color:var(--secondary-text-color);margin-top:2px;line-height:1.45;">
+              Credenciais do servidor Repeater. As passwords são write-only: o HiveFW apenas indica se estão configuradas.
+            </div>
+          </div>
+          <div style="font-size:11px;color:var(--secondary-text-color);white-space:nowrap;">
+            ACL: ${status.server_auth?.acl_count ?? '—'}
+          </div>
+        </div>
+
+        ${status.server_auth?.supported ? html`
+          <div style="display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 10px;align-items:end;">
+            <div>
+              <label class="form-label">
+                Admin password
+                <span style="margin-left:6px;font-size:10px;color:${status.server_auth.admin_password_set ? 'var(--success-color, #2e7d32)' : 'var(--secondary-text-color)'};">
+                  ${status.server_auth.admin_password_set ? 'configurada' : 'não configurada'}
+                </span>
+              </label>
+              <input
+                class="form-input"
+                type="password"
+                maxlength="15"
+                autocomplete="new-password"
+                placeholder=${status.server_auth.admin_password_set ? '••••••••' : 'Definir password'}
+                .value=${this._adminPasswordDraft}
+                ?disabled=${this._repeaterAccessBusy !== null}
+                @input=${(e: Event) => {
+                  this._adminPasswordDraft = (e.target as HTMLInputElement).value;
+                }}
+              />
+            </div>
+            <div style="display:flex;gap:6px;">
+              <button
+                class="apply-button"
+                style="width:auto;min-width:76px;padding:7px 12px;margin:0;"
+                ?disabled=${this._repeaterAccessBusy !== null || !this._adminPasswordDraft}
+                @click=${() => this._saveRepeaterPassword('admin')}>
+                ${this._repeaterAccessBusy === 'admin' ? 'A guardar...' : 'Guardar'}
+              </button>
+              <button
+                class="action-btn"
+                style="min-width:66px;"
+                ?disabled=${this._repeaterAccessBusy !== null || !status.server_auth.admin_password_set}
+                @click=${() => this._clearRepeaterPassword('admin')}>
+                Limpar
+              </button>
+            </div>
+
+            <div>
+              <label class="form-label">
+                Guest password
+                <span style="margin-left:6px;font-size:10px;color:${status.server_auth.guest_password_set ? 'var(--success-color, #2e7d32)' : 'var(--secondary-text-color)'};">
+                  ${status.server_auth.guest_password_set ? 'configurada' : 'não configurada'}
+                </span>
+              </label>
+              <input
+                class="form-input"
+                type="password"
+                maxlength="15"
+                autocomplete="new-password"
+                placeholder=${status.server_auth.guest_password_set ? '••••••••' : 'Definir password'}
+                .value=${this._guestPasswordDraft}
+                ?disabled=${this._repeaterAccessBusy !== null}
+                @input=${(e: Event) => {
+                  this._guestPasswordDraft = (e.target as HTMLInputElement).value;
+                }}
+              />
+            </div>
+            <div style="display:flex;gap:6px;">
+              <button
+                class="apply-button"
+                style="width:auto;min-width:76px;padding:7px 12px;margin:0;"
+                ?disabled=${this._repeaterAccessBusy !== null || !this._guestPasswordDraft}
+                @click=${() => this._saveRepeaterPassword('guest')}>
+                ${this._repeaterAccessBusy === 'guest' ? 'A guardar...' : 'Guardar'}
+              </button>
+              <button
+                class="action-btn"
+                style="min-width:66px;"
+                ?disabled=${this._repeaterAccessBusy !== null || !status.server_auth.guest_password_set}
+                @click=${() => this._clearRepeaterPassword('guest')}>
+                Limpar
+              </button>
+            </div>
+          </div>
+
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:12px;padding-top:10px;border-top:1px solid var(--divider-color);">
+            <div style="font-size:11px;color:var(--secondary-text-color);line-height:1.4;">
+              Admin permite remote CLI e gestão completa. Guest permite operações limitadas ao perfil Guest.
+            </div>
+            <button
+              class="danger-button"
+              style="white-space:nowrap;"
+              ?disabled=${this._repeaterAccessBusy !== null || !(status.server_auth.acl_count ?? 0)}
+              @click=${this._confirmClearRepeaterAcl}>
+              ${this._repeaterAccessBusy === 'acl' ? 'A limpar...' : 'Limpar ACL'}
+            </button>
+          </div>
+        ` : html`
+          <div style="font-size:11px;color:var(--secondary-text-color);line-height:1.45;">
+            Atualiza o firmware HiveFW para ativar passwords Admin/Guest e gestão da ACL local.
+          </div>
+        `}
+      </div>
 
       <div
         style="margin:0;padding:12px;border:1px solid var(--divider-color);border-radius:8px;background:var(--secondary-background-color);"

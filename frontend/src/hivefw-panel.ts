@@ -152,6 +152,9 @@ class HiveFWPanel extends BasePanel {
     this.__appsSosChannelSyncBusy = false;
     this.__appsSosChannelLoadedEntry = null;
     this.__appsSosChannelLast = null;
+    this.__observedChannels = null;
+    this.__observedChannelsLoading = false;
+    this.__observedChannelsLoadedEntry = null;
 
     this.__manualOtaSession = null;
     this.__manualOtaBusy = false;
@@ -956,6 +959,101 @@ class HiveFWPanel extends BasePanel {
     const conversationList = croot.querySelector("meshcore-conversation-list");
     if (conversationList) {
       this.__bindAppsSosChannelSync(conversationList);
+      this.__renderObservedChannels(conversationList);
+    }
+  }
+
+  async __loadObservedChannels(force = false) {
+    if (!this.hass || this.__observedChannelsLoading) return;
+    if (this._activeTab !== "chat" && !force) return;
+    this.__observedChannelsLoading = true;
+    try {
+      const msg = { type: "hivefw_integration/get_observed_channels" };
+      const entryId = this.__entryId();
+      if (entryId) msg.entry_id = entryId;
+      this.__observedChannels = await this.hass.callWS(msg);
+    } catch (error) {
+      console.debug("HiveFW observed-channel read unavailable:", error);
+      this.__observedChannels = { supported: false, channels: [], error: String(error?.message || error || "") };
+    } finally {
+      this.__observedChannelsLoading = false;
+      const chat = this.shadowRoot?.querySelector("hivefw-integration-page");
+      const list = chat?.shadowRoot?.querySelector("meshcore-conversation-list");
+      if (list) this.__renderObservedChannels(list);
+    }
+  }
+
+  __openObservedChannelAdd(channelHash) {
+    const chat = this.shadowRoot?.querySelector("hivefw-integration-page");
+    if (!chat) return;
+    chat._manageInitialTab = "channels";
+    chat._manageOpen = true;
+    chat.requestUpdate?.();
+    window.setTimeout(() => {
+      const manage = chat.shadowRoot?.querySelector("meshcore-manage-dialog");
+      if (!manage) return;
+      manage._switchTab?.("channels");
+      manage._openAddChannel?.();
+    }, 80);
+  }
+
+  __renderObservedChannels(conversationList) {
+    const root = conversationList?.shadowRoot;
+    if (!root) return;
+    let style = root.querySelector("#hivefw-observed-channels-style");
+    if (!style) {
+      style = document.createElement("style");
+      style.id = "hivefw-observed-channels-style";
+      style.textContent = `
+        .hive-observed-section{flex:0 0 auto;border-top:1px solid var(--divider-color,#e0e0e0);max-height:190px;overflow-y:auto;background:var(--card-background-color,#fff)}
+        .hive-observed-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 12px 7px;font-size:13px;font-weight:650}
+        .hive-observed-note{padding:0 12px 8px;color:var(--secondary-text-color,#727272);font-size:10px;line-height:1.35}
+        .hive-observed-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:center;padding:8px 12px;border-top:1px solid var(--divider-color,#e0e0e0)}
+        .hive-observed-hash{font:700 12px ui-monospace,SFMono-Regular,Menlo,monospace}
+        .hive-observed-meta{font-size:10px;color:var(--secondary-text-color,#727272);margin-top:2px}
+        .hive-observed-add{border:1px solid var(--primary-color,#03a9f4);border-radius:7px;padding:5px 8px;background:transparent;color:var(--primary-color,#03a9f4);font-size:11px;font-weight:650;cursor:pointer}
+      `;
+      root.appendChild(style);
+    }
+    let section = root.querySelector(".hive-observed-section");
+    if (!section) {
+      section = document.createElement("section");
+      section.className = "hive-observed-section";
+      const list = root.querySelector(".conversation-list");
+      if (list) list.insertAdjacentElement("afterend", section);
+      else root.appendChild(section);
+    }
+    section.replaceChildren();
+    const head = document.createElement("div");
+    head.className = "hive-observed-head";
+    head.textContent = "Canais observados · 48H";
+    section.appendChild(head);
+    const state = this.__observedChannels;
+    if (this.__observedChannelsLoading && !state) {
+      const note=document.createElement("div"); note.className="hive-observed-note"; note.textContent="A ler atividade retransmitida…"; section.appendChild(note); return;
+    }
+    if (!state?.supported) {
+      const note=document.createElement("div"); note.className="hive-observed-note"; note.textContent="Requer HiveFW 1.14.4 ou superior para observar passivamente canais retransmitidos."; section.appendChild(note); return;
+    }
+    const channels=Array.isArray(state.channels)?state.channels:[];
+    const note=document.createElement("div"); note.className="hive-observed-note";
+    note.textContent=channels.length
+      ? "Canais de grupo desconhecidos cujas mensagens este Repeater encaminhou. O hash é visível; nome e chave permanecem cifrados."
+      : "Nenhum canal desconhecido foi retransmitido nas últimas 48 horas.";
+    section.appendChild(note);
+    for(const item of channels){
+      const row=document.createElement("div"); row.className="hive-observed-row";
+      const info=document.createElement("div");
+      const hash=document.createElement("div"); hash.className="hive-observed-hash"; hash.textContent="#"+String(item.hash||"??");
+      const meta=document.createElement("div"); meta.className="hive-observed-meta";
+      const secs=Math.max(0,Number(item.secs_ago)||0);
+      const when=new Date(Date.now()-secs*1000).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit",second:"2-digit"});
+      meta.textContent=String(item.message_count||0)+" mensagens · última "+when;
+      info.append(hash,meta);
+      const add=document.createElement("button"); add.type="button"; add.className="hive-observed-add"; add.textContent="Adicionar";
+      add.title="Abrir criação de canal; nome e chave têm de ser introduzidos porque não viajam em claro.";
+      add.addEventListener("click",()=>this.__openObservedChannelAdd(item.hash));
+      row.append(info,add); section.appendChild(row);
     }
   }
 
@@ -984,6 +1082,12 @@ class HiveFWPanel extends BasePanel {
       void this.__loadAppsSosChannel(true);
     }
 
+    if (this.__observedChannelsLoadedEntry !== entryId) {
+      this.__observedChannelsLoadedEntry = entryId;
+      this.__observedChannels = null;
+      void this.__loadObservedChannels(true);
+    }
+
     this.__startAppsSosChannelSync();
   }
 
@@ -993,6 +1097,7 @@ class HiveFWPanel extends BasePanel {
     this.__appsSosChannelSyncTimer = window.setInterval(() => {
       if (this._activeTab === "chat") {
         void this.__loadAppsSosChannel(false);
+        void this.__loadObservedChannels(false);
       }
     }, 5000);
   }
@@ -8682,11 +8787,11 @@ class HiveFWPanel extends BasePanel {
     eyebrow.textContent = "◉  REPEATER · ZERO-HOP";
     const title = document.createElement("h1");
     title.className = "mcr-title";
-    title.textContent = "Vizinhos 24H";
+    title.textContent = "Vizinhos 48H";
     const subtitle = document.createElement("p");
     subtitle.className = "mcr-subtitle";
     subtitle.textContent =
-      "Repeaters cujos adverts foram ouvidos diretamente (zero-hop) pelo HiveFW nas últimas 24 horas. A consulta é local e não gera tráfego LoRa.";
+      "Repeaters cujos adverts foram ouvidos diretamente (zero-hop) pelo HiveFW nas últimas 48 horas. A consulta é local e não gera tráfego LoRa.";
     heading.append(eyebrow, title, subtitle);
 
     const refresh = document.createElement("button");

@@ -682,6 +682,7 @@ def async_register_ws_commands(hass: HomeAssistant) -> None:
 
     # Neighbor management commands
     websocket_api.async_register_command(hass, ws_get_hive_neighbors)
+    websocket_api.async_register_command(hass, ws_get_observed_channels)
     websocket_api.async_register_command(hass, ws_start_hive_neighbor_discovery)
     websocket_api.async_register_command(hass, ws_get_hive_neighbor_discovery)
     websocket_api.async_register_command(hass, ws_get_neighbors)
@@ -2248,7 +2249,7 @@ async def ws_get_local_repeater_status(hass, connection, msg):
                         auto_adv_parts[2]
                         if len(auto_adv_parts) >= 3 and auto_adv_parts[2] > 0
                         else (
-                            last_epoch + 24 * 60 * 60
+                            last_epoch + 48 * 60 * 60
                             if last_epoch is not None
                             else None
                         )
@@ -5133,12 +5134,12 @@ async def ws_get_hive_neighbors(hass, connection, msg):
             if previous is None or item["secs_ago"] < previous["secs_ago"]:
                 unique[prefix] = item
 
-        # "Vizinhos 24H" are direct zero-hop repeater adverts heard during
-        # the last 24 hours. The firmware may retain its runtime table longer;
+        # "Vizinhos 48H" are direct zero-hop repeater adverts heard during
+        # the last 48 hours. The firmware may retain its runtime table longer;
         # presentation filtering belongs to the integration.
         neighbors = [
             item for item in unique.values()
-            if item["secs_ago"] <= 24 * 60 * 60
+            if item["secs_ago"] <= 48 * 60 * 60
         ]
         neighbors = sorted(neighbors, key=lambda item: item["secs_ago"])
 
@@ -5160,6 +5161,110 @@ async def ws_get_hive_neighbors(hass, connection, msg):
             ex,
             handler="ws_get_hive_neighbors",
         )
+
+
+# ─── hivefw_integration/get_observed_channels ──────────────────────────
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hivefw_integration/get_observed_channels",
+        vol.Optional("entry_id"): str,
+    }
+)
+@websocket_api.async_response
+async def ws_get_observed_channels(hass, connection, msg):
+    """Return unknown group-channel hashes forwarded during the last 48h."""
+    from meshcore.events import EventType
+
+    coordinator = _get_coordinator(hass, msg.get("entry_id"))
+    if not coordinator or not coordinator.api.mesh_core:
+        connection.send_error(msg["id"], "not_found", "No MeshCore coordinator found")
+        return
+
+    commands = coordinator.api.mesh_core.commands
+    try:
+        channels = []
+        offset = 0
+        total = None
+        while total is None or offset < total:
+            result = await commands.send(
+                bytes((0x31, offset & 0xFF)),
+                [EventType.CUSTOM_VARS, EventType.ERROR],
+            )
+            if (
+                result is None
+                or getattr(result, "type", None) == EventType.ERROR
+                or not isinstance(getattr(result, "payload", None), dict)
+            ):
+                connection.send_result(
+                    msg["id"],
+                    {
+                        "supported": False,
+                        "count": 0,
+                        "channels": [],
+                        "requires_firmware": "V1.14.4",
+                    },
+                )
+                return
+
+            payload = result.payload
+            try:
+                page_total = int(payload.get("obs_total", 0))
+                page_count = int(payload.get("obs_count", 0))
+            except (TypeError, ValueError):
+                page_total = 0
+                page_count = 0
+            total = max(0, min(page_total, 32))
+            if page_count <= 0:
+                break
+
+            for index in range(page_count):
+                parts = str(payload.get(f"o{index}", "")).strip().split("|")
+                if len(parts) != 3:
+                    continue
+                channel_hash = parts[0].upper()[:2]
+                try:
+                    secs_ago = max(0, int(parts[1]))
+                except (TypeError, ValueError):
+                    secs_ago = 0
+                try:
+                    message_count = max(0, int(parts[2]))
+                except (TypeError, ValueError):
+                    message_count = 0
+                channels.append(
+                    {
+                        "hash": channel_hash,
+                        "secs_ago": secs_ago,
+                        "last_seen": datetime.fromtimestamp(
+                            max(0, int(time.time()) - secs_ago)
+                        ).isoformat(),
+                        "message_count": message_count,
+                    }
+                )
+
+            offset += page_count
+            if offset >= total:
+                break
+
+        unique = {}
+        for item in channels:
+            previous = unique.get(item["hash"])
+            if previous is None or item["secs_ago"] < previous["secs_ago"]:
+                unique[item["hash"]] = item
+        channels = sorted(unique.values(), key=lambda item: item["secs_ago"])
+        connection.send_result(
+            msg["id"],
+            {
+                "supported": True,
+                "count": len(channels),
+                "channels": channels,
+                "window_hours": 48,
+                "passive": True,
+            },
+        )
+    except Exception as ex:
+        _LOGGER.warning("Observed channel query failed: %s", ex)
+        _ws_send_error_safe(connection, msg["id"], ex, handler="ws_get_observed_channels")
 
 
 # ─── hivefw_integration active zero-hop discovery ───────────────────────
