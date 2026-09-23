@@ -1774,7 +1774,7 @@ export class SettingsPage extends LitElement {
         );
         if (!result.success) throw new Error('O restauro Repeater não foi concluído.');
         await this._readRepeaterStatus(false, true);
-        await this._loadLocalRegions();
+        await this._refreshLocalRegions();
         this._showStatusMessage(
           'Backup Repeater restaurado. As passwords Admin/Guest foram mantidas.',
           'success',
