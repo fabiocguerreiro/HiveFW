@@ -1481,6 +1481,24 @@ bool MyMesh::handleRepeaterRemoteCommand(
     return true;
   }
 
+  // Compatibility aliases for mobile Repeater management. HiveFW stores
+  // these in Companion NodePrefs, but expose the same logical fields a
+  // SimpleRepeater UI expects.
+  if (strcmp(command, "get bw") == 0) {
+    snprintf(reply, reply_size, "> %.3f", _prefs.bw);
+    return true;
+  }
+
+  if (strcmp(command, "get sf") == 0) {
+    snprintf(reply, reply_size, "> %u", (unsigned)_prefs.sf);
+    return true;
+  }
+
+  if (strcmp(command, "get cr") == 0) {
+    snprintf(reply, reply_size, "> %u", (unsigned)_prefs.cr);
+    return true;
+  }
+
   if (strcmp(command, "get tx") == 0) {
     snprintf(reply, reply_size, "> %d", (int)_prefs.tx_power_dbm);
     return true;
@@ -1964,17 +1982,74 @@ bool MyMesh::handleRepeaterRemoteCommand(
       return true;
     }
 
+    const uint32_t freq_khz = (uint32_t)(freq * 1000.0f + 0.5f);
+    if (_prefs.isRepeatEn() && !isValidClientRepeatFreq(freq_khz)) {
+      snprintf(reply, reply_size, "Err - frequency not allowed for HiveFW Repeater");
+      return true;
+    }
+
     _prefs.freq = freq;
     _prefs.bw = bw;
     _prefs.sf = (uint8_t)sf;
     _prefs.cr = (uint8_t)cr;
     savePrefs();
 
-    snprintf(
-      reply,
-      reply_size,
-      "OK - radio parameters set (reboot required)"
-    );
+    snprintf(reply, reply_size, "OK - reboot to apply");
+    return true;
+  }
+
+  if (strncmp(command, "set freq ", 9) == 0) {
+    const float value = atof(command + 9);
+    const uint32_t freq_khz = (uint32_t)(value * 1000.0f + 0.5f);
+
+    if (
+      value < 150.0f ||
+      value > 2500.0f ||
+      (_prefs.isRepeatEn() && !isValidClientRepeatFreq(freq_khz))
+    ) {
+      snprintf(reply, reply_size, "Err - invalid Repeater frequency");
+      return true;
+    }
+
+    _prefs.freq = value;
+    savePrefs();
+    snprintf(reply, reply_size, "OK - reboot to apply");
+    return true;
+  }
+
+  if (strncmp(command, "set bw ", 7) == 0) {
+    const float value = atof(command + 7);
+    if (value < 7.8f || value > 500.0f) {
+      snprintf(reply, reply_size, "Err - invalid bandwidth");
+      return true;
+    }
+    _prefs.bw = value;
+    savePrefs();
+    snprintf(reply, reply_size, "OK - reboot to apply");
+    return true;
+  }
+
+  if (strncmp(command, "set sf ", 7) == 0) {
+    const int value = atoi(command + 7);
+    if (value < 5 || value > 12) {
+      snprintf(reply, reply_size, "Err - invalid spreading factor");
+      return true;
+    }
+    _prefs.sf = (uint8_t)value;
+    savePrefs();
+    snprintf(reply, reply_size, "OK - reboot to apply");
+    return true;
+  }
+
+  if (strncmp(command, "set cr ", 7) == 0) {
+    const int value = atoi(command + 7);
+    if (value < 5 || value > 8) {
+      snprintf(reply, reply_size, "Err - invalid coding rate");
+      return true;
+    }
+    _prefs.cr = (uint8_t)value;
+    savePrefs();
+    snprintf(reply, reply_size, "OK - reboot to apply");
     return true;
   }
 
