@@ -5553,10 +5553,16 @@ async def ws_export_repeater_backup(hass, connection, msg):
             raise ValueError("Firmware did not return a valid Repeater routing configuration")
 
         duty_cycle = None
-        try:
-            duty_cycle = int(str(custom.get("duty_cycle", "")).strip())
-        except (TypeError, ValueError):
-            pass
+        tuning_result = await commands.get_tuning()
+        tuning_reason = _device_config_failure_reason(tuning_result)
+        if tuning_reason is None:
+            tuning_payload = getattr(tuning_result, "payload", {}) or {}
+            try:
+                actual_af = int(tuning_payload.get("airtime_factor"))
+                af = max(1.0, min(9.0, actual_af / 1000.0))
+                duty_cycle = max(10, min(50, round(100.0 / (1.0 + af))))
+            except (TypeError, ValueError):
+                duty_cycle = None
 
         backup = {
             "format": "hivefw_repeater_backup",
