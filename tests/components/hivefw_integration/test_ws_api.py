@@ -485,6 +485,34 @@ async def test_ws_get_contacts_happy_via_service(
     assert contact["age_seconds"] is None
 
 
+async def test_ws_get_contacts_normalizes_object_public_key(
+    hass: HomeAssistant, coordinator: MagicMock
+) -> None:
+    """Object-shaped public keys are exposed to the frontend as full hex."""
+    full_key = "ab" * 32
+
+    async def _fake_call(*args, **kwargs):
+        return {
+            "contacts": [
+                {
+                    "adv_name": "Mapped Key",
+                    "public_key": {"hex": full_key},
+                }
+            ]
+        }
+
+    with (
+        patch("homeassistant.core.ServiceRegistry.has_service", return_value=True),
+        patch("homeassistant.core.ServiceRegistry.async_call", side_effect=_fake_call),
+    ):
+        conn = _Connection()
+        await _call_ws(ws_api.ws_get_contacts, hass, conn, {"id": 1})
+
+    contact = conn.results[0][1]["contacts"][0]
+    assert contact["public_key"] == full_key
+    assert contact["pubkey_prefix"] == full_key[:12]
+
+
 async def test_ws_get_contacts_legacy_fallback(
     hass: HomeAssistant, coordinator: MagicMock
 ) -> None:
