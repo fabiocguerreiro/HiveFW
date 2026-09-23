@@ -133,6 +133,23 @@ export class ChannelDialog extends LitElement {
     if (changedProps.has('open') && !this.open) {
       this._initialized = false;
     }
+
+    // The manage dialog loads its channel inventory asynchronously. A newly
+    // opened add-channel dialog can therefore initialise while the parent's
+    // availableIndices is still the fallback list (historically leaving
+    // _channelIdx at 0). When the real inventory arrives the <select> may
+    // visually show the first free slot even though the backing state still
+    // contains 0, so Save would overwrite channel 0. Keep the backing index
+    // aligned with the actual options whenever they change.
+    if (
+      !this.editMode &&
+      this.open &&
+      changedProps.has('availableIndices') &&
+      this.availableIndices.length > 0 &&
+      !this.availableIndices.includes(this._channelIdx)
+    ) {
+      this._channelIdx = this.availableIndices[0];
+    }
   }
 
   private async _loadScopes() {
