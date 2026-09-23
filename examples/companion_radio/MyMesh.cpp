@@ -5873,23 +5873,29 @@ void MyMesh::handleCmdFrame(size_t len) {
       }
 
       // Group text plaintext is timestamp(4), flags(1), then
-      // "<sender>: <message>". The MAC is already the main proof; this small
-      // structural check reduces the chance of accepting a random 2-byte-MAC
-      // collision even further.
+      // "<sender>: <message>". The MAC is already the main proof. Do not
+      // reject UTF-8 sender/message text; instead combine the MAC with a sane
+      // timestamp and the expected colon separator to make false positives
+      // vanishingly unlikely.
+      uint32_t sender_timestamp = 0;
+      memcpy(&sender_timestamp, decoded, sizeof(sender_timestamp));
+
+      const uint32_t now = getRTCClock()->getCurrentTime();
+      const bool timestamp_sane =
+        sender_timestamp >= 1577836800UL &&
+        (
+          now == 0 ||
+          sender_timestamp <= now + 7UL * 24UL * 60UL * 60UL
+        );
+
       bool has_colon = false;
-      bool printable = true;
       int text_len = 0;
       for (int i = 5; i < decoded_len && decoded[i] != 0; i++) {
-        const uint8_t ch = decoded[i];
-        if (ch == ':') has_colon = true;
-        if (ch < 0x20 || ch > 0x7E) {
-          printable = false;
-          break;
-        }
+        if (decoded[i] == ':') has_colon = true;
         text_len++;
       }
 
-      if (printable && has_colon && text_len >= 3) {
+      if (timestamp_sane && has_colon && text_len >= 3) {
         writeOKFrame();
         return;
       }

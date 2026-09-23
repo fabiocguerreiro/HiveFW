@@ -5305,11 +5305,34 @@ async def ws_get_observed_channels(hass, connection, msg):
         # A one-byte transport hash is not enough to identify a channel.
         # Resolve only catalog candidates whose derived key is accepted by the
         # MAC of the real observed packet (CMD 53 is local-only; no LoRa TX).
+        #
+        # Cache by hash + message_count so a quiet channel does not trigger the
+        # same local key-verification commands every five seconds. A new packet
+        # increments message_count and therefore re-validates against the new
+        # encrypted sample, which also protects us from same-hash collisions.
+        resolution_cache = getattr(
+            coordinator, "_hivefw_observed_channel_resolution", None
+        )
+        if not isinstance(resolution_cache, dict):
+            resolution_cache = {}
+            coordinator._hivefw_observed_channel_resolution = resolution_cache
+
+        active_cache_keys = set()
         for item in channels:
             candidates = _PUBLIC_CHANNEL_CANDIDATES.get(item["hash_byte"], [])
             item["candidate_count"] = len(candidates)
             item["resolved"] = False
 
+            cache_key = f'{item["hash"]}:{item["message_count"]}'
+            active_cache_keys.add(cache_key)
+            cached = resolution_cache.get(cache_key)
+
+            if isinstance(cached, dict):
+                item.update(cached)
+                item.pop("hash_byte", None)
+                continue
+
+            resolved_fields = {"resolved": False}
             for candidate in candidates:
                 try:
                     secret = bytes.fromhex(candidate["secret"])
@@ -5324,14 +5347,25 @@ async def ws_get_observed_channels(hass, connection, msg):
                     result is not None
                     and getattr(result, "type", None) == EventType.OK
                 ):
-                    item["resolved"] = True
-                    item["name"] = candidate["name"]
-                    item["secret"] = candidate["secret"]
-                    item["channel_type"] = candidate["kind"]
-                    item["resolution"] = "catalog_mac_verified"
+                    resolved_fields = {
+                        "resolved": True,
+                        "name": candidate["name"],
+                        "secret": candidate["secret"],
+                        "channel_type": candidate["kind"],
+                        "resolution": "catalog_mac_verified",
+                    }
                     break
 
+            resolution_cache[cache_key] = resolved_fields
+            item.update(resolved_fields)
             item.pop("hash_byte", None)
+
+        # Keep only entries that still correspond to the current observed set.
+        coordinator._hivefw_observed_channel_resolution = {
+            key: value
+            for key, value in resolution_cache.items()
+            if key in active_cache_keys
+        }
 
         connection.send_result(
             msg["id"],
