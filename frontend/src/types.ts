@@ -537,11 +537,26 @@ export interface LocalRepeaterStatus {
     timestamp?: number;
     drift_seconds?: number;
   };
+  repeater_profile?: {
+    supported: boolean;
+    owner_info: string;
+    rx_boosted_gain: boolean;
+    adc_multiplier: number;
+    error?: string | null;
+  };
   server_auth?: {
     supported: boolean;
     admin_password_set: boolean;
     guest_password_set: boolean;
     acl_count?: number | null;
+    acl_entries?: Array<{
+      index: number;
+      public_key: string;
+      pubkey_prefix: string;
+      permissions: 1 | 2 | 3;
+      last_activity?: number;
+    }>;
+    acl_entries_error?: string | null;
   };
   stats: {
     core?: Record<string, number | null>;
