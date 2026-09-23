@@ -2680,6 +2680,8 @@ export class SettingsPage extends LitElement {
     const repeat = Boolean(status.repeat);
     const autoAdvertSupported = Boolean(status.auto_advert_supported);
     const autoAdvert = Boolean(status.auto_advert);
+    const neighborAdvertSupported = Boolean(status.neighbor_advert_supported);
+    const neighborAdvertInterval = Number(status.neighbor_advert_interval ?? 240);
     const meshTimeSupported = Boolean(status.mesh_time_sync_supported);
     const meshTimeSync = Boolean(status.mesh_time_sync);
     const multiAcks = Number(this._editValues['multi_acks'] ?? status.radio.multi_acks ?? 0);
@@ -2747,6 +2749,42 @@ export class SettingsPage extends LitElement {
           />
           ${autoAdvert ? 'Ativo' : 'Desligado'}
         </label>
+      </div>
+
+      <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:14px;margin-bottom:14px;padding:10px 12px;border-radius:8px;background:var(--secondary-background-color);">
+        <div style="min-width:0;flex:1;">
+          <div style="font-size:13px;font-weight:600;">Neighbour Advert zero-hop</div>
+          <div style="font-size:11px;color:var(--secondary-text-color);margin-top:2px;line-height:1.45;">
+            Advert local de presença RF direta. Não é flooded nem reencaminhado.
+            0 desativa; intervalo oficial 60–240 minutos em passos de 2.
+          </div>
+        </div>
+        <div style="min-width:150px;">
+          <label class="form-label">Intervalo (min)</label>
+          <input
+            class="form-input"
+            type="number"
+            min="0"
+            max="240"
+            step="2"
+            .value=${String(neighborAdvertInterval)}
+            ?disabled=${!neighborAdvertSupported || this._saving}
+            @change=${(e: Event) => {
+              void this._applyImmediateSetting(
+                'neighbor_advert_interval',
+                Number((e.target as HTMLInputElement).value),
+                'Neighbour Advert',
+              );
+            }}
+          />
+          <div style="font-size:10px;color:var(--secondary-text-color);margin-top:3px;">
+            ${neighborAdvertSupported
+              ? (neighborAdvertInterval === 0
+                  ? 'Desativado'
+                  : neighborAdvertInterval + ' min · ' + (1440 / neighborAdvertInterval).toFixed(1) + ' adverts/dia')
+              : 'Requer firmware HiveFW atualizado'}
+          </div>
+        </div>
       </div>
 
       <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;padding:10px 12px;border-radius:8px;background:var(--secondary-background-color);">
