@@ -6087,6 +6087,40 @@ async def ws_get_observed_channels(hass, connection, msg):
                 unique[item["hash"]] = item
         channels = sorted(unique.values(), key=lambda item: item["secs_ago"])
 
+        # Build the configured-channel candidate set from the local radio
+        # cache. A one-byte transport hash can collide, so a matching hash
+        # alone is never enough to hide an observed channel: CMD 53 must also
+        # validate that configured secret against the captured packet MAC.
+        configured_by_hash: dict[int, list[dict[str, str]]] = {}
+        configured_signature_rows: list[str] = []
+        for idx in range(int(getattr(coordinator, "max_channels", 0) or 0)):
+            info = dict(getattr(coordinator, "_channel_info", {}).get(idx, {}) or {})
+            name = str(info.get("channel_name") or "").strip()
+            if not name or name == "(unused)":
+                continue
+
+            raw_secret = info.get("channel_secret", b"")
+            if isinstance(raw_secret, (bytes, bytearray)):
+                secret = bytes(raw_secret)
+            else:
+                try:
+                    secret = bytes.fromhex(str(raw_secret or "").strip())
+                except ValueError:
+                    secret = b""
+            if len(secret) != 16:
+                continue
+
+            hash_byte = hashlib.sha256(secret).digest()[0]
+            secret_hex = secret.hex()
+            configured_by_hash.setdefault(hash_byte, []).append(
+                {"name": name, "secret": secret_hex}
+            )
+            configured_signature_rows.append(f"{idx}:{name}:{secret_hex}")
+
+        configured_signature = hashlib.sha256(
+            "|".join(configured_signature_rows).encode("utf-8")
+        ).hexdigest()[:12]
+
         # A one-byte transport hash is not enough to identify a channel.
         # Resolve only catalog candidates whose derived key is accepted by the
         # MAC of the real observed packet (CMD 53 is local-only; no LoRa TX).
@@ -6108,7 +6142,9 @@ async def ws_get_observed_channels(hass, connection, msg):
             item["candidate_count"] = len(candidates)
             item["resolved"] = False
 
-            cache_key = f'{item["hash"]}:{item["message_count"]}'
+            cache_key = (
+                f'{item["hash"]}:{item["message_count"]}:{configured_signature}'
+            )
             active_cache_keys.add(cache_key)
             cached = resolution_cache.get(cache_key)
 
@@ -6117,10 +6153,14 @@ async def ws_get_observed_channels(hass, connection, msg):
                 item.pop("hash_byte", None)
                 continue
 
-            resolved_fields = {"resolved": False}
-            for candidate in candidates:
+            resolved_fields = {"resolved": False, "configured": False}
+
+            # Configured channels take precedence. Only an actual packet-MAC
+            # verification hides the row, protecting against same-hash
+            # collisions with unknown channels.
+            for configured in configured_by_hash.get(item["hash_byte"], []):
                 try:
-                    secret = bytes.fromhex(candidate["secret"])
+                    secret = bytes.fromhex(configured["secret"])
                     result = await commands.send(
                         bytes((0x35, item["hash_byte"])) + secret,
                         [EventType.OK, EventType.ERROR],
@@ -6134,16 +6174,44 @@ async def ws_get_observed_channels(hass, connection, msg):
                 ):
                     resolved_fields = {
                         "resolved": True,
-                        "name": candidate["name"],
-                        "secret": candidate["secret"],
-                        "channel_type": candidate["kind"],
-                        "resolution": "catalog_mac_verified",
+                        "configured": True,
+                        "name": configured["name"],
+                        "resolution": "configured_mac_verified",
                     }
                     break
+
+            if not resolved_fields.get("configured"):
+                for candidate in candidates:
+                    try:
+                        secret = bytes.fromhex(candidate["secret"])
+                        result = await commands.send(
+                            bytes((0x35, item["hash_byte"])) + secret,
+                            [EventType.OK, EventType.ERROR],
+                        )
+                    except Exception:
+                        continue
+
+                    if (
+                        result is not None
+                        and getattr(result, "type", None) == EventType.OK
+                    ):
+                        resolved_fields = {
+                            "resolved": True,
+                            "configured": False,
+                            "name": candidate["name"],
+                            "secret": candidate["secret"],
+                            "channel_type": candidate["kind"],
+                            "resolution": "catalog_mac_verified",
+                        }
+                        break
 
             resolution_cache[cache_key] = resolved_fields
             item.update(resolved_fields)
             item.pop("hash_byte", None)
+
+        # Configured channels belong to the normal Canais list and must not
+        # also appear in Canais Observados 48H.
+        channels = [item for item in channels if not item.get("configured")]
 
         # Keep only entries that still correspond to the current observed set.
         coordinator._hivefw_observed_channel_resolution = {
