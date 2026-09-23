@@ -8,7 +8,6 @@ import { getDevices, getContacts, getChannels, refreshChannels, getUnreadAndLast
 import { UnreadController } from './chat/unread-controller';
 import './pages/chat-page';
 import './pages/nodes-page';
-import './pages/neighbors-page';
 import './pages/status-page';
 import './pages/settings-page';
 import './components/trace-dialog';
@@ -21,7 +20,7 @@ export class MeshCorePanel extends LitElement {
   @property({ type: Object }) panel?: Record<string, unknown>;
 
   @state() private _config: PanelConfig | null = null;
-  @state() private _activeTab: 'state' | 'chat' | 'nodes' | 'neighbors' | 'settings' = 'state';
+  @state() private _activeTab: 'state' | 'chat' | 'nodes' | 'network' | 'settings' = 'state';
   // Device state is separated from configuration so the panel can scale cleanly.
   @state() private _devices: MeshCoreDevice[] = [];
   @state() private _contacts: Contact[] = [];
@@ -810,7 +809,7 @@ export class MeshCorePanel extends LitElement {
           <button
             class=${this._activeTab === 'chat' ? 'active' : ''}
             @click=${() => (this._activeTab = 'chat')}>
-            Chat &amp; Canais
+            Canais
           </button>
           <button
             class=${this._activeTab === 'nodes' ? 'active' : ''}
@@ -818,9 +817,9 @@ export class MeshCorePanel extends LitElement {
             Nós
           </button>
           <button
-            class=${this._activeTab === 'neighbors' ? 'active' : ''}
-            @click=${() => (this._activeTab = 'neighbors')}>
-            Vizinhos
+            class=${this._activeTab === 'network' ? 'active' : ''}
+            @click=${() => (this._activeTab = 'network')}>
+            Rede
           </button>
           <button
             class=${this._activeTab === 'settings' ? 'active' : ''}
@@ -880,12 +879,10 @@ export class MeshCorePanel extends LitElement {
             .narrow=${this.narrow}
             @node-action=${this._handleNodeAction}
             @contacts-changed=${() => this._loadDeviceData()}></meshcore-nodes-page>`;
-      case 'neighbors':
-        return html`
-          <meshcore-neighbors-page
-            .hass=${this.hass}
-            .config=${this._config}
-            .narrow=${this.narrow}></meshcore-neighbors-page>`;
+      case 'network':
+        // HiveFWPanel owns the Rede overlay (analytics + passive neighbours +
+        // active discovery + map) so the typed base only supplies the host.
+        return html``;
       case 'state':
         return html`
           <meshcore-status-page
