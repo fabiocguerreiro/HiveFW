@@ -153,7 +153,7 @@ public:
 
   void loop();
   void handleCmdFrame(size_t len);
-  bool advert(bool flood = false);
+  bool advert(bool flood = false, uint32_t delay_millis = 0);
   mesh::Packet* createSelfAdvert(const char* name);
   mesh::Packet* createSelfAdvert(const char* name, double lat, double lon);
   unsigned long next_smart_advert;
