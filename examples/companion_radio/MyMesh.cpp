@@ -1671,6 +1671,114 @@ bool MyMesh::handleRepeaterRemoteCommand(
     return true;
   }
 
+  if (strncmp(command, "set cad ", 8) == 0) {
+    const char* value = command + 8;
+    if (strcmp(value, "on") != 0 && strcmp(value, "off") != 0) {
+      snprintf(reply, reply_size, "Err - use on or off");
+      return true;
+    }
+
+    _prefs.cad_enabled = strcmp(value, "on") == 0 ? 1 : 0;
+    save_ok();
+    return true;
+  }
+
+  if (strncmp(command, "set advert.interval ", 20) == 0) {
+    const int minutes = atoi(command + 20);
+
+    // HiveFW deliberately has no periodic zero-hop advert timer. Accepting
+    // only 0 keeps the official app in sync without creating a second advert
+    // scheduler beside Smart Advert.
+    if (minutes != 0) {
+      snprintf(
+        reply,
+        reply_size,
+        "Error: HiveFW zero-hop auto advert is disabled"
+      );
+      return true;
+    }
+
+    snprintf(reply, reply_size, "OK");
+    return true;
+  }
+
+  if (strncmp(command, "set flood.advert.interval ", 26) == 0) {
+    const int hours = atoi(command + 26);
+
+    if (hours == 0) {
+      setAutoAdvertEnabled(false);
+      snprintf(reply, reply_size, "OK");
+      return true;
+    }
+
+    if (hours == 24) {
+      setAutoAdvertEnabled(true);
+      snprintf(reply, reply_size, "OK");
+      return true;
+    }
+
+    snprintf(
+      reply,
+      reply_size,
+      "Error: HiveFW Smart Advert uses fixed 24h scheduling"
+    );
+    return true;
+  }
+
+  if (strncmp(command, "set adc.multiplier ", 19) == 0) {
+    const float value = atof(command + 19);
+
+    if (value < 0.0f || value > 10.0f) {
+      snprintf(reply, reply_size, "Err - invalid ADC multiplier");
+      return true;
+    }
+
+    if (!board.setAdcMultiplier(value)) {
+      snprintf(reply, reply_size, "Error: unsupported");
+      return true;
+    }
+
+    _prefs.adc_multiplier = value;
+    save_ok();
+    return true;
+  }
+
+  if (strncmp(command, "set radio.fem.rxgain ", 21) == 0) {
+    const char* value = command + 21;
+    if (strcmp(value, "on") != 0 && strcmp(value, "off") != 0) {
+      snprintf(reply, reply_size, "Err - use on or off");
+      return true;
+    }
+
+    const bool enabled = strcmp(value, "on") == 0;
+    if (!board.setLoRaFemLnaEnabled(enabled)) {
+      snprintf(reply, reply_size, "Error: unsupported");
+      return true;
+    }
+
+    _prefs.radio_fem_rxgain = enabled ? 1 : 0;
+    save_ok();
+    return true;
+  }
+
+  if (strncmp(command, "set radio.fem.txgain ", 21) == 0) {
+    const char* value = command + 21;
+    if (strcmp(value, "on") != 0 && strcmp(value, "off") != 0) {
+      snprintf(reply, reply_size, "Err - use on or off");
+      return true;
+    }
+
+    const bool enabled = strcmp(value, "on") == 0;
+    if (!board.setLoRaFemPaGainEnabled(enabled)) {
+      snprintf(reply, reply_size, "Error: unsupported");
+      return true;
+    }
+
+    _prefs.radio_fem_txgain = enabled ? 1 : 0;
+    save_ok();
+    return true;
+  }
+
   if (strncmp(command, "set repeat ", 11) == 0) {
     const char* value = command + 11;
 
@@ -1872,13 +1980,19 @@ bool MyMesh::handleRepeaterRemoteCommand(
   if (strncmp(command, "set agc.reset.interval ", 23) == 0) {
     const int value = atoi(command + 23);
 
-    if (value < 0 || value > 255) {
+    if (value < 0 || value > 1020) {
       snprintf(reply, reply_size, "Err - invalid AGC interval");
       return true;
     }
 
-    _prefs.agc_reset_interval = (uint8_t)value;
-    save_ok();
+    _prefs.agc_reset_interval = (uint8_t)(value / 4);
+    savePrefs();
+    snprintf(
+      reply,
+      reply_size,
+      "OK - interval rounded to %u",
+      (unsigned)_prefs.agc_reset_interval * 4U
+    );
     return true;
   }
 
