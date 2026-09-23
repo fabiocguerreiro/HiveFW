@@ -2454,73 +2454,137 @@ bool MyMesh::handleRepeaterRemoteCommand(
 }
 
 
+bool MyMesh::handleRepeaterAdminText(
+  const ContactInfo& from,
+  mesh::Packet* packet,
+  uint32_t sender_timestamp,
+  const char* text
+) {
+  // Repeater admin sessions are represented by reserved ADV_TYPE_NONE
+  // contacts. This path deliberately accepts BOTH TXT_TYPE_PLAIN and
+  // TXT_TYPE_CLI_DATA, matching simple_repeater's remote-admin protocol.
+  if (from.type != ADV_TYPE_NONE || !_prefs.isRepeatEn()) {
+    return false;
+  }
+
+  ClientInfo* client =
+    repeater_acl.getClient(from.id.pub_key, PUB_KEY_SIZE);
+
+  // A transient Repeater session must never fall through into Companion chat.
+  if (client == NULL || !client->isAdmin()) {
+    return true;
+  }
+
+  if (sender_timestamp < client->last_timestamp) {
+    MESH_DEBUG_PRINTLN("Remote CLI: replay detected");
+    return true;
+  }
+
+  const bool is_retry =
+    sender_timestamp == client->last_timestamp;
+
+  client->last_timestamp = sender_timestamp;
+  client->last_activity =
+    getRTCClock()->getCurrentTime();
+
+  if (is_retry) {
+    return true;
+  }
+
+  char command[161];
+  StrHelper::strncpy(
+    command,
+    text != NULL ? text : "",
+    sizeof(command)
+  );
+
+  char reply[MAX_TEXT_LEN + 1];
+  reply[0] = '\0';
+
+  handleRepeaterRemoteCommand(
+    sender_timestamp,
+    command,
+    reply,
+    sizeof(reply)
+  );
+
+  if (reply[0] == '\0') {
+    return true;
+  }
+
+  const int text_len =
+    min((int)strlen(reply), (int)MAX_TEXT_LEN);
+
+  uint8_t payload[5 + MAX_TEXT_LEN + 1];
+  uint32_t reply_timestamp =
+    getRTCClock()->getCurrentTimeUnique();
+
+  if (reply_timestamp == sender_timestamp) {
+    reply_timestamp++;
+  }
+
+  memcpy(payload, &reply_timestamp, 4);
+  payload[4] = (TXT_TYPE_CLI_DATA << 2);
+  memcpy(&payload[5], reply, text_len);
+  payload[5 + text_len] = '\0';
+
+  mesh::Packet* response =
+    createDatagram(
+      PAYLOAD_TYPE_TXT_MSG,
+      from.id,
+      from.getSharedSecret(self_id),
+      payload,
+      5 + text_len
+    );
+
+  if (response == NULL) {
+    return true;
+  }
+
+  if (
+    from.out_path_len != OUT_PATH_UNKNOWN &&
+    mesh::Packet::isValidPathLen(from.out_path_len)
+  ) {
+    sendDirect(
+      response,
+      from.out_path,
+      from.out_path_len,
+      HIVEFW_REPEATER_CLI_REPLY_DELAY
+    );
+  } else if (packet != NULL) {
+    sendRepeaterFloodReply(
+      response,
+      HIVEFW_REPEATER_CLI_REPLY_DELAY,
+      packet->getPathHashSize()
+    );
+  } else {
+    sendFloodScoped(
+      from,
+      response,
+      HIVEFW_REPEATER_CLI_REPLY_DELAY
+    );
+  }
+
+  return true;
+}
+
 void MyMesh::onMessageRecv(const ContactInfo &from, mesh::Packet *pkt, uint32_t sender_timestamp,
                            const char *text) {
+  // Legacy/simple_repeater remote administration uses TXT_TYPE_PLAIN.
+  // BaseChatMesh will still emit the normal ACK after this callback returns.
+  if (handleRepeaterAdminText(from, pkt, sender_timestamp, text)) {
+    return;
+  }
+
   markConnectionActive(from); // in case this is from a server, and we have a connection
   queueMessage(from, TXT_TYPE_PLAIN, pkt, sender_timestamp, NULL, 0, text);
 }
 
 void MyMesh::onCommandDataRecv(const ContactInfo &from, mesh::Packet *pkt, uint32_t sender_timestamp,
                                const char *text) {
-  // Reserved transient contacts are authenticated Repeater sessions. For
-  // those only, CLI_DATA is an inbound admin command. Normal Companion
-  // contacts keep the existing meaning: CLI_DATA is a reply to queue for UI.
-  if (from.type == ADV_TYPE_NONE && _prefs.isRepeatEn()) {
-    ClientInfo* client =
-      repeater_acl.getClient(from.id.pub_key, PUB_KEY_SIZE);
-
-    if (client == NULL || !client->isAdmin()) {
-      return;
-    }
-
-    if (sender_timestamp < client->last_timestamp) {
-      MESH_DEBUG_PRINTLN(
-        "Remote CLI: replay detected"
-      );
-      return;
-    }
-
-    const bool is_retry =
-      sender_timestamp == client->last_timestamp;
-
-    client->last_timestamp = sender_timestamp;
-    client->last_activity =
-      getRTCClock()->getCurrentTime();
-
-    if (is_retry) {
-      return;
-    }
-
-    char command[161];
-    StrHelper::strncpy(
-      command,
-      text != NULL ? text : "",
-      sizeof(command)
-    );
-
-    char reply[MAX_TEXT_LEN + 1];
-
-    handleRepeaterRemoteCommand(
-      sender_timestamp,
-      command,
-      reply,
-      sizeof(reply)
-    );
-
-    if (reply[0] != '\0') {
-      uint32_t est_timeout = 0;
-      const uint32_t reply_timestamp =
-        getRTCClock()->getCurrentTimeUnique();
-
-      sendCommandData(
-        from,
-        reply_timestamp,
-        0,
-        reply,
-        est_timeout
-      );
-    }
-
+  // Newer clients can send the same admin command as CLI_DATA. Supporting
+  // both encodings is intentional: HiveFW is Companion + Repeater.
+  if (handleRepeaterAdminText(from, pkt, sender_timestamp, text)) {
     return;
   }
 
