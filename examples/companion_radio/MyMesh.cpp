@@ -1569,6 +1569,60 @@ bool MyMesh::handleRepeaterRemoteCommand(
     return true;
   }
 
+  if (strcmp(command, "get cad") == 0) {
+    snprintf(
+      reply,
+      reply_size,
+      "> %s",
+      _prefs.cad_enabled ? "on" : "off"
+    );
+    return true;
+  }
+
+  // HiveFW has no periodic zero-hop advert scheduler. Keep the official
+  // Repeater setting visible as disabled instead of inventing a second timer.
+  if (strcmp(command, "get advert.interval") == 0) {
+    snprintf(reply, reply_size, "> 0");
+    return true;
+  }
+
+  // Compatibility view only: Smart Advert remains the HiveFW scheduler.
+  // The official app sees 24 h when Auto Advert is enabled and 0 when off.
+  if (strcmp(command, "get flood.advert.interval") == 0) {
+    snprintf(
+      reply,
+      reply_size,
+      "> %u",
+      _prefs.isAutoAdvertEn() ? 24U : 0U
+    );
+    return true;
+  }
+
+  if (strcmp(command, "get adc.multiplier") == 0) {
+    snprintf(reply, reply_size, "> %.3f", _prefs.adc_multiplier);
+    return true;
+  }
+
+  if (strcmp(command, "get radio.fem.rxgain") == 0) {
+    snprintf(
+      reply,
+      reply_size,
+      "> %s",
+      _prefs.radio_fem_rxgain ? "on" : "off"
+    );
+    return true;
+  }
+
+  if (strcmp(command, "get radio.fem.txgain") == 0) {
+    snprintf(
+      reply,
+      reply_size,
+      "> %s",
+      _prefs.radio_fem_txgain ? "on" : "off"
+    );
+    return true;
+  }
+
   if (strncmp(command, "set name ", 9) == 0) {
     const char* value = command + 9;
 
