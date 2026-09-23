@@ -2497,19 +2497,12 @@ async def ws_get_local_repeater_status(hass, connection, msg):
                 },
                 "telemetry": telemetry.get("lpp", []),
                 "allowed_repeat_frequencies": repeat_freqs.get("freqs", []),
-                "radio": {
-                    "frequency": self_info.get("radio_freq"),
-                    "bandwidth": self_info.get("radio_bw"),
-                    "spreading_factor": self_info.get("radio_sf"),
-                    "coding_rate": self_info.get("radio_cr"),
-                    "tx_power": self_info.get("tx_power"),
-                    "max_tx_power": self_info.get("max_tx_power"),
-                    "path_hash_mode": device.get(
-                        "path_hash_mode",
-                        self_info.get("path_hash_mode"),
-                    ),
-                    "multi_acks": self_info.get("multi_acks"),
-                },
+                # Translate the Companion-native RF settings into the
+                # Repeater view expected by both HiveFW UIs.
+                "radio": _translate_companion_radio_to_repeater(
+                    self_info,
+                    device,
+                ),
                 "location": {
                     "latitude": self_info.get("adv_lat"),
                     "longitude": self_info.get("adv_lon"),
@@ -3023,6 +3016,79 @@ async def _set_repeater_secret(commands, key: str, value: str):
         mesh_logger.removeFilter(secret_filter)
         for handler in handlers:
             handler.removeFilter(secret_filter)
+
+
+def _translate_companion_radio_to_repeater(self_info, device_info=None):
+    """Translate Companion SELF_INFO/DEVICE_INFO into the Repeater radio shape.
+
+    HiveFW remains a Companion firmware even when Repeater mode is enabled.
+    The HA Repeater UI historically expected SimpleRepeater-style radio
+    fields, so expose one normalized view regardless of the firmware role.
+    """
+    self_info = self_info or {}
+    device_info = device_info or {}
+
+    def _first(*keys):
+        for key in keys:
+            value = self_info.get(key)
+            if value is not None:
+                return value
+        return None
+
+    def _float_value(value):
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    def _int_value(value):
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
+    frequency = _float_value(_first("radio_freq", "frequency", "freq"))
+    bandwidth = _float_value(_first("radio_bw", "bandwidth", "bw"))
+    spreading_factor = _int_value(_first("radio_sf", "spreading_factor", "sf"))
+    coding_rate = _int_value(_first("radio_cr", "coding_rate", "cr"))
+    tx_power = _int_value(_first("tx_power", "tx_power_dbm", "tx"))
+    max_tx_power = _int_value(_first("max_tx_power", "max_tx_power_dbm"))
+    multi_acks = _int_value(_first("multi_acks"))
+
+    # Some Companion/backup surfaces use integer kHz values while SELF_INFO
+    # already arrives as MHz/kHz floats. Normalize to the frontend contract.
+    if frequency is not None and frequency > 3000:
+        frequency /= 1000.0
+    if bandwidth is not None and bandwidth > 1000:
+        bandwidth /= 1000.0
+
+    path_hash_mode = device_info.get(
+        "path_hash_mode",
+        self_info.get("path_hash_mode"),
+    )
+    path_hash_mode = _int_value(path_hash_mode)
+
+    return {
+        "supported": any(
+            value is not None
+            for value in (
+                frequency,
+                bandwidth,
+                spreading_factor,
+                coding_rate,
+                tx_power,
+            )
+        ),
+        "source": "companion",
+        "frequency": frequency,
+        "bandwidth": bandwidth,
+        "spreading_factor": spreading_factor,
+        "coding_rate": coding_rate,
+        "tx_power": tx_power,
+        "max_tx_power": max_tx_power,
+        "path_hash_mode": path_hash_mode,
+        "multi_acks": multi_acks,
+    }
 
 
 async def _read_repeater_profile(commands):
