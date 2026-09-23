@@ -2811,24 +2811,6 @@ export class SettingsPage extends LitElement {
       </div>
 
       <div class="repeater-setup-grid" style="margin-bottom:14px;">
-        <div style="margin-bottom:14px;padding:10px 12px;border-radius:8px;background:var(--secondary-background-color);">
-          <div style="font-size:13px;font-weight:600;">Owner Info</div>
-          <div style="font-size:11px;color:var(--secondary-text-color);margin:2px 0 8px;line-height:1.45;">
-            Texto livre anunciado pelo Repeater através do protocolo MeshCore. Máximo 119 bytes UTF-8.
-          </div>
-          <textarea
-            class="form-input"
-            style="width:100%;min-height:74px;resize:vertical;box-sizing:border-box;"
-            .value=${ownerInfo}
-            ?disabled=${!profile?.supported}
-            @change=${(e: Event) => {
-              void this._applyImmediateSetting(
-                'owner_info',
-                (e.target as HTMLTextAreaElement).value,
-                'Owner Info',
-              );
-            }}></textarea>
-        </div>
         <div
           style="margin:0 0 10px;padding:12px;border:1px solid var(--divider-color);border-radius:8px;background:var(--secondary-background-color);"
           data-hive-repeater-access>
@@ -2940,6 +2922,25 @@ export class SettingsPage extends LitElement {
               Atualiza o firmware HiveFW para ativar passwords Admin/Guest e gestão da ACL local.
             </div>
           `}
+
+          <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--divider-color);">
+            <div style="font-size:12px;font-weight:600;">Owner Info</div>
+            <div style="font-size:10px;color:var(--secondary-text-color);margin:2px 0 7px;line-height:1.4;">
+              Texto livre anunciado pelo Repeater. Máximo 119 bytes UTF-8.
+            </div>
+            <textarea
+              class="form-input"
+              style="width:100%;min-height:64px;resize:vertical;box-sizing:border-box;"
+              .value=${ownerInfo}
+              ?disabled=${!profile?.supported}
+              @change=${(e: Event) => {
+                void this._applyImmediateSetting(
+                  'owner_info',
+                  (e.target as HTMLTextAreaElement).value,
+                  'Owner Info',
+                );
+              }}></textarea>
+          </div>
         </div>
       </div>
 
