@@ -3369,6 +3369,24 @@ class HiveFWPanel extends BasePanel {
     return "meshcore_backup_"+rawName+"_"+stamp+".json";
   }
 
+  __repeaterBackupFilename(backup) {
+    const rawName=String(backup?.device_name||"HiveFW")
+      .normalize("NFKD")
+      .replace(/[^\w.-]+/g,"_")
+      .replace(/^_+|_+$/g,"")
+      .slice(0,48)||"HiveFW";
+    const now=new Date();
+    const pad=(n)=>String(n).padStart(2,"0");
+    const stamp=
+      now.getFullYear()+
+      pad(now.getMonth()+1)+
+      pad(now.getDate())+"_"+
+      pad(now.getHours())+
+      pad(now.getMinutes())+
+      pad(now.getSeconds());
+    return "hivefw_repeater_backup_"+rawName+"_"+stamp+".json";
+  }
+
   async __exportFullBackup(button) {
     if(!this.hass||button?.disabled)return;
     const original=button?.textContent||"Criar backup";
@@ -3502,6 +3520,133 @@ class HiveFWPanel extends BasePanel {
     }
   }
 
+  async __exportRepeaterBackup(button) {
+    if(!this.hass||button?.disabled)return;
+    const original=button?.textContent||"Backup Repeater";
+    if(button){
+      button.disabled=true;
+      button.textContent="A criar backup…";
+    }
+    try{
+      const msg={type:"hivefw_integration/export_repeater_backup"};
+      const entryId=this.__entryId();
+      if(entryId)msg.entry_id=entryId;
+      const result=await this.hass.callWS(msg);
+      const backup=result?.backup;
+      if(!backup||backup.format!=="hivefw_repeater_backup"){
+        throw new Error("O rádio não devolveu um backup Repeater válido.");
+      }
+
+      const blob=new Blob(
+        [JSON.stringify(backup,null,2)+"\n"],
+        {type:"application/json;charset=utf-8"}
+      );
+      const url=URL.createObjectURL(blob);
+      const link=document.createElement("a");
+      link.href=url;
+      link.download=this.__repeaterBackupFilename(backup);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(()=>URL.revokeObjectURL(url),1000);
+
+      if(button){
+        button.textContent=
+          "Guardado · "+
+          Number(result?.region_count||0)+" regiões · "+
+          Number(result?.acl_count||0)+" ACL";
+        window.setTimeout(()=>{
+          if(button.isConnected)button.textContent=original;
+        },2600);
+      }
+    }catch(error){
+      console.error("HiveFW Repeater backup failed:",error);
+      if(button){
+        button.textContent="Erro no backup Repeater";
+        button.title=this.__otaErrorMessage(error);
+        window.setTimeout(()=>{
+          if(button.isConnected)button.textContent=original;
+        },3000);
+      }
+    }finally{
+      if(button)button.disabled=false;
+    }
+  }
+
+  async __restoreRepeaterBackup(file,button,input) {
+    if(!this.hass||!file||button?.disabled)return;
+    const original=button?.textContent||"Restaurar Repeater";
+    try{
+      const backup=JSON.parse(await file.text());
+      if(
+        !backup||
+        backup.format!=="hivefw_repeater_backup"||
+        typeof backup.repeater!=="object"
+      ){
+        throw new Error("Ficheiro HiveFW Repeater inválido.");
+      }
+
+      const repeater=backup.repeater||{};
+      const acl=Array.isArray(repeater?.access?.acl)?repeater.access.acl:[];
+      const regions=Array.isArray(repeater?.regions?.regions)
+        ? repeater.regions.regions
+        : [];
+      const warning=
+        "Restaurar o backup Repeater vai substituir Owner Info, RX Gain, ADC, "+
+        "routing, RF avançado, RegionMap e ACL persistente.\n\n"+
+        "As passwords Admin/Guest NÃO são exportadas nem alteradas.\n\n"+
+        "ACL: "+acl.length+
+        "\nRegiões: "+regions.length+
+        "\n\nPretendes continuar?";
+      if(!window.confirm(warning))return;
+
+      if(button){
+        button.disabled=true;
+        button.textContent="A restaurar…";
+      }
+
+      const msg={
+        type:"hivefw_integration/restore_repeater_backup",
+        backup,
+      };
+      const entryId=this.__entryId();
+      if(entryId)msg.entry_id=entryId;
+      const result=await this.hass.callWS(msg);
+      if(!result?.success){
+        throw new Error("O restauro Repeater não foi concluído.");
+      }
+
+      if(button){
+        button.textContent=
+          "Restaurado · "+
+          Number(result?.region_count||0)+" regiões · "+
+          Number(result?.acl_count||0)+" ACL";
+      }
+
+      const settingsPage=this.shadowRoot?.querySelector("meshcore-settings-page");
+      try{
+        await settingsPage?._loadDeviceConfig?.();
+      }catch{}
+      this.requestUpdate?.();
+
+      window.setTimeout(()=>{
+        if(button?.isConnected)button.textContent=original;
+      },3600);
+    }catch(error){
+      console.error("HiveFW Repeater restore failed:",error);
+      if(button){
+        button.textContent="Erro no restauro Repeater";
+        button.title=this.__otaErrorMessage(error);
+        window.setTimeout(()=>{
+          if(button.isConnected)button.textContent=original;
+        },3000);
+      }
+    }finally{
+      if(button)button.disabled=false;
+      if(input)input.value="";
+    }
+  }
+
   __renderBackupRestoreCard(sroot,grid) {
     let card=sroot.querySelector("#hive-backup-restore-card");
     if(card)return;
@@ -3509,57 +3654,115 @@ class HiveFWPanel extends BasePanel {
     card=document.createElement("div");
     card.id="hive-backup-restore-card";
     card.className="device-section";
+    card.style.gridColumn="1 / -1";
 
     const title=document.createElement("div");
     title.className="card-title";
     title.textContent="Backup & Restore";
 
-    const note=document.createElement("div");
-    note.className="hive-settings-note";
-    note.textContent=
-      "Backup completo no formato JSON original do MeshCore Companion: identidade/chave privada, nome, rádio, posição, opções de contactos, canais e contactos guardados no rádio.";
+    const intro=document.createElement("div");
+    intro.className="hive-settings-note";
+    intro.textContent=
+      "Companion e Repeater são guardados separadamente para ficar claro que dados pertencem à identidade/app e quais pertencem ao serviço Repeater.";
 
-    const security=document.createElement("div");
-    security.className="hive-settings-note";
-    security.style.cssText=
-      "margin-top:10px;padding:9px 10px;border-radius:8px;background:color-mix(in srgb,var(--warning-color,#ff9800) 10%,transparent);color:var(--primary-text-color);";
-    security.textContent=
-      "O ficheiro contém a chave privada do dispositivo. Guarda-o como credencial sensível.";
+    const makeSection=(heading,description)=>{
+      const section=document.createElement("div");
+      section.style.cssText=
+        "margin-top:12px;padding:12px;border:1px solid var(--divider-color);border-radius:9px;";
+      const head=document.createElement("div");
+      head.style.cssText="font-size:13px;font-weight:650;margin-bottom:4px;";
+      head.textContent=heading;
+      const desc=document.createElement("div");
+      desc.className="hive-settings-note";
+      desc.style.margin="0";
+      desc.textContent=description;
+      const actions=document.createElement("div");
+      actions.className="actions-row";
+      actions.style.marginTop="10px";
+      section.append(head,desc,actions);
+      return {section,actions};
+    };
 
-    const actions=document.createElement("div");
-    actions.className="actions-row";
-    actions.style.marginTop="12px";
+    const companion=makeSection(
+      "Companion",
+      "Formato JSON compatível com MeshCore: identidade/chave privada, nome, rádio, posição, auto-add, canais e contactos."
+    );
 
-    const exportButton=document.createElement("button");
-    exportButton.type="button";
-    exportButton.className="action-btn";
-    exportButton.textContent="Criar backup";
-    exportButton.title="Exportar backup completo compatível com a app MeshCore";
-    exportButton.addEventListener("click",()=>void this.__exportFullBackup(exportButton));
+    const companionSecurity=document.createElement("div");
+    companionSecurity.className="hive-settings-note";
+    companionSecurity.style.cssText=
+      "margin-top:8px;padding:8px 9px;border-radius:7px;background:color-mix(in srgb,var(--warning-color,#ff9800) 10%,transparent);color:var(--primary-text-color);";
+    companionSecurity.textContent=
+      "Contém a chave privada do dispositivo. Trata este ficheiro como uma credencial sensível.";
+    companion.section.insertBefore(companionSecurity,companion.actions);
 
-    const restoreButton=document.createElement("button");
-    restoreButton.type="button";
-    restoreButton.className="action-btn";
-    restoreButton.textContent="Restaurar backup";
-    restoreButton.title="Restaurar um ficheiro de backup JSON da app MeshCore";
+    const exportCompanion=document.createElement("button");
+    exportCompanion.type="button";
+    exportCompanion.className="action-btn";
+    exportCompanion.textContent="Backup Companion";
+    exportCompanion.addEventListener("click",()=>void this.__exportFullBackup(exportCompanion));
 
-    const input=document.createElement("input");
-    input.type="file";
-    input.accept=".json,application/json";
-    input.hidden=true;
-    input.addEventListener("change",()=>{
-      const file=input.files?.[0];
-      if(file)void this.__restoreFullBackup(file,restoreButton,input);
+    const restoreCompanion=document.createElement("button");
+    restoreCompanion.type="button";
+    restoreCompanion.className="action-btn";
+    restoreCompanion.textContent="Restaurar Companion";
+
+    const companionInput=document.createElement("input");
+    companionInput.type="file";
+    companionInput.accept=".json,application/json";
+    companionInput.hidden=true;
+    companionInput.addEventListener("change",()=>{
+      const file=companionInput.files?.[0];
+      if(file)void this.__restoreFullBackup(file,restoreCompanion,companionInput);
     });
-    restoreButton.addEventListener("click",()=>{
-      input.value="";
-      input.click();
+    restoreCompanion.addEventListener("click",()=>{
+      companionInput.value="";
+      companionInput.click();
     });
+    companion.actions.append(exportCompanion,restoreCompanion,companionInput);
 
-    actions.append(exportButton,restoreButton,input);
-    card.append(title,note,security,actions);
+    const repeater=makeSection(
+      "Repeater",
+      "Backup HiveFW do Owner Info, RX Boosted Gain, ADC, modo Repeater, Path Hash, Multi ACK, Smart Advert, RTC Mesh, Duty Cycle, routing/flood, CAD/AGC/delays, RegionMap e ACL."
+    );
+
+    const repeaterSecurity=document.createElement("div");
+    repeaterSecurity.className="hive-settings-note";
+    repeaterSecurity.style.cssText=
+      "margin-top:8px;padding:8px 9px;border-radius:7px;background:var(--secondary-background-color);";
+    repeaterSecurity.textContent=
+      "Passwords Admin/Guest são write-only: o backup regista apenas o estado configurado e nunca guarda o segredo. Num restore, as passwords atuais são mantidas.";
+    repeater.section.insertBefore(repeaterSecurity,repeater.actions);
+
+    const exportRepeater=document.createElement("button");
+    exportRepeater.type="button";
+    exportRepeater.className="action-btn";
+    exportRepeater.textContent="Backup Repeater";
+    exportRepeater.addEventListener("click",()=>void this.__exportRepeaterBackup(exportRepeater));
+
+    const restoreRepeater=document.createElement("button");
+    restoreRepeater.type="button";
+    restoreRepeater.className="action-btn";
+    restoreRepeater.textContent="Restaurar Repeater";
+
+    const repeaterInput=document.createElement("input");
+    repeaterInput.type="file";
+    repeaterInput.accept=".json,application/json";
+    repeaterInput.hidden=true;
+    repeaterInput.addEventListener("change",()=>{
+      const file=repeaterInput.files?.[0];
+      if(file)void this.__restoreRepeaterBackup(file,restoreRepeater,repeaterInput);
+    });
+    restoreRepeater.addEventListener("click",()=>{
+      repeaterInput.value="";
+      repeaterInput.click();
+    });
+    repeater.actions.append(exportRepeater,restoreRepeater,repeaterInput);
+
+    card.append(title,intro,companion.section,repeater.section);
     grid.appendChild(card);
   }
+
 
   async __loadWifiPortalInfo() {
     if (!this.hass || this.__wifiPortalLoading) return;
