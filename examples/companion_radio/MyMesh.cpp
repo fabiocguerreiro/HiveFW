@@ -1317,6 +1317,62 @@ void MyMesh::sendFloodScoped(const mesh::GroupChannel& channel, mesh::Packet* pk
   }
 }
 
+static bool isHiveFWRepeaterAdminCommand(const char* text) {
+  if (text == NULL) return false;
+
+  while (*text == ' ' || *text == '\t') text++;
+  if (*text == '\0') return false;
+
+  // Keep normal Companion chat available even for identities that are also in
+  // the Repeater ACL. Only strings in the official Repeater CLI namespace are
+  // consumed by the admin adapter.
+  static const char* exact[] = {
+    "ver",
+    "board",
+    "clock",
+    "clock sync",
+    "neighbors",
+    "advert",
+    "advert.zerohop",
+    "clear stats",
+    "reboot",
+    "region",
+    "region load",
+    "region save",
+    "region home",
+    "region default"
+  };
+
+  for (const char* command : exact) {
+    if (strcmp(text, command) == 0) return true;
+  }
+
+  static const char* prefixes[] = {
+    "get ",
+    "set ",
+    "time ",
+    "password ",
+    "setperm ",
+    "neighbor.remove ",
+    "region def ",
+    "region get ",
+    "region list ",
+    "region put ",
+    "region remove ",
+    "region home ",
+    "region default ",
+    "region allowf ",
+    "region denyf "
+  };
+
+  for (const char* prefix : prefixes) {
+    if (strncmp(text, prefix, strlen(prefix)) == 0) return true;
+  }
+
+  return false;
+}
+
+
 bool MyMesh::handleRepeaterRemoteCommand(
   uint32_t sender_timestamp,
   char* command,
@@ -2628,19 +2684,24 @@ bool MyMesh::handleRepeaterAdminText(
   uint32_t sender_timestamp,
   const char* text
 ) {
-  // Repeater admin sessions are represented by reserved ADV_TYPE_NONE
-  // contacts. This path deliberately accepts BOTH TXT_TYPE_PLAIN and
-  // TXT_TYPE_CLI_DATA, matching simple_repeater's remote-admin protocol.
-  if (from.type != ADV_TYPE_NONE || !_prefs.isRepeatEn()) {
+  // Repeater administration is an ACL capability, not a ContactInfo type.
+  // This keeps an identity usable as a normal Companion contact while the same
+  // identity also administers the Repeater.
+  if (!_prefs.isRepeatEn()) {
     return false;
   }
 
   ClientInfo* client =
     repeater_acl.getClient(from.id.pub_key, PUB_KEY_SIZE);
 
-  // A transient Repeater session must never fall through into Companion chat.
   if (client == NULL || !client->isAdmin()) {
-    return true;
+    return false;
+  }
+
+  // Only consume the official Repeater CLI namespace. Ordinary text from an
+  // ACL member remains an ordinary Companion DM.
+  if (!isHiveFWRepeaterAdminCommand(text)) {
+    return false;
   }
 
   if (sender_timestamp < client->last_timestamp) {
@@ -2864,23 +2925,16 @@ uint8_t MyMesh::onContactRequest(const ContactInfo &contact, uint32_t sender_tim
     return 0;
   }
 
-  ClientInfo* repeater_client = NULL;
-  const bool is_repeater_session = contact.type == ADV_TYPE_NONE;
+  ClientInfo* repeater_client =
+    _prefs.isRepeatEn()
+      ? repeater_acl.getClient(contact.id.pub_key, PUB_KEY_SIZE)
+      : NULL;
+  const bool is_repeater_session = repeater_client != NULL;
 
-  // Repeater login sessions use reserved transient Companion contacts. Keep
-  // them tied to the point-4 ACL so clearing the ACL revokes access at once.
+  // Repeater server capability is attached to the ACL identity, not to the
+  // Companion contact type. This permits the same peer to remain a normal
+  // chat contact and use authenticated Repeater requests.
   if (is_repeater_session) {
-    if (!_prefs.isRepeatEn()) {
-      return 0;
-    }
-
-    repeater_client =
-      repeater_acl.getClient(contact.id.pub_key, PUB_KEY_SIZE);
-
-    if (repeater_client == NULL) {
-      return 0;
-    }
-
     repeater_client->last_activity =
       getRTCClock()->getCurrentTime();
   }
@@ -3381,7 +3435,6 @@ bool MyMesh::onContactPathRecv(ContactInfo& contact, uint8_t* in_path, uint8_t i
   // from flood login to direct remote administration exactly like
   // simple_repeater.
   if (
-    contact.type == ADV_TYPE_NONE &&
     _prefs.isRepeatEn() &&
     mesh::Packet::isValidPathLen(out_path_len)
   ) {
@@ -3482,6 +3535,11 @@ uint8_t MyMesh::handleRepeaterLoginReq(
       repeater_acl.save(_store->getPrimaryFS());
     }
   }
+
+  // A persisted ACL identity can re-login with an empty password. Refresh
+  // its transient session state as well; this does not change permissions.
+  client->last_activity = getRTCClock()->getCurrentTime();
+  memcpy(client->shared_secret, secret, PUB_KEY_SIZE);
 
   if (is_flood) {
     client->out_path_len = OUT_PATH_UNKNOWN;
