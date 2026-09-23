@@ -157,7 +157,9 @@ public:
   mesh::Packet* createSelfAdvert(const char* name);
   mesh::Packet* createSelfAdvert(const char* name, double lat, double lon);
   unsigned long next_smart_advert;
+  unsigned long next_neighbor_advert;
   void updateSmartAdvertTimer();
+  void updateNeighborAdvertTimer();
   void setAutoAdvertEnabled(bool enabled);
   bool getSmartAdvertSecondsUntilNext(uint32_t& seconds);
   void enterCLIRescue();
