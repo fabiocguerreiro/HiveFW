@@ -3179,7 +3179,6 @@ class HiveFWPanel extends BasePanel {
       card.id = "hive-console-settings-card";
       card.className = "device-section";
       card.dataset.hiveNativeHost = "console";
-      card.style.gridColumn = "1 / -1";
 
       const title = document.createElement("div");
       title.className = "card-title";
@@ -3197,7 +3196,7 @@ class HiveFWPanel extends BasePanel {
       grid.appendChild(card);
     }
 
-    card.style.gridColumn = "1 / -1";
+    card.style.gridColumn = "";
     const host = card.querySelector(".hive-console-settings-host");
     if (!host) return;
 
@@ -3205,7 +3204,7 @@ class HiveFWPanel extends BasePanel {
       const style = document.createElement("style");
       style.id = "hive-console-settings-style";
       style.textContent = `
-        #hive-console-settings-card { grid-column:1 / -1; }
+        #hive-console-settings-card { min-width:0; }
         .hive-console-settings-host { min-width:0; }
         .hivefw-console-page.hivefw-console-embedded {
           width:100%;
@@ -3223,7 +3222,7 @@ class HiveFWPanel extends BasePanel {
         }
         .hivefw-console-embedded .hivefw-console-layout {
           display:grid;
-          grid-template-columns:minmax(280px,.78fr) minmax(0,1.35fr);
+          grid-template-columns:minmax(0,1fr);
           gap:14px;
           align-items:start;
         }
@@ -7613,7 +7612,8 @@ class HiveFWPanel extends BasePanel {
     leftColumn.className = "hivefw-console-column";
     const rightColumn = document.createElement("div");
     rightColumn.className = "hivefw-console-column";
-    layout.append(leftColumn, rightColumn);
+    if (embedded) layout.append(rightColumn);
+    else layout.append(leftColumn, rightColumn);
     wrap.appendChild(layout);
 
     if (!embedded) {
@@ -7816,7 +7816,7 @@ class HiveFWPanel extends BasePanel {
     });
 
     presetCard.append(presetTitle, presetSelect, presetBody);
-    leftColumn.appendChild(presetCard);
+    if (!embedded) leftColumn.appendChild(presetCard);
     renderPreset();
 
     const commandCard = document.createElement("section");
@@ -7938,7 +7938,11 @@ class HiveFWPanel extends BasePanel {
     }
 
     outputCard.append(toolbar, output);
-    rightColumn.append(outputCard, commandCard);
+    if (embedded) {
+      rightColumn.append(commandCard, presetCard, outputCard);
+    } else {
+      rightColumn.append(outputCard, commandCard);
+    }
     requestAnimationFrame(() => { output.scrollTop = output.scrollHeight; });
   }
 
