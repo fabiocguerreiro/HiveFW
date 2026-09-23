@@ -7647,7 +7647,7 @@ class HiveFWPanel extends BasePanel {
     }
   }
 
-  __renderConsole(container, embedded = false) {
+  __renderConsole(container, embedded = container?.classList?.contains("hive-console-settings-host")) {
     container.replaceChildren();
 
     const page = document.createElement("div");
