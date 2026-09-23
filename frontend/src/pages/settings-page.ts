@@ -140,6 +140,7 @@ export class SettingsPage extends LitElement {
   @state() private _guestPasswordDraft = '';
   @state() private _repeaterAccessBusy: 'admin' | 'guest' | 'acl' | 'acl-entry' | null = null;
   @state() private _repeaterReadBusy = false;
+  @state() private _repeaterQuickBusy: 'repeat' | 'auto_advert' | 'mesh_time_sync' | null = null;
   @state() private _aclNewPublicKey = '';
   @state() private _aclNewPermissions: 1 | 2 | 3 = 1;
   @state() private _backupBusy:
@@ -1251,6 +1252,20 @@ export class SettingsPage extends LitElement {
             </div>
           ` : nothing}
 
+          <!-- Companion-specific radio configuration stays grouped directly below Repeater Setup. -->
+          ${this.selectedDevice ? html`
+            <div id="hive-companion-settings-card"
+                 class="device-section"
+                 data-hive-native="companion"
+                 style="margin-bottom:16px;">
+              <div class="card-title">Companion Setup</div>
+              <div style="font-size:12px;line-height:1.45;color:var(--secondary-text-color);margin-bottom:12px;">
+                Parâmetros do rádio usados pelo Companion. Frequência, modulação, potência, Path Hash, RX Boosted Gain e calibração ADC ficam agrupados aqui.
+              </div>
+              ${this._renderRadioSettings()}
+            </div>
+          ` : nothing}
+
           <!-- Firmware manager is the third full-width card. -->
           ${this.selectedDevice ? this._renderFirmwareOta() : nothing}
 
@@ -1258,12 +1273,6 @@ export class SettingsPage extends LitElement {
 
           <!-- Two-column grid for the remaining device settings cards -->
           <div class="settings-grid">
-            <!-- Radio & RF Settings -->
-            <div class="device-section">
-              <div class="card-title">Radio</div>
-              ${this._renderRadioSettings()}
-            </div>
-
             <!-- Device identity belongs to Definições, not Estado. -->
             <div class="device-section">
               <div class="card-title">Identidade</div>
@@ -1280,11 +1289,10 @@ export class SettingsPage extends LitElement {
               <div class="card-title">Alertas &amp; automações</div>
             </div>
 
-            <!-- Console now belongs to Definições and spans the full grid width. -->
+            <!-- Console belongs to Definições as a normal grid card. -->
             <div id="hive-console-settings-card"
                  class="device-section"
-                 data-hive-native-host="console"
-                 style="grid-column:1 / -1;">
+                 data-hive-native-host="console">
               <div class="card-title">Consola</div>
               <div style="font-size:12px;line-height:1.45;color:var(--secondary-text-color);margin-bottom:14px;">
                 Executa comandos diretamente no rádio ligado ao Home Assistant. Os comandos locais não geram tráfego LoRa, exceto quando o próprio comando envia dados para a mesh.
@@ -2406,6 +2414,60 @@ export class SettingsPage extends LitElement {
     `;
   }
 
+  private async _applyRepeaterQuickSetting(
+    key: 'repeat' | 'auto_advert' | 'mesh_time_sync',
+    value: boolean,
+  ) {
+    if (!this.hass || !this._repeaterStatus?.supported || this._repeaterQuickBusy) return;
+
+    const previous =
+      key === 'repeat'
+        ? Boolean(this._repeaterStatus.repeat)
+        : key === 'auto_advert'
+          ? Boolean(this._repeaterStatus.auto_advert)
+          : Boolean(this._repeaterStatus.mesh_time_sync);
+
+    this._editValues[key] = value;
+    this._editValues = { ...this._editValues };
+    this._repeaterQuickBusy = key;
+
+    try {
+      const result = await setDeviceConfig(
+        this.hass,
+        { [key]: value },
+        this.config?.entry_id,
+      );
+      if (!result.success) {
+        throw new Error(result.error || 'Não foi possível aplicar a alteração.');
+      }
+
+      delete this._editValues[key];
+      this._editValues = { ...this._editValues };
+      await this._readRepeaterStatus(false, false);
+
+      const label =
+        key === 'repeat'
+          ? 'Modo Repetidor'
+          : key === 'auto_advert'
+            ? 'Auto Advert'
+            : 'Sincronização RTC via Mesh';
+      this._showStatusMessage(
+        `${label}: ${value ? 'ativado' : 'desativado'}.`,
+        'success',
+      );
+    } catch (error) {
+      this._editValues[key] = previous;
+      this._editValues = { ...this._editValues };
+      await this._readRepeaterStatus(false, true);
+      this._showStatusMessage(
+        'Configuração imediata do Repeater: ' + String(error),
+        'error',
+      );
+    } finally {
+      this._repeaterQuickBusy = null;
+    }
+  }
+
   private _renderRepeaterSettings() {
     const status = this._repeaterStatus;
     if (!status?.supported) {
@@ -2453,9 +2515,12 @@ export class SettingsPage extends LitElement {
           <input
             type="checkbox"
             .checked=${repeat}
+            ?disabled=${this._repeaterQuickBusy !== null}
             @change=${(e: Event) => {
-              this._editValues['repeat'] = (e.target as HTMLInputElement).checked;
-              this._editValues = { ...this._editValues };
+              void this._applyRepeaterQuickSetting(
+                'repeat',
+                (e.target as HTMLInputElement).checked,
+              );
             }}
           />
           ${repeat ? 'Ativo' : 'Desligado'}
@@ -2475,10 +2540,12 @@ export class SettingsPage extends LitElement {
           <input
             type="checkbox"
             .checked=${autoAdvert}
-            ?disabled=${!autoAdvertSupported}
+            ?disabled=${!autoAdvertSupported || this._repeaterQuickBusy !== null}
             @change=${(e: Event) => {
-              this._editValues['auto_advert'] = (e.target as HTMLInputElement).checked;
-              this._editValues = { ...this._editValues };
+              void this._applyRepeaterQuickSetting(
+                'auto_advert',
+                (e.target as HTMLInputElement).checked,
+              );
             }}
           />
           ${autoAdvert ? 'Ativo' : 'Desligado'}
@@ -2497,11 +2564,12 @@ export class SettingsPage extends LitElement {
           <input
             type="checkbox"
             .checked=${meshTimeSync}
-            ?disabled=${!meshTimeSupported}
+            ?disabled=${!meshTimeSupported || this._repeaterQuickBusy !== null}
             @change=${(e: Event) => {
-              this._editValues['mesh_time_sync'] =
-                (e.target as HTMLInputElement).checked;
-              this._editValues = { ...this._editValues };
+              void this._applyRepeaterQuickSetting(
+                'mesh_time_sync',
+                (e.target as HTMLInputElement).checked,
+              );
             }}
           />
           ${meshTimeSupported
@@ -2510,42 +2578,134 @@ export class SettingsPage extends LitElement {
         </label>
       </div>
 
-      <div style="margin-bottom:14px;padding:10px 12px;border-radius:8px;background:var(--secondary-background-color);">
-        <div style="font-size:13px;font-weight:600;">Owner Info</div>
-        <div style="font-size:11px;color:var(--secondary-text-color);margin:2px 0 8px;line-height:1.45;">
-          Texto livre anunciado pelo Repeater através do protocolo MeshCore. Máximo 119 bytes UTF-8.
-        </div>
-        <textarea
-          class="form-input"
-          style="width:100%;min-height:74px;resize:vertical;box-sizing:border-box;"
-          .value=${ownerInfo}
-          ?disabled=${!profile?.supported}
-          @input=${(e: Event) => {
-            this._editValues['owner_info'] = (e.target as HTMLTextAreaElement).value;
-            this._editValues = { ...this._editValues };
-          }}></textarea>
-      </div>
-
-      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;padding:10px 12px;border-radius:8px;background:var(--secondary-background-color);">
-        <div>
-          <div style="font-size:13px;font-weight:600;">RX Delay</div>
-          <div style="font-size:11px;color:var(--secondary-text-color);margin-top:2px;">
-            Atraso base de receção/retransmissão do Repeater.
+      <div class="repeater-setup-grid" style="margin-bottom:14px;">
+        <div style="margin-bottom:14px;padding:10px 12px;border-radius:8px;background:var(--secondary-background-color);">
+          <div style="font-size:13px;font-weight:600;">Owner Info</div>
+          <div style="font-size:11px;color:var(--secondary-text-color);margin:2px 0 8px;line-height:1.45;">
+            Texto livre anunciado pelo Repeater através do protocolo MeshCore. Máximo 119 bytes UTF-8.
           </div>
+          <textarea
+            class="form-input"
+            style="width:100%;min-height:74px;resize:vertical;box-sizing:border-box;"
+            .value=${ownerInfo}
+            ?disabled=${!profile?.supported}
+            @input=${(e: Event) => {
+              this._editValues['owner_info'] = (e.target as HTMLTextAreaElement).value;
+              this._editValues = { ...this._editValues };
+            }}></textarea>
         </div>
-        <input
-          class="form-input"
-          style="width:auto;min-width:130px;max-width:180px;"
-          type="number"
-          min="0"
-          max="20"
-          step="0.001"
-          .value=${String(rxDelay)}
-          @input=${(e: Event) => {
-            this._editValues['rx_delay'] = Number((e.target as HTMLInputElement).value);
-            this._editValues = { ...this._editValues };
-          }}
-        />
+        <div
+          style="margin:0 0 10px;padding:12px;border:1px solid var(--divider-color);border-radius:8px;background:var(--secondary-background-color);"
+          data-hive-repeater-access>
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:10px;">
+            <div>
+              <div style="font-size:13px;font-weight:600;">Acesso remoto</div>
+              <div style="font-size:11px;color:var(--secondary-text-color);margin-top:2px;line-height:1.45;">
+                Credenciais do servidor Repeater. As passwords são write-only: o HiveFW apenas indica se estão configuradas.
+              </div>
+            </div>
+            <div style="font-size:11px;color:var(--secondary-text-color);white-space:nowrap;">
+              ACL: ${status.server_auth?.acl_count ?? '—'}
+            </div>
+          </div>
+
+          ${status.server_auth?.supported ? html`
+            <div style="display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 10px;align-items:end;">
+              <div>
+                <label class="form-label">
+                  Admin password
+                  <span style="margin-left:6px;font-size:10px;color:${status.server_auth.admin_password_set ? 'var(--success-color, #2e7d32)' : 'var(--secondary-text-color)'};">
+                    ${status.server_auth.admin_password_set ? 'configurada' : 'não configurada'}
+                  </span>
+                </label>
+                <input
+                  class="form-input"
+                  type="password"
+                  maxlength="15"
+                  autocomplete="new-password"
+                  placeholder=${status.server_auth.admin_password_set ? '••••••••' : 'Definir password'}
+                  .value=${this._adminPasswordDraft}
+                  ?disabled=${this._repeaterAccessBusy !== null}
+                  @input=${(e: Event) => {
+                    this._adminPasswordDraft = (e.target as HTMLInputElement).value;
+                  }}
+                />
+              </div>
+              <div style="display:flex;gap:6px;">
+                <button
+                  class="apply-button"
+                  style="width:auto;min-width:76px;padding:7px 12px;margin:0;"
+                  ?disabled=${this._repeaterAccessBusy !== null || !this._adminPasswordDraft}
+                  @click=${() => this._saveRepeaterPassword('admin')}>
+                  ${this._repeaterAccessBusy === 'admin' ? 'A guardar...' : 'Guardar'}
+                </button>
+                <button
+                  class="action-btn"
+                  style="min-width:66px;"
+                  ?disabled=${this._repeaterAccessBusy !== null || !status.server_auth.admin_password_set}
+                  @click=${() => this._clearRepeaterPassword('admin')}>
+                  Limpar
+                </button>
+              </div>
+
+              <div>
+                <label class="form-label">
+                  Guest password
+                  <span style="margin-left:6px;font-size:10px;color:${status.server_auth.guest_password_set ? 'var(--success-color, #2e7d32)' : 'var(--secondary-text-color)'};">
+                    ${status.server_auth.guest_password_set ? 'configurada' : 'não configurada'}
+                  </span>
+                </label>
+                <input
+                  class="form-input"
+                  type="password"
+                  maxlength="15"
+                  autocomplete="new-password"
+                  placeholder=${status.server_auth.guest_password_set ? '••••••••' : 'Definir password'}
+                  .value=${this._guestPasswordDraft}
+                  ?disabled=${this._repeaterAccessBusy !== null}
+                  @input=${(e: Event) => {
+                    this._guestPasswordDraft = (e.target as HTMLInputElement).value;
+                  }}
+                />
+              </div>
+              <div style="display:flex;gap:6px;">
+                <button
+                  class="apply-button"
+                  style="width:auto;min-width:76px;padding:7px 12px;margin:0;"
+                  ?disabled=${this._repeaterAccessBusy !== null || !this._guestPasswordDraft}
+                  @click=${() => this._saveRepeaterPassword('guest')}>
+                  ${this._repeaterAccessBusy === 'guest' ? 'A guardar...' : 'Guardar'}
+                </button>
+                <button
+                  class="action-btn"
+                  style="min-width:66px;"
+                  ?disabled=${this._repeaterAccessBusy !== null || !status.server_auth.guest_password_set}
+                  @click=${() => this._clearRepeaterPassword('guest')}>
+                  Limpar
+                </button>
+              </div>
+            </div>
+
+            ${this._renderRepeaterAcl(status)}
+
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:12px;padding-top:10px;border-top:1px solid var(--divider-color);">
+              <div style="font-size:11px;color:var(--secondary-text-color);line-height:1.4;">
+                Admin permite remote CLI e gestão completa. Guest permite operações limitadas ao perfil Guest.
+              </div>
+              <button
+                class="danger-button"
+                style="white-space:nowrap;"
+                ?disabled=${this._repeaterAccessBusy !== null || !(status.server_auth.acl_count ?? 0)}
+                @click=${this._confirmClearRepeaterAcl}>
+                ${this._repeaterAccessBusy === 'acl' ? 'A limpar...' : 'Limpar ACL'}
+              </button>
+            </div>
+          ` : html`
+            <div style="font-size:11px;color:var(--secondary-text-color);line-height:1.45;">
+              Atualiza o firmware HiveFW para ativar passwords Admin/Guest e gestão da ACL local.
+            </div>
+          `}
+        </div>
       </div>
 
       <div class="repeater-setup-grid">
@@ -2627,6 +2787,24 @@ export class SettingsPage extends LitElement {
           ${radioGuard?.supported ? html`
             <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 10px;">
               <div>
+                <label class="form-label">RX Delay</label>
+                <input
+                  class="form-input"
+                  type="number"
+                  min="0"
+                  max="20"
+                  step="0.001"
+                  .value=${String(rxDelay)}
+                  @input=${(e: Event) => {
+                    this._editValues['rx_delay'] = Number((e.target as HTMLInputElement).value);
+                    this._editValues = { ...this._editValues };
+                  }}
+                />
+                <div style="font-size:10px;color:var(--secondary-text-color);margin-top:3px;line-height:1.35;">
+                  Atraso base de receção/retransmissão.
+                </div>
+              </div>
+              <div>
                 <label class="form-label">CAD</label>
                 <select class="form-select"
                   .value=${cadEnabled ? '1' : '0'}
@@ -2682,6 +2860,47 @@ export class SettingsPage extends LitElement {
           `}
         </div>
 
+              <div
+                style="margin-top:12px;padding-top:12px;border-top:1px solid var(--divider-color);"
+                data-hive-duty-cycle-control>
+            <div style="font-size:13px;font-weight:600;margin-bottom:10px;">Duty Cycle</div>
+            <div style="display:grid;grid-template-columns:minmax(90px,1fr) auto auto;gap:8px;align-items:end;">
+              <div>
+                <label class="form-label">Valor</label>
+                <select
+                  class="form-select"
+                  ?disabled=${this._dutyCycleBusy !== null}
+                  @change=${(e: Event) => {
+                    this._dutyCycleValue = Number((e.target as HTMLSelectElement).value);
+                  }}>
+                  ${Array.from({ length: 41 }, (_, i) => i + 10).map(
+                    (value) => html`
+                      <option
+                        value=${String(value)}
+                        ?selected=${value === this._dutyCycleValue}>
+                        ${value}%
+                      </option>
+                    `,
+                  )}
+                </select>
+              </div>
+              <button
+                class="apply-button"
+                style="width:auto;min-width:68px;padding:7px 12px;margin:0;"
+                ?disabled=${this._dutyCycleBusy !== null}
+                @click=${this._readDutyCycle}>
+                ${this._dutyCycleBusy === 'read' ? 'A ler...' : 'Ler'}
+              </button>
+              <button
+                class="apply-button"
+                style="width:auto;min-width:78px;padding:7px 12px;margin:0;"
+                ?disabled=${this._dutyCycleBusy !== null}
+                @click=${this._applyDutyCycle}>
+                ${this._dutyCycleBusy === 'apply' ? 'A aplicar...' : 'Aplicar'}
+              </button>
+            </div>
+          </div>
+
       </div>
 
       <button
@@ -2692,163 +2911,10 @@ export class SettingsPage extends LitElement {
         ${this._saving ? 'A aplicar...' : 'Aplicar configurações do Repeater'}
       </button>
 
-      <div
-        style="margin:0 0 10px;padding:12px;border:1px solid var(--divider-color);border-radius:8px;background:var(--secondary-background-color);"
-        data-hive-repeater-access>
-        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:10px;">
-          <div>
-            <div style="font-size:13px;font-weight:600;">Acesso remoto</div>
-            <div style="font-size:11px;color:var(--secondary-text-color);margin-top:2px;line-height:1.45;">
-              Credenciais do servidor Repeater. As passwords são write-only: o HiveFW apenas indica se estão configuradas.
-            </div>
-          </div>
-          <div style="font-size:11px;color:var(--secondary-text-color);white-space:nowrap;">
-            ACL: ${status.server_auth?.acl_count ?? '—'}
-          </div>
-        </div>
-
-        ${status.server_auth?.supported ? html`
-          <div style="display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 10px;align-items:end;">
-            <div>
-              <label class="form-label">
-                Admin password
-                <span style="margin-left:6px;font-size:10px;color:${status.server_auth.admin_password_set ? 'var(--success-color, #2e7d32)' : 'var(--secondary-text-color)'};">
-                  ${status.server_auth.admin_password_set ? 'configurada' : 'não configurada'}
-                </span>
-              </label>
-              <input
-                class="form-input"
-                type="password"
-                maxlength="15"
-                autocomplete="new-password"
-                placeholder=${status.server_auth.admin_password_set ? '••••••••' : 'Definir password'}
-                .value=${this._adminPasswordDraft}
-                ?disabled=${this._repeaterAccessBusy !== null}
-                @input=${(e: Event) => {
-                  this._adminPasswordDraft = (e.target as HTMLInputElement).value;
-                }}
-              />
-            </div>
-            <div style="display:flex;gap:6px;">
-              <button
-                class="apply-button"
-                style="width:auto;min-width:76px;padding:7px 12px;margin:0;"
-                ?disabled=${this._repeaterAccessBusy !== null || !this._adminPasswordDraft}
-                @click=${() => this._saveRepeaterPassword('admin')}>
-                ${this._repeaterAccessBusy === 'admin' ? 'A guardar...' : 'Guardar'}
-              </button>
-              <button
-                class="action-btn"
-                style="min-width:66px;"
-                ?disabled=${this._repeaterAccessBusy !== null || !status.server_auth.admin_password_set}
-                @click=${() => this._clearRepeaterPassword('admin')}>
-                Limpar
-              </button>
-            </div>
-
-            <div>
-              <label class="form-label">
-                Guest password
-                <span style="margin-left:6px;font-size:10px;color:${status.server_auth.guest_password_set ? 'var(--success-color, #2e7d32)' : 'var(--secondary-text-color)'};">
-                  ${status.server_auth.guest_password_set ? 'configurada' : 'não configurada'}
-                </span>
-              </label>
-              <input
-                class="form-input"
-                type="password"
-                maxlength="15"
-                autocomplete="new-password"
-                placeholder=${status.server_auth.guest_password_set ? '••••••••' : 'Definir password'}
-                .value=${this._guestPasswordDraft}
-                ?disabled=${this._repeaterAccessBusy !== null}
-                @input=${(e: Event) => {
-                  this._guestPasswordDraft = (e.target as HTMLInputElement).value;
-                }}
-              />
-            </div>
-            <div style="display:flex;gap:6px;">
-              <button
-                class="apply-button"
-                style="width:auto;min-width:76px;padding:7px 12px;margin:0;"
-                ?disabled=${this._repeaterAccessBusy !== null || !this._guestPasswordDraft}
-                @click=${() => this._saveRepeaterPassword('guest')}>
-                ${this._repeaterAccessBusy === 'guest' ? 'A guardar...' : 'Guardar'}
-              </button>
-              <button
-                class="action-btn"
-                style="min-width:66px;"
-                ?disabled=${this._repeaterAccessBusy !== null || !status.server_auth.guest_password_set}
-                @click=${() => this._clearRepeaterPassword('guest')}>
-                Limpar
-              </button>
-            </div>
-          </div>
-
-          ${this._renderRepeaterAcl(status)}
-
-          <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:12px;padding-top:10px;border-top:1px solid var(--divider-color);">
-            <div style="font-size:11px;color:var(--secondary-text-color);line-height:1.4;">
-              Admin permite remote CLI e gestão completa. Guest permite operações limitadas ao perfil Guest.
-            </div>
-            <button
-              class="danger-button"
-              style="white-space:nowrap;"
-              ?disabled=${this._repeaterAccessBusy !== null || !(status.server_auth.acl_count ?? 0)}
-              @click=${this._confirmClearRepeaterAcl}>
-              ${this._repeaterAccessBusy === 'acl' ? 'A limpar...' : 'Limpar ACL'}
-            </button>
-          </div>
-        ` : html`
-          <div style="font-size:11px;color:var(--secondary-text-color);line-height:1.45;">
-            Atualiza o firmware HiveFW para ativar passwords Admin/Guest e gestão da ACL local.
-          </div>
-        `}
-      </div>
-
-      <div
-        style="margin:0;padding:12px;border:1px solid var(--divider-color);border-radius:8px;background:var(--secondary-background-color);"
-        data-hive-duty-cycle-control>
-        <div style="font-size:13px;font-weight:600;margin-bottom:10px;">Duty Cycle</div>
-        <div style="display:grid;grid-template-columns:minmax(90px,1fr) auto auto;gap:8px;align-items:end;">
-          <div>
-            <label class="form-label">Valor</label>
-            <select
-              class="form-select"
-              ?disabled=${this._dutyCycleBusy !== null}
-              @change=${(e: Event) => {
-                this._dutyCycleValue = Number((e.target as HTMLSelectElement).value);
-              }}>
-              ${Array.from({ length: 41 }, (_, i) => i + 10).map(
-                (value) => html`
-                  <option
-                    value=${String(value)}
-                    ?selected=${value === this._dutyCycleValue}>
-                    ${value}%
-                  </option>
-                `,
-              )}
-            </select>
-          </div>
-          <button
-            class="apply-button"
-            style="width:auto;min-width:68px;padding:7px 12px;margin:0;"
-            ?disabled=${this._dutyCycleBusy !== null}
-            @click=${this._readDutyCycle}>
-            ${this._dutyCycleBusy === 'read' ? 'A ler...' : 'Ler'}
-          </button>
-          <button
-            class="apply-button"
-            style="width:auto;min-width:78px;padding:7px 12px;margin:0;"
-            ?disabled=${this._dutyCycleBusy !== null}
-            @click=${this._applyDutyCycle}>
-            ${this._dutyCycleBusy === 'apply' ? 'A aplicar...' : 'Aplicar'}
-          </button>
-        </div>
-      </div>
-
       <div style="margin-top:10px;font-size:11px;color:var(--secondary-text-color);line-height:1.45;">
-        Frequência, BW, SF, CR, TX Power e Path Hash pertencem ao cartão Radio;
-        adverts, sync de relógio e reboot continuam no cartão do Companion.
+        Frequência, BW, SF, CR, TX Power, Path Hash, RX Boosted Gain e ADC multiplier
+        pertencem ao Companion Setup. Os toggles de Modo Repetidor, Auto Advert e RTC via Mesh
+        são aplicados imediatamente; o botão acima guarda apenas os restantes campos editáveis.
       </div>
     `;
   }
@@ -3264,23 +3330,11 @@ export class SettingsPage extends LitElement {
     // re-sent the whole Repeater block (including CMD_SET_RADIO_PARAMS) even
     // when changing Duty Cycle alone, so an unrelated setting could prevent
     // the tuning command from ever being reached.
-    if (this._editValues['repeat'] !== undefined) {
-      settings.repeat = Boolean(this._editValues['repeat']);
-    }
     if (this._editValues['multi_acks'] !== undefined) {
       settings.multi_acks = Number(this._editValues['multi_acks']);
     }
     if (this._editValues['rx_delay'] !== undefined) {
       settings.rx_delay = Number(this._editValues['rx_delay']);
-    }
-    if (status.auto_advert_supported && this._editValues['auto_advert'] !== undefined) {
-      settings.auto_advert = Boolean(this._editValues['auto_advert']);
-    }
-    if (
-      status.mesh_time_sync_supported &&
-      this._editValues['mesh_time_sync'] !== undefined
-    ) {
-      settings.mesh_time_sync = Boolean(this._editValues['mesh_time_sync']);
     }
     if (status.repeater_profile?.supported) {
       if (this._editValues['owner_info'] !== undefined) {
@@ -3322,9 +3376,6 @@ export class SettingsPage extends LitElement {
       }
 
       for (const key of [
-        'repeat',
-        'auto_advert',
-        'mesh_time_sync',
         'owner_info',
         'rx_boosted_gain',
         'adc_multiplier',
