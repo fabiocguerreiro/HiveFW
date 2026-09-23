@@ -86,7 +86,7 @@ public:
 */
 class RTCClock {
 public:
-  enum class SyncSource : uint8_t { None, Companion, GPS };
+  enum class SyncSource : uint8_t { None, Companion, GPS, Mesh };
 
 private:
   uint32_t last_unique;
