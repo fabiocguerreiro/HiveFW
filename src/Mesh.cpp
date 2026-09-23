@@ -30,6 +30,10 @@ uint32_t Mesh::getCADFailRetryDelay() const {
   return _rng->nextInt(1, 4)*120;
 }
 
+void Mesh::onPacketExpired(Packet* pkt) {
+  if (_tables) _tables->clear(pkt);
+}
+
 int Mesh::searchPeersByHash(const uint8_t* hash) {
   return 0;  // not found
 }
