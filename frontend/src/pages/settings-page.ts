@@ -2932,7 +2932,7 @@ export class SettingsPage extends LitElement {
             id="hive-companion-settings-card"
             data-hive-native="companion"
             style="margin:0 0 10px;padding:12px;border:1px solid var(--divider-color);border-radius:8px;background:var(--secondary-background-color);">
-            <div style="font-size:13px;font-weight:600;margin-bottom:4px;">Companion Setup</div>
+            <div style="font-size:13px;font-weight:600;margin-bottom:4px;">Rádio Setup</div>
             <div style="font-size:11px;color:var(--secondary-text-color);line-height:1.45;margin-bottom:10px;">
               Parâmetros RF base do HiveFW. O modo Repeater usa esta mesma configuração do Companion.
             </div>
