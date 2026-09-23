@@ -30,6 +30,14 @@ import type {
 import '../components/confirm-dialog';
 import { attachDialogA11y } from '../utils/dialog-a11y';
 import { panelStyles } from '../styles';
+import {
+  flashUsbFirmware,
+  forceT114DfuMode,
+  usbFlasherSupported,
+  type UsbFlashHardware,
+  type UsbFlashSource,
+  type UsbFlashVariant,
+} from '../usb-flasher';
 
 interface ConfirmAction {
   title: string;
@@ -132,6 +140,15 @@ export class SettingsPage extends LitElement {
   @state() private _firmwareBusy = false;
   @state() private _firmwareChecking = false;
   @state() private _firmwareUploadStage: 'uploading' | 'rebooting' | 'reconnecting' | null = null;
+  @state() private _usbFlashHardware: UsbFlashHardware = 'heltec-v3';
+  @state() private _usbFlashVariant: UsbFlashVariant = 'wifi';
+  @state() private _usbFlashSource: UsbFlashSource = 'latest';
+  @state() private _usbFlashErase = false;
+  @state() private _usbFlashFile: File | null = null;
+  @state() private _usbFlashBusy = false;
+  @state() private _usbFlashProgress = 0;
+  @state() private _usbFlashStage = '';
+  @state() private _usbFlashLog = '';
   @state() private _dutyCycleValue = 10;
   @state() private _dutyCycleBusy: 'apply' | null = null;
   @state() private _adminPasswordDraft = '';
@@ -757,8 +774,88 @@ export class SettingsPage extends LitElement {
         font-size: 12px;
       }
 
+      .firmware-usb-card {
+        margin-top: 14px;
+        padding: 14px;
+        border: 1px solid var(--divider-color);
+        border-radius: 10px;
+        background: var(--primary-background-color);
+      }
+
+      .firmware-usb-controls {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 10px;
+        margin-top: 12px;
+      }
+
+      .firmware-usb-field {
+        min-width: 0;
+      }
+
+      .firmware-usb-field label {
+        display: block;
+        margin-bottom: 5px;
+        color: var(--secondary-text-color);
+        font-size: 10px;
+        font-weight: 600;
+      }
+
+      .firmware-usb-field select {
+        width: 100%;
+        min-width: 0;
+        box-sizing: border-box;
+      }
+
+      .firmware-usb-erase {
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+        margin-top: 12px;
+        padding: 10px 11px;
+        border-radius: 8px;
+        background: color-mix(in srgb, var(--warning-color, #ff9800) 9%, transparent);
+        font-size: 11px;
+        line-height: 1.4;
+      }
+
+      .firmware-usb-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 12px;
+      }
+
+      .firmware-usb-progress {
+        height: 7px;
+        margin-top: 10px;
+        overflow: hidden;
+        border-radius: 999px;
+        background: var(--secondary-background-color);
+      }
+
+      .firmware-usb-progress > div {
+        height: 100%;
+        background: var(--primary-color);
+        transition: width .15s ease;
+      }
+
+      .firmware-usb-log {
+        max-height: 112px;
+        overflow: auto;
+        margin-top: 10px;
+        padding: 9px 10px;
+        border-radius: 8px;
+        background: var(--secondary-background-color);
+        color: var(--secondary-text-color);
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        font: 10px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+
       @media (max-width: 870px) {
-        .firmware-actions-grid {
+        .firmware-actions-grid,
+        .firmware-usb-controls {
           grid-template-columns: minmax(0, 1fr);
         }
 
@@ -1504,6 +1601,135 @@ export class SettingsPage extends LitElement {
           </div>
         </div>
 
+        <div class="firmware-usb-card">
+          <div class="firmware-action-title">Flasher USB</div>
+          <div class="firmware-action-text" style="min-height:0;margin-bottom:0;">
+            Instala HiveFW diretamente num Heltec ligado por USB. Podes usar um ficheiro local
+            ou a última build publicada. O flash ocorre no browser; o Home Assistant não recebe acesso à porta USB.
+          </div>
+
+          ${!usbFlasherSupported() ? html`
+            <div class="firmware-notice warning" style="margin:12px 0 0;">
+              Web Serial não está disponível neste browser. Usa Chrome/Edge por HTTPS num computador com o rádio ligado por USB.
+            </div>
+          ` : nothing}
+
+          <div class="firmware-usb-controls">
+            <div class="firmware-usb-field">
+              <label>Equipamento</label>
+              <select class="form-select"
+                .value=${this._usbFlashHardware}
+                ?disabled=${this._usbFlashBusy}
+                @change=${(e: Event) => {
+                  this._usbFlashHardware = (e.target as HTMLSelectElement).value as UsbFlashHardware;
+                  if (this._usbFlashHardware === 'heltec-t114') this._usbFlashVariant = 'ble';
+                  this._usbFlashFile = null;
+                }}>
+                <option value="heltec-v3">Heltec V3</option>
+                <option value="heltec-t114">Heltec T114</option>
+              </select>
+            </div>
+
+            <div class="firmware-usb-field">
+              <label>Firmware</label>
+              <select class="form-select"
+                .value=${this._usbFlashVariant}
+                ?disabled=${this._usbFlashBusy || this._usbFlashHardware === 'heltec-t114'}
+                @change=${(e: Event) => {
+                  this._usbFlashVariant = (e.target as HTMLSelectElement).value as UsbFlashVariant;
+                  this._usbFlashFile = null;
+                }}>
+                <option value="ble">Companion BLE</option>
+                ${this._usbFlashHardware === 'heltec-v3'
+                  ? html`<option value="wifi">Companion Wi-Fi</option>`
+                  : nothing}
+              </select>
+            </div>
+
+            <div class="firmware-usb-field">
+              <label>Origem</label>
+              <select class="form-select"
+                .value=${this._usbFlashSource}
+                ?disabled=${this._usbFlashBusy}
+                @change=${(e: Event) => {
+                  this._usbFlashSource = (e.target as HTMLSelectElement).value as UsbFlashSource;
+                  this._usbFlashFile = null;
+                }}>
+                <option value="latest">Última build publicada</option>
+                <option value="manual">Ficheiro manual</option>
+              </select>
+            </div>
+          </div>
+
+          ${this._usbFlashSource === 'manual' ? html`
+            <label class="firmware-file-picker" style="margin-top:12px;">
+              <span>${this._usbFlashFile
+                ? this._usbFlashFile.name
+                : this._usbFlashHardware === 'heltec-v3'
+                  ? 'Selecionar .bin'
+                  : 'Selecionar ZIP DFU (.zip)'}</span>
+              <input
+                type="file"
+                accept=${this._usbFlashHardware === 'heltec-v3'
+                  ? '.bin,application/octet-stream'
+                  : '.zip,application/zip'}
+                ?disabled=${this._usbFlashBusy}
+                @change=${(e: Event) => {
+                  const input = e.target as HTMLInputElement;
+                  this._usbFlashFile = input.files?.[0] || null;
+                }}
+              />
+            </label>
+          ` : nothing}
+
+          <label class="firmware-usb-erase">
+            <input
+              type="checkbox"
+              .checked=${this._usbFlashErase}
+              ?disabled=${this._usbFlashBusy}
+              @change=${(e: Event) => {
+                this._usbFlashErase = (e.target as HTMLInputElement).checked;
+              }}
+            />
+            <span>
+              <strong>Apagar flash antes de instalar</strong><br />
+              Remove configurações e dados guardados. No V3 usa uma imagem merged completa;
+              no T114 executa primeiro o formatter nRF52 e depois instala a firmware.
+            </span>
+          </label>
+
+          <div class="firmware-usb-actions">
+            ${this._usbFlashHardware === 'heltec-t114' ? html`
+              <button class="action-btn"
+                ?disabled=${this._usbFlashBusy || !usbFlasherSupported()}
+                @click=${this._enterT114Dfu}>
+                Entrar em DFU
+              </button>
+            ` : nothing}
+            <button class="apply-button"
+              style="width:auto;margin:0;"
+              ?disabled=${
+                this._usbFlashBusy ||
+                !usbFlasherSupported() ||
+                (this._usbFlashSource === 'manual' && !this._usbFlashFile)
+              }
+              @click=${this._startUsbFlash}>
+              ${this._usbFlashBusy ? 'A instalar…' : 'Selecionar USB e instalar'}
+            </button>
+          </div>
+
+          ${this._usbFlashStage ? html`
+            <div class="firmware-usb-progress" aria-label="Progresso do flash USB">
+              <div style=${`width:${this._usbFlashProgress}%`}></div>
+            </div>
+            <div style="margin-top:6px;font-size:11px;color:var(--secondary-text-color);">
+              ${Math.round(this._usbFlashProgress)}% · ${this._usbFlashStage}
+            </div>
+          ` : nothing}
+
+          ${this._usbFlashLog ? html`<div class="firmware-usb-log">${this._usbFlashLog}</div>` : nothing}
+        </div>
+
         ${this._firmwareUploadStage
           ? html`
               <div class="firmware-progress-state">
@@ -1530,6 +1756,74 @@ export class SettingsPage extends LitElement {
       </div>
     `;
   }
+
+  private _appendUsbFlashLog(line: string) {
+    const next = [this._usbFlashLog, line].filter(Boolean).join('\n');
+    this._usbFlashLog = next.split('\n').slice(-60).join('\n');
+  }
+
+  private _enterT114Dfu = async () => {
+    if (this._usbFlashBusy) return;
+    this._usbFlashBusy = true;
+    this._usbFlashStage = 'A colocar o T114 em DFU…';
+    this._usbFlashProgress = 0;
+    this._usbFlashLog = '';
+    try {
+      await forceT114DfuMode();
+      this._usbFlashStage = 'DFU solicitado. Aguarda a porta USB reaparecer.';
+      this._appendUsbFlashLog('DFU: touch 1200 baud enviado.');
+      this._showStatus('T114 colocado em modo DFU.', 'success');
+    } catch (error) {
+      this._usbFlashStage = 'Falha ao entrar em DFU.';
+      this._appendUsbFlashLog(String(error));
+      this._showStatus(`Falha ao entrar em DFU: ${String(error)}`, 'error');
+    } finally {
+      this._usbFlashBusy = false;
+    }
+  };
+
+  private _startUsbFlash = async () => {
+    if (this._usbFlashBusy) return;
+
+    if (this._usbFlashErase) {
+      const accepted = window.confirm(
+        'Apagar flash antes de instalar remove configurações, identidade e outros dados guardados no equipamento. Continuar?',
+      );
+      if (!accepted) return;
+    }
+
+    this._usbFlashBusy = true;
+    this._usbFlashProgress = 0;
+    this._usbFlashStage = 'A preparar flasher USB…';
+    this._usbFlashLog = '';
+
+    try {
+      const result = await flashUsbFirmware({
+        hardware: this._usbFlashHardware,
+        variant: this._usbFlashVariant,
+        source: this._usbFlashSource,
+        erase: this._usbFlashErase,
+        file: this._usbFlashFile,
+        onProgress: (percent, stage) => {
+          this._usbFlashProgress = percent;
+          this._usbFlashStage = stage;
+        },
+        onLog: (line) => this._appendUsbFlashLog(line),
+      });
+      this._usbFlashProgress = 100;
+      this._usbFlashStage = 'Instalação USB concluída.';
+      this._appendUsbFlashLog(`Concluído: ${result.filename}${result.release ? ` · ${result.release}` : ''}`);
+      this._showStatus('Firmware instalado por USB com sucesso.', 'success');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this._usbFlashStage = 'Falha no flash USB.';
+      this._appendUsbFlashLog(message);
+      this._showStatus(`Flash USB falhou: ${message}`, 'error');
+    } finally {
+      this._usbFlashBusy = false;
+    }
+  };
+
 
   private async _checkFirmwareUpdates() {
     if (!this.hass) return;
