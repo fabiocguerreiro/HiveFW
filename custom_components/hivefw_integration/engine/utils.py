@@ -151,16 +151,30 @@ def sanitize_event_data(data: Any) -> Any:
 
 
 def calculate_battery_percentage(voltage_mv: float) -> float:
-    """Calculate battery percentage using generic battery discharge curve.
+    """Estimate LiPo state of charge from open-circuit voltage."""
+    curve = (
+        (4200.0, 100.0), (4150.0, 95.0), (4100.0, 90.0),
+        (4050.0, 85.0), (4000.0, 80.0), (3950.0, 74.0),
+        (3900.0, 68.0), (3850.0, 60.0), (3800.0, 50.0),
+        (3750.0, 38.0), (3700.0, 28.0), (3650.0, 18.0),
+        (3600.0, 10.0), (3500.0, 5.0), (3300.0, 0.0),
+    )
 
-    Args:
-        voltage_mv: Battery voltage in millivolts
+    cells = max(1, round(BAT_VMAX / 4200.0))
+    cell_mv = float(voltage_mv) / cells
 
-    Returns:
-        Battery percentage (0-100)
-    """
-    battery_percentage = (voltage_mv - BAT_VMIN) / (BAT_VMAX - BAT_VMIN) * 100
-    return round(max(0, min(100, battery_percentage)), 2)
+    if cell_mv >= curve[0][0]:
+        return 100.0
+    if cell_mv <= curve[-1][0]:
+        return 0.0
+
+    for (high_mv, high_pct), (low_mv, low_pct) in zip(curve, curve[1:]):
+        if low_mv <= cell_mv <= high_mv:
+            fraction = (cell_mv - low_mv) / (high_mv - low_mv)
+            return round(low_pct + fraction * (high_pct - low_pct), 2)
+
+    return 0.0
+
 
 def build_device_name(name: str, pubkey_prefix: str, node_type: str = "unknown") -> str:
     """Build consistent device name based on node info.
