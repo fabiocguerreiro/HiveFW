@@ -1277,7 +1277,7 @@ let e,t,i,o,a,r,s,n,l,d,c,p,h,u,v,g,m,f,_,b,y,x,w,$,k,S,C,M,A,R,z,I,T,N,F,D,E,O,
       </section>
 
       <div class="sidebar-header main-section-header">
-        <span class="sidebar-title main-section-title">Canais &amp; Chat</span>
+        <span class="sidebar-title main-section-title">Canais</span>
         <div class="apps-header-actions">
           <button
             class="compose-btn"
