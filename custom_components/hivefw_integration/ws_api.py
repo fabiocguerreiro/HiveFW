@@ -2276,8 +2276,8 @@ async def ws_get_local_repeater_status(hass, connection, msg):
             "on",
             "yes",
         }
-        mesh_time_sync_supported = "mesh_time" in custom_vars
-        mesh_time_sync = str(custom_vars.get("mesh_time", "0")).strip().lower() in {
+        mesh_time_sync_supported = "mt" in custom_vars
+        mesh_time_sync = str(custom_vars.get("mt", "0")).strip().lower() in {
             "1",
             "true",
             "on",
@@ -3475,7 +3475,7 @@ async def ws_set_device_config(hass, connection, msg):
         if "mesh_time_sync" in settings:
             requested_mesh_time = bool(settings["mesh_time_sync"])
             result = await coordinator.api.mesh_core.commands.set_custom_var(
-                "mesh_time",
+                "mt",
                 "1" if requested_mesh_time else "0",
             )
             reason = _device_config_failure_reason(result)
@@ -3499,7 +3499,7 @@ async def ws_set_device_config(hass, connection, msg):
 
             verified_payload = getattr(verified, "payload", {}) or {}
             actual_mesh_time = str(
-                verified_payload.get("mesh_time", "0")
+                verified_payload.get("mt", "0")
             ).strip().lower() in {"1", "true", "on", "yes"}
 
             if actual_mesh_time != requested_mesh_time:
