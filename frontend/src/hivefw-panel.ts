@@ -6059,44 +6059,82 @@ class HiveFWPanel extends BasePanel {
   }
 
   __ensureNodeExportControls(nroot,page) {
-    const filters=nroot?.querySelector(".l1-filters");
-    const actions=nroot?.querySelector(".header-actions");
-    if(!filters||!actions)return;
+    const transfer=nroot?.querySelector(".nodes-transfer-pane");
+    if(!transfer)return;
 
-    // Clean up the 0.10.5 stacked layout if this page survived a hot reload.
-    actions.querySelector(".hive-sync-stack")?.remove();
-    const originalSync=actions.querySelector(":scope > .sync-btn:not(.hive-export-btn):not(.hive-sync-proxy)");
-    if(originalSync)originalSync.style.display="";
+    // Remove controls injected into the historical full-width filter bar.
+    nroot.querySelectorAll(".l1-filters .hive-export-btn,.l1-filters .hive-import-btn")
+      .forEach((el)=>el.remove());
 
     let style=nroot.querySelector("#hive-node-export-style");
     if(!style){
       style=document.createElement("style");
       style.id="hive-node-export-style";
       style.textContent=`
-        .l1-filters .hive-export-btn{
-          margin-left:auto;
+        .nodes-transfer-pane{
+          display:flex;
+          flex-direction:column;
+          justify-content:flex-start;
+          gap:7px;
         }
-        .l1-filters .hive-export-btn,
-        .l1-filters .hive-import-btn{
-          white-space:nowrap;
+        .hive-transfer-title{
+          font-size:12px;
+          font-weight:700;
+          color:var(--primary-text-color);
         }
-        .map-selection{
-          display:none!important;
+        .hive-transfer-note{
+          color:var(--secondary-text-color,#727272);
+          font-size:9px;
+          line-height:1.4;
         }
+        .hive-transfer-actions{
+          display:grid;
+          grid-template-columns:repeat(2,minmax(0,1fr));
+          gap:7px;
+          margin-top:2px;
+        }
+        .hive-transfer-btn{
+          width:100%;
+          min-width:0;
+          padding:7px 9px;
+          border:1px solid var(--warning-color,#f57c00);
+          border-radius:7px;
+          background:var(--warning-color,#f57c00);
+          color:#fff;
+          font:inherit;
+          font-size:10px;
+          font-weight:700;
+          cursor:pointer;
+        }
+        .hive-transfer-btn:hover{filter:brightness(.96);}
+        .hive-transfer-btn:disabled{opacity:.55;cursor:wait;}
+        .map-selection{display:none!important;}
       `;
       nroot.appendChild(style);
     }
 
-    if(filters.querySelector(".hive-export-btn"))return;
+    if(transfer.querySelector(".hive-transfer-actions"))return;
+    transfer.replaceChildren();
+
+    const title=document.createElement("div");
+    title.className="hive-transfer-title";
+    title.textContent="Contactos";
+
+    const note=document.createElement("div");
+    note.className="hive-transfer-note";
+    note.textContent="Importar e exportar discovered_contacts compatível com MeshCore.";
+
+    const actions=document.createElement("div");
+    actions.className="hive-transfer-actions";
 
     const exportButton=document.createElement("button");
-    exportButton.className="l1-btn hive-export-btn";
+    exportButton.className="hive-transfer-btn hive-export-btn";
     exportButton.textContent="Exportar";
     exportButton.title="Exportar contactos no formato discovered_contacts compatível com MeshCore";
     exportButton.addEventListener("click",()=>void this.__exportHiveFWContacts(exportButton));
 
     const importButton=document.createElement("button");
-    importButton.className="l1-btn hive-import-btn";
+    importButton.className="hive-transfer-btn hive-import-btn";
     importButton.textContent="Importar";
     importButton.title="Importar apenas contactos novos; contactos existentes nunca são alterados";
 
@@ -6114,7 +6152,8 @@ class HiveFWPanel extends BasePanel {
       input.click();
     });
 
-    filters.append(exportButton,importButton,input);
+    actions.append(exportButton,importButton,input);
+    transfer.append(title,note,actions);
   }
 
   async __refreshNodeMapAfterMutation(pubkey,page) {
@@ -6146,8 +6185,9 @@ class HiveFWPanel extends BasePanel {
     const nroot=page?.shadowRoot;
     const content=nroot?.querySelector(".content-area");
     const pane=nroot?.querySelector(".nodes-map-pane");
+    const transferPane=nroot?.querySelector(".nodes-transfer-pane");
     const activityPane=nroot?.querySelector(".nodes-activity-pane");
-    if(!root||!page||!nroot||!content||!pane||!activityPane)return;
+    if(!root||!page||!nroot||!content||!pane||!transferPane||!activityPane)return;
 
     // The Nodes component owns the final layout from first paint. The wrapper
     // only fills the native map and activity panes.
@@ -9671,132 +9711,162 @@ class HiveFWPanel extends BasePanel {
   __renderHiveNeighborsLeft(container) {
     container.replaceChildren();
 
-    const wrap = document.createElement("div");
-    wrap.className = "mcr-wrap";
-    container.appendChild(wrap);
+    const head=document.createElement("div");
+    head.className="hive-discovery-head";
+    head.style.margin="-14px -14px 12px";
 
-    const hero = document.createElement("section");
-    hero.className = "mcr-hero";
+    const heading=document.createElement("div");
+    const eyebrow=document.createElement("div");
+    eyebrow.className="hive-discovery-eyebrow";
+    eyebrow.textContent="PASSIVO · 48H";
+    const title=document.createElement("div");
+    title.className="hive-discovery-title";
+    title.textContent="Vizinhos 48H";
+    const subtitle=document.createElement("div");
+    subtitle.className="hive-discovery-subtitle";
+    subtitle.textContent="Repeaters ouvidos diretamente (zero-hop)";
+    heading.append(eyebrow,title,subtitle);
 
-    const heading = document.createElement("div");
-    const eyebrow = document.createElement("div");
-    eyebrow.className = "mcr-eyebrow";
-    eyebrow.textContent = "◉  REPEATER · ZERO-HOP";
-    const title = document.createElement("h1");
-    title.className = "mcr-title";
-    title.textContent = "Vizinhos 48H";
-    const subtitle = document.createElement("p");
-    subtitle.className = "mcr-subtitle";
-    subtitle.textContent =
-      "Repeaters cujos adverts foram ouvidos diretamente (zero-hop) pelo HiveFW nas últimas 48 horas. A consulta é local e não gera tráfego LoRa.";
-    heading.append(eyebrow, title, subtitle);
+    const refresh=document.createElement("button");
+    refresh.className="mcr-btn";
+    refresh.disabled=this.__hiveNeighborsLoading;
+    refresh.textContent=this.__hiveNeighborsLoading?"A atualizar…":"↻ Atualizar";
+    refresh.addEventListener("click",()=>void this.__loadHiveNeighbors());
+    head.append(heading,refresh);
+    container.appendChild(head);
 
-    const refresh = document.createElement("button");
-    refresh.className = "mcr-btn";
-    refresh.disabled = this.__hiveNeighborsLoading;
-    refresh.textContent = this.__hiveNeighborsLoading ? "A atualizar…" : "↻ Atualizar";
-    refresh.addEventListener("click", () => void this.__loadHiveNeighbors());
-
-    hero.append(heading, refresh);
-    wrap.appendChild(hero);
-
-    if (this.__hiveNeighborsLoading && !this.__hiveNeighbors) {
-      wrap.appendChild(this.__state(
+    if(this.__hiveNeighborsLoading&&!this.__hiveNeighbors){
+      container.appendChild(this.__state(
         "A carregar",
-        "A consultar a tabela local de vizinhos diretos do Repeater."
+        "A consultar a tabela local de Repeaters ouvidos diretamente."
       ));
       return;
     }
-
-    if (this.__hiveNeighborsError) {
-      wrap.appendChild(this.__state("Erro ao carregar", this.__hiveNeighborsError));
+    if(this.__hiveNeighborsError){
+      container.appendChild(this.__state("Erro ao carregar",this.__hiveNeighborsError));
       return;
     }
 
-    const data = this.__hiveNeighbors;
-    if (!data?.supported) {
-      wrap.appendChild(this.__state(
+    const data=this.__hiveNeighbors;
+    if(!data?.supported){
+      container.appendChild(this.__state(
         "Consulta indisponível",
-        "Esta versão do Companion não disponibiliza os dados necessários para determinar vizinhos zero-hop."
+        "Esta versão do Companion não disponibiliza a tabela zero-hop."
       ));
       return;
     }
-
-    if (!data.repeater_enabled) {
-      wrap.appendChild(this.__state(
+    if(!data.repeater_enabled){
+      container.appendChild(this.__state(
         "Modo Repeater desligado",
         "O rádio está ligado como Companion, mas o modo Repeater encontra-se desligado."
       ));
       return;
     }
 
-    const neighbors = Array.isArray(data.neighbors) ? [...data.neighbors] : [];
-    const latest = neighbors.length
-      ? Math.min(...neighbors.map((n) => Number(n.secs_ago || 0)))
+    const neighbors=Array.isArray(data.neighbors)?[...data.neighbors]:[];
+    const latest=neighbors.length
+      ? Math.min(...neighbors.map((n)=>Number(n.secs_ago||0)))
       : null;
 
-    const summary = document.createElement("section");
-    summary.className = "mcr-grid";
-    summary.append(
-      this.__metric("Vizinhos", String(data.count ?? neighbors.length), "Repeaters diretos"),
-      this.__metric("Método", "Zero-hop", "Tabela Repeater"),
-      this.__metric(
-        "Último advert",
-        latest == null ? "—" : this.__age(latest),
-        "mais recente"
-      ),
-      this.__metric(
-        "Modo",
-        data.repeater_enabled ? "Ativo" : "Desligado",
-        "HiveFW"
-      )
-    );
-    wrap.appendChild(summary);
+    const listHead=document.createElement("div");
+    listHead.className="hive-discovery-list-head";
+    const left=document.createElement("div");
+    left.style.cssText="display:flex;align-items:center;gap:7px;min-width:0;";
+    const label=document.createElement("span");
+    label.textContent="Repeaters ouvidos";
+    const count=document.createElement("span");
+    count.className="hive-discovery-count";
+    count.textContent=String(data.count??neighbors.length);
+    left.append(label,count);
 
-    const toolbar = document.createElement("div");
-    toolbar.className = "hive-neighbors-toolbar";
+    const last=document.createElement("span");
+    last.style.cssText="font-size:9px;font-weight:650;letter-spacing:0;text-transform:none;white-space:nowrap;";
+    last.textContent="Último advert · "+(latest==null?"—":this.__age(latest));
+    listHead.append(left,last);
+    container.appendChild(listHead);
 
-    const sectionTitle = document.createElement("div");
-    sectionTitle.className = "mcr-card-title";
-    sectionTitle.textContent = "Repeaters diretos";
-
-    const sort = document.createElement("div");
-    sort.className = "hive-neighbors-sort";
-
-    for (const [value, label] of [["recent", "Recentes"], ["name", "Nome"]]) {
-      const button = document.createElement("button");
-      button.textContent = label;
-      button.classList.toggle("active", this.__hiveNeighborsSort === value);
-      button.addEventListener("click", () => {
-        this.__hiveNeighborsSort = value;
+    const sort=document.createElement("div");
+    sort.className="hive-neighbors-sort";
+    sort.style.marginBottom="9px";
+    for(const [value,labelText] of [["recent","Recentes"],["name","Nome"]]){
+      const button=document.createElement("button");
+      button.textContent=labelText;
+      button.classList.toggle("active",this.__hiveNeighborsSort===value);
+      button.addEventListener("click",()=>{
+        this.__hiveNeighborsSort=value;
         this.__rerenderHivePage();
       });
       sort.appendChild(button);
     }
+    container.appendChild(sort);
 
-    toolbar.append(sectionTitle, sort);
-    wrap.appendChild(toolbar);
-
-    if (!neighbors.length) {
-      wrap.appendChild(this.__state(
-        "Ainda sem vizinhos zero-hop",
-        "Ainda não foi ouvido diretamente nenhum advert de Repeater desde o arranque."
-      ));
+    if(!neighbors.length){
+      const empty=document.createElement("div");
+      empty.className="hive-discovery-empty";
+      empty.textContent="Ainda não foi ouvido diretamente nenhum advert de Repeater.";
+      container.appendChild(empty);
       return;
     }
 
     neighbors.sort(
-      this.__hiveNeighborsSort === "name"
-        ? (a, b) => String(a.name || "").localeCompare(String(b.name || ""))
-        : (a, b) => Number(a.secs_ago || 0) - Number(b.secs_ago || 0)
+      this.__hiveNeighborsSort==="name"
+        ? (a,b)=>String(a.name||"").localeCompare(String(b.name||""))
+        : (a,b)=>Number(a.secs_ago||0)-Number(b.secs_ago||0)
     );
 
-    const grid = document.createElement("div");
-    grid.className = "hive-neighbors-grid";
-    for (const neighbor of neighbors) {
-      grid.appendChild(this.__neighborCard(neighbor));
+    for(const neighbor of neighbors){
+      const row=document.createElement("article");
+      row.className="hive-discovery-item";
+      row.style.cursor="default";
+
+      const info=document.createElement("div");
+      info.style.minWidth="0";
+      const name=document.createElement("div");
+      name.className="hive-neighbor-name";
+      name.textContent=neighbor.name||neighbor.pubkey_prefix||"Repeater";
+      const prefix=document.createElement("div");
+      prefix.className="hive-neighbor-prefix";
+      prefix.textContent=String(neighbor.pubkey_prefix||"").toUpperCase();
+      const meta=document.createElement("div");
+      meta.className="hive-neighbor-meta";
+
+      const direct=document.createElement("span");
+      direct.className="hive-neighbor-pill";
+      direct.textContent="ZERO-HOP";
+      const age=document.createElement("span");
+      age.textContent="Advert "+this.__age(Number(neighbor.secs_ago||0));
+      meta.append(direct,age);
+      if(neighbor.known_contact){
+        const known=document.createElement("span");
+        known.textContent="Conhecido";
+        meta.appendChild(known);
+      }
+      info.append(name,prefix,meta);
+
+      const signal=document.createElement("div");
+      signal.className="hive-discovery-signal";
+      const snr=Number(neighbor.snr);
+      const signalValue=document.createElement("span");
+      const dot=document.createElement("span");
+      dot.className="hive-discovery-signal-dot";
+      if(Number.isFinite(snr)){
+        signalValue.textContent=snr.toFixed(1)+" dB";
+        const quality=snr>=-5
+          ? {color:"#2e7d32",label:"Sinal bom"}
+          : snr>=-12
+            ? {color:"#f9a825",label:"Sinal médio"}
+            : {color:"#c62828",label:"Sinal fraco"};
+        dot.style.background=quality.color;
+        dot.title=quality.label;
+      }else{
+        signalValue.textContent="—";
+        dot.style.background="#757575";
+        dot.title="Qualidade do sinal indisponível";
+      }
+      signal.append(signalValue,dot);
+      row.append(info,signal);
+      container.appendChild(row);
     }
-    wrap.appendChild(grid);
   }
 
   async __loadHiveNeighborDiscovery() {
