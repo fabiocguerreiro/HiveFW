@@ -2204,7 +2204,7 @@ class HiveFWPanel extends BasePanel {
         box-sizing:border-box;
       }
       .hive-network-analytics {
-        margin-bottom:12px;
+        margin-top:12px;
         padding:16px;
         border:1px solid var(--divider-color);
         border-radius:16px;
@@ -5315,8 +5315,6 @@ class HiveFWPanel extends BasePanel {
     };
     summary.append(
       stat("Nós ativos",activeCount),
-      stat("RX",totalRx),
-      stat("TX",totalTx),
       stat("Mais ativo",top?String(top.contact.adv_name||top.contact.pubkey_prefix||"Nó"):"—")
     );
     inner.appendChild(summary);
@@ -5341,7 +5339,7 @@ class HiveFWPanel extends BasePanel {
         name.textContent=String(item.contact.adv_name||item.contact.pubkey_prefix||"Nó");
         const detail=document.createElement("div");
         detail.className="hive-activity-detail";
-        detail.textContent=`RX ${item.rx} · TX ${item.tx} · paths ${item.linkVolume}`;
+        detail.textContent=`Paths ${item.linkVolume}`;
         left.append(name,detail);
 
         const score=document.createElement("span");
@@ -9407,7 +9405,7 @@ class HiveFWPanel extends BasePanel {
     right.className="hive-neighbors-column hive-neighbors-map";
     layout.append(left,middle,right);
     copy.appendChild(layout);
-    page.append(analytics,copy);
+    page.append(copy,analytics);
     container.appendChild(page);
 
     // Final Vizinhos content now lives inside Rede beside discovery and map.
