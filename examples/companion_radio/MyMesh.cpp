@@ -2589,7 +2589,7 @@ bool MyMesh::handleRepeaterRemoteCommand(
     snprintf(
       reply,
       reply_size,
-      advert(true) ? "OK - Advert sent" : "Err - advert failed"
+      advert(true, 1500) ? "OK - Advert sent" : "Err - advert failed"
     );
     return true;
   }
@@ -2598,7 +2598,7 @@ bool MyMesh::handleRepeaterRemoteCommand(
     snprintf(
       reply,
       reply_size,
-      advert(false) ? "OK - zerohop advert sent" : "Err - advert failed"
+      advert(false, 1500) ? "OK - zerohop advert sent" : "Err - advert failed"
     );
     return true;
   }
@@ -8812,7 +8812,7 @@ void MyMesh::updateSmartAdvertTimer() {
       futureMillis((int)(wait_seconds * 1000UL));
 }
 
-bool MyMesh::advert(bool flood) {
+bool MyMesh::advert(bool flood, uint32_t delay_millis) {
   mesh::Packet* pkt;
 
   if (_prefs.advert_loc_policy == ADVERT_LOC_NONE) {
@@ -8838,9 +8838,9 @@ bool MyMesh::advert(bool flood) {
       sizeof(default_scope.key)
     );
 
-    sendFloodScoped(default_scope, pkt, 0);
+    sendFloodScoped(default_scope, pkt, delay_millis);
   } else {
-    sendZeroHop(pkt);
+    sendZeroHop(pkt, delay_millis);
   }
 
   // HiveFW Companion:
