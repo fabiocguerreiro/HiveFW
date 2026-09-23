@@ -76,6 +76,9 @@ extern bool hivefw_set_ota_token(const char* token);
 #define CMD_SET_DEFAULT_FLOOD_SCOPE   63
 #define CMD_GET_DEFAULT_FLOOD_SCOPE   64
 #define CMD_SEND_RAW_PACKET           65
+#define CMD_GET_REPEATER_PROFILE      66   // HiveFW owner/RX gain/ADC pages
+#define CMD_GET_REPEATER_ACL_ENTRY    67   // HiveFW persisted ACL entry by logical index
+#define CMD_SET_REPEATER_ACL_ENTRY    68   // HiveFW set/remove one persisted ACL identity
 
 // Stats sub-types for CMD_GET_STATS
 #define STATS_TYPE_CORE               0
@@ -118,6 +121,34 @@ extern bool hivefw_set_ota_token(const char* token);
 #define FLOOD_SEND_TIMEOUT_FACTOR       16.0f
 #define DIRECT_SEND_PERHOP_FACTOR       6.0f
 #define DIRECT_SEND_PERHOP_EXTRA_MILLIS 250
+
+
+static size_t hivefwBase64Encode(
+  const uint8_t* src,
+  size_t len,
+  char* dest,
+  size_t dest_size
+) {
+  static const char alphabet[] =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  const size_t needed = ((len + 2U) / 3U) * 4U;
+  if (dest == NULL || dest_size <= needed) return 0;
+
+  size_t out = 0;
+  for (size_t i = 0; i < len; i += 3) {
+    const uint32_t a = src[i];
+    const uint32_t b = i + 1 < len ? src[i + 1] : 0;
+    const uint32_t d = i + 2 < len ? src[i + 2] : 0;
+    const uint32_t block = (a << 16) | (b << 8) | d;
+
+    dest[out++] = alphabet[(block >> 18) & 0x3F];
+    dest[out++] = alphabet[(block >> 12) & 0x3F];
+    dest[out++] = i + 1 < len ? alphabet[(block >> 6) & 0x3F] : '=';
+    dest[out++] = i + 2 < len ? alphabet[block & 0x3F] : '=';
+  }
+  dest[out] = '\0';
+  return out;
+}
 #define LAZY_CONTACTS_WRITE_DELAY       5000
 #define HIVEFW_REPEATER_RESPONSE_DELAY   300
 #define HIVEFW_REPEATER_FW_LEVEL           2
@@ -4344,6 +4375,7 @@ MyMesh::MyMesh(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMe
   _prefs.interference_threshold = 0;
   _prefs.agc_reset_interval = 0;
   _prefs.cad_enabled = 0;
+  _prefs.adc_multiplier = 0.0f;
   _prefs.setRepeatEn(false);
 #if defined(USE_SX1262) || defined(USE_SX1268)
 #ifdef SX126X_RX_BOOSTED_GAIN
@@ -4437,6 +4469,7 @@ void MyMesh::begin(bool has_display) {
   _prefs.direct_tx_delay_factor = constrain(_prefs.direct_tx_delay_factor, 0, 2.0f);
   _prefs.cad_enabled = constrain(_prefs.cad_enabled, 0, 1);
   _prefs.mesh_time_sync = constrain(_prefs.mesh_time_sync, 0, 1);
+  _prefs.adc_multiplier = constrain(_prefs.adc_multiplier, 0.0f, 10.0f);
   _prefs.airtime_factor = constrain(_prefs.airtime_factor, 0, 9.0f);
   _prefs.freq = constrain(_prefs.freq, 150.0f, 2500.0f);
   _prefs.bw = constrain(_prefs.bw, 7.8f, 500.0f);
@@ -4478,6 +4511,7 @@ void MyMesh::begin(bool has_display) {
   radio_driver.setParams(_prefs.freq, _prefs.bw, _prefs.sf, _prefs.cr);
   radio_driver.setTxPower(_prefs.tx_power_dbm);
   radio_driver.setRxBoostedGainMode(_prefs.rx_boosted_gain);
+  board.setAdcMultiplier(_prefs.adc_multiplier);
   board.setLoRaFemLnaEnabled(_prefs.radio_fem_rxgain);
   board.setLoRaFemPaGainEnabled(_prefs.radio_fem_txgain);
   MESH_DEBUG_PRINTLN("RX Boosted Gain Mode: %s",
@@ -5560,6 +5594,36 @@ void MyMesh::handleCmdFrame(size_t len) {
           savePrefs();
           success = true;
         }
+      } else if (strcmp(sp, "owner") == 0) {
+        const size_t owner_len = strlen(np);
+        if (owner_len < sizeof(_prefs.owner_info)) {
+          memcpy(_prefs.owner_info, np, owner_len + 1);
+          savePrefs();
+          success = true;
+        }
+      } else if (strcmp(sp, "rxg") == 0) {
+        if (strcmp(np, "0") == 0 || strcmp(np, "1") == 0) {
+          _prefs.rx_boosted_gain = np[0] == '1' ? 1 : 0;
+          radio_driver.setRxBoostedGainMode(_prefs.rx_boosted_gain);
+          savePrefs();
+          success = true;
+        }
+      } else if (strcmp(sp, "adc_m") == 0) {
+        char* endp = nullptr;
+        long milli = strtol(np, &endp, 10);
+        if (
+          endp != np &&
+          *endp == '\0' &&
+          milli >= 0 &&
+          milli <= 10000
+        ) {
+          const float multiplier = (float)milli / 1000.0f;
+          if (board.setAdcMultiplier(multiplier)) {
+            _prefs.adc_multiplier = multiplier;
+            savePrefs();
+            success = true;
+          }
+        }
       } else if (strcmp(sp, "route") == 0) {
         unsigned int flood_max = 0;
         unsigned int flood_max_unscoped = 0;
@@ -6025,7 +6089,7 @@ void MyMesh::handleCmdFrame(size_t len) {
       "adm:%u,gst:%u,acl:%d",
       _prefs.getRepeaterAdminPassword()[0] != '\0' ? 1U : 0U,
       _prefs.getRepeaterGuestPassword()[0] != '\0' ? 1U : 0U,
-      repeater_acl.getNumClients()
+      repeater_acl.getNumPersistedClients()
     );
 
     if (
@@ -6036,6 +6100,114 @@ void MyMesh::handleCmdFrame(size_t len) {
     } else {
       _serial->writeFrame(out_frame, 1 + written);
     }
+
+  } else if (cmd_frame[0] == CMD_GET_REPEATER_PROFILE && len >= 2) {
+    out_frame[0] = RESP_CODE_CUSTOM_VARS;
+    const uint8_t page = cmd_frame[1];
+
+    if (page == 0) {
+      char encoded[161] = {};
+      const size_t owner_len = strnlen(
+        _prefs.owner_info,
+        sizeof(_prefs.owner_info) - 1
+      );
+      if (
+        hivefwBase64Encode(
+          (const uint8_t*)_prefs.owner_info,
+          owner_len,
+          encoded,
+          sizeof(encoded)
+        ) == 0 &&
+        owner_len > 0
+      ) {
+        writeErrFrame(ERR_CODE_BAD_STATE);
+        return;
+      }
+
+      const int written = snprintf(
+        (char*)&out_frame[1],
+        sizeof(out_frame) - 1,
+        "owner:%s",
+        encoded
+      );
+      if (written < 0 || written >= (int)(sizeof(out_frame) - 1)) {
+        writeErrFrame(ERR_CODE_BAD_STATE);
+        return;
+      }
+      _serial->writeFrame(out_frame, 1 + written);
+    } else if (page == 1) {
+      const long adc_milli =
+        (long)(_prefs.adc_multiplier * 1000.0f + 0.5f);
+      const int written = snprintf(
+        (char*)&out_frame[1],
+        sizeof(out_frame) - 1,
+        "rxg:%u,adc_m:%ld",
+        (unsigned)_prefs.rx_boosted_gain,
+        adc_milli
+      );
+      if (written < 0 || written >= (int)(sizeof(out_frame) - 1)) {
+        writeErrFrame(ERR_CODE_BAD_STATE);
+        return;
+      }
+      _serial->writeFrame(out_frame, 1 + written);
+    } else {
+      writeErrFrame(ERR_CODE_ILLEGAL_ARG);
+    }
+
+  } else if (cmd_frame[0] == CMD_GET_REPEATER_ACL_ENTRY && len >= 2) {
+    const int logical_index = (int)cmd_frame[1];
+    const int total = repeater_acl.getNumPersistedClients();
+    ClientInfo* client =
+      repeater_acl.getPersistedClientByIdx(logical_index);
+
+    if (client == NULL || logical_index < 0 || logical_index >= total) {
+      writeErrFrame(ERR_CODE_ILLEGAL_ARG);
+      return;
+    }
+
+    char key_hex[PUB_KEY_SIZE * 2 + 1];
+    mesh::Utils::toHex(key_hex, client->id.pub_key, PUB_KEY_SIZE);
+
+    out_frame[0] = RESP_CODE_CUSTOM_VARS;
+    const int written = snprintf(
+      (char*)&out_frame[1],
+      sizeof(out_frame) - 1,
+      "idx:%d,total:%d,key:%s,perm:%u,last:%lu",
+      logical_index,
+      total,
+      key_hex,
+      (unsigned)(client->permissions & PERM_ACL_ROLE_MASK),
+      (unsigned long)client->last_activity
+    );
+
+    if (written < 0 || written >= (int)(sizeof(out_frame) - 1)) {
+      writeErrFrame(ERR_CODE_BAD_STATE);
+      return;
+    }
+    _serial->writeFrame(out_frame, 1 + written);
+
+  } else if (
+    cmd_frame[0] == CMD_SET_REPEATER_ACL_ENTRY &&
+    len == 2 + PUB_KEY_SIZE
+  ) {
+    const uint8_t permissions =
+      cmd_frame[1] & PERM_ACL_ROLE_MASK;
+
+    if (
+      cmd_frame[1] > PERM_ACL_ADMIN ||
+      !repeater_acl.applyPermissions(
+        self_id,
+        &cmd_frame[2],
+        PUB_KEY_SIZE,
+        permissions
+      )
+    ) {
+      writeErrFrame(ERR_CODE_ILLEGAL_ARG);
+      return;
+    }
+
+    repeater_acl.save(_store->getPrimaryFS());
+    writeOKFrame();
 
   } else if (cmd_frame[0] == CMD_GET_REPEATER_REGION && len >= 2) {
     // Local-only RegionMap reader. One entry per request keeps the response
