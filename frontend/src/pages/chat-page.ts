@@ -423,6 +423,25 @@ export class ChatPage extends LitElement {
       color: var(--primary-text-color);
     }
 
+    .hive-observed-column {
+      width: 330px;
+      min-width: 330px;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      flex-shrink: 0;
+      border-left: 1px solid var(--divider-color, #e0e0e0);
+      background: var(--card-background-color, #fff);
+      box-sizing: border-box;
+    }
+
+    @media (max-width: 900px) {
+      .hive-observed-column {
+        width: 300px;
+        min-width: 300px;
+      }
+    }
+
     .search-panel {
       width: 300px;
       border-left: 1px solid var(--divider-color, #e0e0e0);
@@ -753,6 +772,11 @@ export class ChatPage extends LitElement {
           ` : ''}
           ${this._renderChatArea()}
         </div>
+        <aside
+          class="hive-observed-column"
+          data-hive-observed-host
+          aria-label="Canais Observados 48H">
+        </aside>
         ${this._searchOpen ? html`
           <div class="search-panel">
             <meshcore-message-search
