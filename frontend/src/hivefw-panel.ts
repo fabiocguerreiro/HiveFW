@@ -2102,7 +2102,7 @@ class HiveFWPanel extends BasePanel {
         background:color-mix(in srgb,var(--primary-color) 6%,var(--primary-background-color));
       }
       .hive-discovery-signal {
-        min-width:76px;
+        min-width:112px;
         display:inline-flex;
         align-items:center;
         justify-content:flex-end;
@@ -2110,6 +2110,18 @@ class HiveFWPanel extends BasePanel {
         text-align:right;
         font-size:12px;
         font-weight:700;
+      }
+      .hive-discovery-signal-values {
+        display:flex;
+        flex-direction:column;
+        align-items:flex-end;
+        gap:1px;
+        line-height:1.2;
+      }
+      .hive-discovery-signal-values small {
+        color:var(--secondary-text-color);
+        font-size:10px;
+        font-weight:600;
       }
       .hive-discovery-signal-dot {
         flex:0 0 auto;
@@ -9933,13 +9945,23 @@ class HiveFWPanel extends BasePanel {
 
       const signal = document.createElement("div");
       signal.className = "hive-discovery-signal";
+      const rssi = Number(item.rssi);
       const snr = Number(item.snr);
-      const signalValue = document.createElement("span");
+      const signalValues = document.createElement("span");
+      signalValues.className = "hive-discovery-signal-values";
+      const snrValue = document.createElement("span");
+      const rssiValue = document.createElement("small");
       const signalDot = document.createElement("span");
       signalDot.className = "hive-discovery-signal-dot";
 
+      snrValue.textContent = Number.isFinite(snr)
+        ? "SNR " + snr.toFixed(1) + " dB"
+        : "SNR —";
+      rssiValue.textContent = Number.isFinite(rssi)
+        ? "RSSI " + Math.round(rssi) + " dBm"
+        : "RSSI —";
+
       if (Number.isFinite(snr)) {
-        signalValue.textContent = snr.toFixed(1) + " dB";
         const quality = snr >= -5
           ? { color:"#2e7d32", label:"Sinal bom" }
           : snr >= -12
@@ -9947,15 +9969,21 @@ class HiveFWPanel extends BasePanel {
             : { color:"#c62828", label:"Sinal fraco" };
         signalDot.style.background = quality.color;
         signalDot.title = quality.label;
-        signal.setAttribute("aria-label", quality.label + " · " + signalValue.textContent);
+        signal.setAttribute(
+          "aria-label",
+          quality.label + " · " + snrValue.textContent + " · " + rssiValue.textContent
+        );
       } else {
-        signalValue.textContent = "—";
         signalDot.style.background = "#757575";
         signalDot.title = "Qualidade do sinal indisponível";
-        signal.setAttribute("aria-label", "Qualidade do sinal indisponível");
+        signal.setAttribute(
+          "aria-label",
+          snrValue.textContent + " · " + rssiValue.textContent
+        );
       }
 
-      signal.append(signalValue, signalDot);
+      signalValues.append(snrValue, rssiValue);
+      signal.append(signalValues, signalDot);
       row.append(info, signal);
       row.addEventListener("click", () => {
         this.__hiveNeighborMapFocusId = id;
@@ -10119,33 +10147,17 @@ class HiveFWPanel extends BasePanel {
       layers.push(marker);
 
       if (localCoords && (lat !== localCoords[0] || lon !== localCoords[1])) {
-        const rssi = Number(item.rssi);
-        const snr = Number(item.snr);
-        const hasRssi = Number.isFinite(rssi);
-        const hasSnr = Number.isFinite(snr);
         const line = L.polyline(
           [localCoords, [lat, lon]],
           {
-            // Mesmo traço visual usado pelo Trace: a intensidade medida
-            // fica no label, não na geometria da linha.
+            // Keep only the visual link on the map. RSSI/SNR now live in the
+            // discovered Repeater card so labels no longer cover map content.
             weight: 4,
             opacity: .78,
             dashArray: "9 6",
             interactive: false,
           }
         );
-        const signal = [
-          hasRssi ? "RSSI " + Math.round(rssi) + " dBm" : null,
-          hasSnr ? "SNR " + snr.toFixed(1) + " dB" : null,
-        ].filter(Boolean).join(" · ");
-        if (signal) {
-          line.bindTooltip?.(signal, {
-            permanent:true,
-            direction:"center",
-            className:"hive-neighbor-signal-label",
-            opacity:0.92,
-          });
-        }
         this.__hiveNeighborMapSignalLayers.push(line);
         layers.unshift(line);
       }
