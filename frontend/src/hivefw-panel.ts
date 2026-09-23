@@ -435,7 +435,7 @@ class HiveFWPanel extends BasePanel {
         }
       }
     }
-  }  }
+  }
 
   __otaErrorMessage(error) {
     if (!error) return "Erro desconhecido";
@@ -9271,20 +9271,22 @@ class HiveFWPanel extends BasePanel {
       }
     }
 
-    const radio=this.__repeaterStatus?.radio||{};
-    const configSignature=JSON.stringify({
-      frequency:radio.frequency??this.__repeaterStatus?.frequency??null,
-      bandwidth:radio.bandwidth??null,
-      spreading_factor:radio.spreading_factor??null,
-      coding_rate:radio.coding_rate??null,
-      tx_power:radio.tx_power??null,
-      path_hash_mode:radio.path_hash_mode??this.__repeaterStatus?.device_info?.path_hash_mode??null,
-      repeat:!!this.__repeaterStatus?.repeat,
-    });
-    if(state.config_signature && configSignature!==state.config_signature){
-      state.events.unshift({type:"config",timestamp:now,id:"config",name:"Configuração RF/Repeater alterada"});
+    if(this.__repeaterStatus){
+      const radio=this.__repeaterStatus?.radio||{};
+      const configSignature=JSON.stringify({
+        frequency:radio.frequency??this.__repeaterStatus?.frequency??null,
+        bandwidth:radio.bandwidth??null,
+        spreading_factor:radio.spreading_factor??null,
+        coding_rate:radio.coding_rate??null,
+        tx_power:radio.tx_power??null,
+        path_hash_mode:radio.path_hash_mode??this.__repeaterStatus?.device_info?.path_hash_mode??null,
+        repeat:!!this.__repeaterStatus?.repeat,
+      });
+      if(state.config_signature && configSignature!==state.config_signature){
+        state.events.unshift({type:"config",timestamp:now,id:"config",name:"Configuração RF/Repeater alterada"});
+      }
+      state.config_signature=configSignature;
     }
-    state.config_signature=configSignature;
     state.initialized=true;
     state.events=state.events.filter((event)=>now-Number(event.timestamp||0)<=7*86400000).slice(0,80);
     state.advert_events=state.advert_events.filter((event)=>now-Number(event.timestamp||0)<=48*3600000).slice(-4000);
@@ -9342,7 +9344,10 @@ class HiveFWPanel extends BasePanel {
     const all=Array.isArray(data?.neighbors)?[...data.neighbors]:[];
     const hours=Math.max(1,Number(this.__networkRangeHours)||48);
     const visible=all.filter((neighbor)=>Number(neighbor?.secs_ago||0)<=hours*3600);
-    const history=this.__networkHistorySnapshot(all);
+    const hasNeighborData=!!data && Array.isArray(data.neighbors);
+    const history=hasNeighborData
+      ? this.__networkHistorySnapshot(all)
+      : (this.__networkHistory||{nodes:{},events:[],advert_events:[]});
     const now=Date.now();
 
     const head=document.createElement("div");
