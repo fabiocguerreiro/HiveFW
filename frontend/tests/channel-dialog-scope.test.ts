@@ -165,6 +165,32 @@ describe('channel-dialog region scope field', () => {
     );
   });
 
+  it('moves the backing channel index to the real first free slot when inventory arrives late', async () => {
+    const dialog = await mountDialog();
+
+    // Reproduce the observed-channel race: the dialog opens against the
+    // fallback inventory with index 0 selected, then the real radio channel
+    // inventory arrives and says the first free slot is 8.
+    dialog.availableIndices = [8, 9, 10];
+    await dialog.updateComplete;
+
+    const select = dialog.shadowRoot!.querySelector('.form-select') as HTMLSelectElement;
+    expect(select.querySelector('option[selected]')?.getAttribute('value')).toBe('8');
+
+    const nameInput = dialog.shadowRoot!.querySelector('.form-input') as HTMLInputElement;
+    nameInput.value = '#observed';
+    nameInput.dispatchEvent(new Event('input'));
+    await dialog.updateComplete;
+
+    const save = dialog.shadowRoot!.querySelector('.dialog-button.primary') as HTMLButtonElement;
+    save.click();
+    await dialog.updateComplete;
+
+    expect(mockSetChannel).toHaveBeenCalledWith(
+      fakeHass, 8, '#observed', undefined, 'test-entry', '',
+    );
+  });
+
   it('sends an empty scope on save when the global row is selected and "*" is not allowlisted', async () => {
     mockGetFloodScopes.mockResolvedValue({ scopes: ['waw'], global: false });
     const dialog = await mountDialog({
