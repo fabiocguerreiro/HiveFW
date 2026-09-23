@@ -174,6 +174,13 @@ export class ConversationList extends LitElement {
       color: var(--primary-text-color);
     }
 
+    .compose-btn:disabled {
+      opacity: 0.35;
+      cursor: default;
+      background: transparent;
+      color: var(--secondary-text-color);
+    }
+
     .apps-header-actions {
       display: flex;
       align-items: center;
@@ -441,12 +448,18 @@ export class ConversationList extends LitElement {
 
       <div class="sidebar-header main-section-header">
         <span class="sidebar-title main-section-title">Canais &amp; Chat</span>
-      </div>
-      <div class="filter-bar" role="tablist" aria-label="Conversation filter">
-        ${this._renderFilterBtn('all', 'All')}
-        ${this._renderFilterBtn('unread', 'Unread')}
-        ${this._renderFilterBtn('dms', 'DMs')}
-        ${this._renderFilterBtn('channels', 'Channels')}
+        <div class="apps-header-actions">
+          <button
+            class="compose-btn"
+            title="Marcar todas as mensagens como lidas"
+            aria-label="Marcar todas as mensagens como lidas"
+            ?disabled=${!this._hasUnreadMessages()}
+            @click=${() => this._markAllRead()}>
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true">
+              <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
+            </svg>
+          </button>
+        </div>
       </div>
       <div
         class="conversation-list"
@@ -577,6 +590,21 @@ export class ConversationList extends LitElement {
         ${label}
       </button>
     `;
+  }
+
+  private _hasUnreadMessages(): boolean {
+    const counts = this.unread?.counts ?? this.unreadCounts ?? {};
+    return Object.values(counts).some((value) => Number(value) > 0);
+  }
+
+  private _markAllRead() {
+    if (!this.unread) return;
+    const snapshot = Object.entries(this.unread.counts ?? this.unreadCounts ?? {});
+    for (const [entityId, count] of snapshot) {
+      if (entityId && Number(count) > 0) {
+        this.unread.requestMarkRead(entityId);
+      }
+    }
   }
 
   private _emptyMessage(): string {

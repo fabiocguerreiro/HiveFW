@@ -300,7 +300,7 @@ class HiveFWPanel extends BasePanel {
     if (this._activeTab !== "neighbors") {
       this.__removeNeighborsOverlay();
     }
-    if (this._activeTab !== "console") {
+    if (this._activeTab !== "settings") {
       this.__removeConsoleOverlay();
     }
     if (this._activeTab !== "state") {
@@ -328,22 +328,6 @@ class HiveFWPanel extends BasePanel {
 
     this.__cleanupNodesSplit();
 
-    if (this._activeTab === "console") {
-      if (entryId !== this.__consoleLoadedEntry) {
-        this.__consoleHistory = [];
-        this.__consoleError = null;
-        this.__consoleLoadedEntry = entryId;
-        void this.__loadConsoleHistory();
-      }
-      const container = root.querySelector(".page-container");
-      if (!container) return;
-      const overlay = this.__ensureConsoleOverlay(container);
-      if (!overlay.querySelector(".hivefw-console-page")) {
-        this.__renderConsole(overlay);
-      }
-      return;
-    }
-
     if (this._activeTab === "state") {
       if (entryId !== this.__repeaterLoadedEntry) {
         this.__repeaterStatus = null;
@@ -360,6 +344,12 @@ class HiveFWPanel extends BasePanel {
     }
 
     if (this._activeTab === "settings") {
+      if (entryId !== this.__consoleLoadedEntry) {
+        this.__consoleHistory = [];
+        this.__consoleError = null;
+        this.__consoleLoadedEntry = entryId;
+        void this.__loadConsoleHistory();
+      }
       if (entryId !== this.__repeaterLoadedEntry) {
         this.__repeaterStatus = null;
         this.__repeaterError = null;
@@ -930,10 +920,82 @@ class HiveFWPanel extends BasePanel {
           width: 330px !important;
           min-width: 330px !important;
         }
+        .hive-observed-column {
+          width: 330px;
+          min-width: 330px;
+          min-height: 0;
+          display: flex;
+          flex-direction: column;
+          flex-shrink: 0;
+          border-left: 1px solid var(--divider-color,#e0e0e0);
+          background: var(--card-background-color,#fff);
+          box-sizing: border-box;
+        }
+        .hive-observed-head {
+          flex: 0 0 auto;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 8px;
+          padding: 12px 12px 8px;
+          font-size: 16px;
+          font-weight: 600;
+          color: var(--primary-text-color);
+        }
+        .hive-observed-note {
+          flex: 0 0 auto;
+          padding: 0 12px 10px;
+          color: var(--secondary-text-color,#727272);
+          font-size: 10px;
+          line-height: 1.35;
+          border-bottom: 1px solid var(--divider-color,#e0e0e0);
+        }
+        .hive-observed-list {
+          flex: 1 1 auto;
+          min-height: 0;
+          overflow-y: auto;
+          overflow-x: hidden;
+          -webkit-overflow-scrolling: touch;
+          overscroll-behavior-y: contain;
+        }
+        .hive-observed-row {
+          display: grid;
+          grid-template-columns: minmax(0,1fr) auto;
+          gap: 8px;
+          align-items: center;
+          padding: 10px 12px;
+          border-bottom: 1px solid var(--divider-color,#e0e0e0);
+        }
+        .hive-observed-hash {
+          font: 700 12px ui-monospace,SFMono-Regular,Menlo,monospace;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .hive-observed-meta {
+          margin-top: 2px;
+          font-size: 10px;
+          color: var(--secondary-text-color,#727272);
+          line-height: 1.35;
+        }
+        .hive-observed-add {
+          border: 1px solid var(--primary-color,#03a9f4);
+          border-radius: 7px;
+          padding: 5px 8px;
+          background: transparent;
+          color: var(--primary-color,#03a9f4);
+          font-size: 11px;
+          font-weight: 650;
+          cursor: pointer;
+        }
         @media (max-width: 900px) {
           .conversation-sidebar {
             width: 300px !important;
             min-width: 300px !important;
+          }
+          .hive-observed-column {
+            width: 300px;
+            min-width: 300px;
           }
         }
         :host([narrow]) .conversation-sidebar {
@@ -959,8 +1021,11 @@ class HiveFWPanel extends BasePanel {
     const conversationList = croot.querySelector("meshcore-conversation-list");
     if (conversationList) {
       this.__bindAppsSosChannelSync(conversationList);
-      this.__renderObservedChannels(conversationList);
+      // Remove the pre-1.14.5 injected block from the left component if the
+      // element survived a hot frontend reload.
+      conversationList.shadowRoot?.querySelector(".hive-observed-section")?.remove();
     }
+    this.__renderObservedChannels(croot);
   }
 
   async __loadObservedChannels(force = false) {
@@ -978,8 +1043,8 @@ class HiveFWPanel extends BasePanel {
     } finally {
       this.__observedChannelsLoading = false;
       const chat = this.shadowRoot?.querySelector("hivefw-integration-page");
-      const list = chat?.shadowRoot?.querySelector("meshcore-conversation-list");
-      if (list) this.__renderObservedChannels(list);
+      const croot = chat?.shadowRoot;
+      if (croot) this.__renderObservedChannels(croot);
     }
   }
 
@@ -1002,67 +1067,127 @@ class HiveFWPanel extends BasePanel {
     }, 80);
   }
 
-  __renderObservedChannels(conversationList) {
-    const root = conversationList?.shadowRoot;
-    if (!root) return;
-    let style = root.querySelector("#hivefw-observed-channels-style");
-    if (!style) {
-      style = document.createElement("style");
-      style.id = "hivefw-observed-channels-style";
-      style.textContent = `
-        .hive-observed-section{flex:0 0 auto;border-top:1px solid var(--divider-color,#e0e0e0);max-height:190px;overflow-y:auto;background:var(--card-background-color,#fff)}
-        .hive-observed-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 12px 7px;font-size:13px;font-weight:650}
-        .hive-observed-note{padding:0 12px 8px;color:var(--secondary-text-color,#727272);font-size:10px;line-height:1.35}
-        .hive-observed-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:center;padding:8px 12px;border-top:1px solid var(--divider-color,#e0e0e0)}
-        .hive-observed-hash{font:700 12px ui-monospace,SFMono-Regular,Menlo,monospace}
-        .hive-observed-meta{font-size:10px;color:var(--secondary-text-color,#727272);margin-top:2px}
-        .hive-observed-add{border:1px solid var(--primary-color,#03a9f4);border-radius:7px;padding:5px 8px;background:transparent;color:var(--primary-color,#03a9f4);font-size:11px;font-weight:650;cursor:pointer}
-      `;
-      root.appendChild(style);
+  __renderObservedChannels(chatRoot) {
+    if (!chatRoot) return;
+
+    const chat = this.shadowRoot?.querySelector("hivefw-integration-page");
+    let column = chatRoot.querySelector(".hive-observed-column");
+
+    // Mobile keeps the established list/thread switcher. The observed-channel
+    // view is a dedicated third column in the wide layout only.
+    if (chat?._isNarrow) {
+      column?.remove();
+      return;
     }
-    let section = root.querySelector(".hive-observed-section");
-    if (!section) {
-      section = document.createElement("section");
-      section.className = "hive-observed-section";
-      const list = root.querySelector(".conversation-list");
-      if (list) list.insertAdjacentElement("afterend", section);
-      else root.appendChild(section);
+
+    const layout = chatRoot.querySelector(".chat-layout");
+    if (!layout) return;
+
+    if (!column) {
+      column = document.createElement("aside");
+      column.className = "hive-observed-column";
+      column.setAttribute("aria-label", "Canais Observados 48H");
+      const searchPanel = layout.querySelector(".search-panel");
+      if (searchPanel) layout.insertBefore(column, searchPanel);
+      else layout.appendChild(column);
     }
-    section.replaceChildren();
+
+    const state = this.__observedChannels;
+    const channels = Array.isArray(state?.channels) ? state.channels : [];
+    const signature = JSON.stringify({
+      loading: !!this.__observedChannelsLoading,
+      supported: state?.supported ?? null,
+      error: state?.error || "",
+      channels: channels.map((item) => [
+        item?.hash,
+        item?.name,
+        item?.resolved,
+        item?.secret,
+        item?.message_count,
+        item?.secs_ago,
+      ]),
+    });
+    if (column.dataset.signature === signature) return;
+    column.dataset.signature = signature;
+    column.replaceChildren();
+
     const head = document.createElement("div");
     head.className = "hive-observed-head";
-    head.textContent = "Canais observados · 48H";
-    section.appendChild(head);
-    const state = this.__observedChannels;
+    head.textContent = "Canais Observados 48H";
+    column.appendChild(head);
+
+    const note = document.createElement("div");
+    note.className = "hive-observed-note";
+
     if (this.__observedChannelsLoading && !state) {
-      const note=document.createElement("div"); note.className="hive-observed-note"; note.textContent="A ler atividade retransmitida…"; section.appendChild(note); return;
+      note.textContent = "A ler atividade retransmitida…";
+      column.appendChild(note);
+      return;
     }
+
     if (!state?.supported) {
-      const note=document.createElement("div"); note.className="hive-observed-note"; note.textContent="Requer HiveFW 1.14.4 ou superior para observar passivamente canais retransmitidos."; section.appendChild(note); return;
+      note.textContent = "Requer HiveFW 1.14.4 ou superior para observar passivamente canais retransmitidos.";
+      column.appendChild(note);
+      return;
     }
-    const channels=Array.isArray(state.channels)?state.channels:[];
-    const note=document.createElement("div"); note.className="hive-observed-note";
-    note.textContent=channels.length
-      ? "Tráfego de grupo encaminhado pelo Repeater. Canais hashtag/públicos conhecidos são identificados apenas quando a chave derivada valida o MAC do pacote real."
-      : "Nenhum canal desconhecido foi retransmitido nas últimas 48 horas.";
-    section.appendChild(note);
-    for(const item of channels){
-      const row=document.createElement("div"); row.className="hive-observed-row";
-      const info=document.createElement("div");
-      const hash=document.createElement("div"); hash.className="hive-observed-hash";
-      hash.textContent=item.resolved&&item.name ? String(item.name) : "#"+String(item.hash||"??");
-      const meta=document.createElement("div"); meta.className="hive-observed-meta";
-      const secs=Math.max(0,Number(item.secs_ago)||0);
-      const when=new Date(Date.now()-secs*1000).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit",second:"2-digit"});
-      const resolution=item.resolved ? " · hash "+String(item.hash)+" · confirmado" : " · hash "+String(item.hash)+" · não identificado";
-      meta.textContent=String(item.message_count||0)+" mensagens · última "+when+resolution;
-      info.append(hash,meta);
-      const add=document.createElement("button"); add.type="button"; add.className="hive-observed-add"; add.textContent=item.resolved?"Adicionar":"Configurar";
-      add.title=item.resolved
+
+    note.textContent =
+      "Tráfego de grupo encaminhado pelo Repeater. Canais hashtag/públicos conhecidos são identificados apenas quando a chave derivada valida o MAC do pacote real.";
+    column.appendChild(note);
+
+    const list = document.createElement("div");
+    list.className = "hive-observed-list";
+    column.appendChild(list);
+
+    if (!channels.length) {
+      const empty = document.createElement("div");
+      empty.className = "hive-observed-note";
+      empty.style.borderBottom = "0";
+      empty.style.paddingTop = "10px";
+      empty.textContent = "Nenhum canal desconhecido foi retransmitido nas últimas 48 horas.";
+      list.appendChild(empty);
+      return;
+    }
+
+    for (const item of channels) {
+      const row = document.createElement("div");
+      row.className = "hive-observed-row";
+
+      const info = document.createElement("div");
+      info.style.minWidth = "0";
+
+      const hash = document.createElement("div");
+      hash.className = "hive-observed-hash";
+      hash.textContent = item.resolved && item.name
+        ? String(item.name)
+        : "#" + String(item.hash || "??");
+
+      const meta = document.createElement("div");
+      meta.className = "hive-observed-meta";
+      const secs = Math.max(0, Number(item.secs_ago) || 0);
+      const when = new Date(Date.now() - secs * 1000).toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+      });
+      const resolution = item.resolved
+        ? " · hash " + String(item.hash) + " · confirmado"
+        : " · hash " + String(item.hash) + " · não identificado";
+      meta.textContent =
+        String(item.message_count || 0) + " mensagens · última " + when + resolution;
+      info.append(hash, meta);
+
+      const add = document.createElement("button");
+      add.type = "button";
+      add.className = "hive-observed-add";
+      add.textContent = item.resolved ? "Adicionar" : "Configurar";
+      add.title = item.resolved
         ? "Adicionar canal identificado; nome e chave já foram confirmados pelo MAC do pacote."
         : "O hash foi observado, mas nenhum nome do catálogo validou o pacote. Introduz manualmente nome/chave.";
-      add.addEventListener("click",()=>this.__openObservedChannelAdd(item));
-      row.append(info,add); section.appendChild(row);
+      add.addEventListener("click", () => this.__openObservedChannelAdd(item));
+
+      row.append(info, add);
+      list.appendChild(row);
     }
   }
 
@@ -1393,7 +1518,7 @@ class HiveFWPanel extends BasePanel {
     const nodes = byLabel("Nodes", "Nós");
     const devices = byLabel("Devices");
     let neighbors = byLabel("Vizinhos");
-    let consoleTab = byLabel("Console", "Consola");
+    const consoleTab = byLabel("Console", "Consola");
 
     if (state) {
       state.textContent = "Estado";
@@ -1409,14 +1534,10 @@ class HiveFWPanel extends BasePanel {
     }
     if (settings) {
       settings.textContent = "Definições";
-      settings.style.order = "6";
+      settings.style.order = "5";
     }
 
-    // The committed production bundle still contains the old Devices tab.
-    // Reuse that existing Lit-managed button as Vizinhos instead of deleting
-    // it and inserting/moving DOM nodes. Its original click sets "devices";
-    // this listener runs immediately afterwards and changes the final state
-    // to "neighbors" before Lit performs the batched update.
+    // Reuse the legacy Devices Lit button as Vizinhos when required.
     if (!neighbors && devices) {
       neighbors = devices;
       neighbors.textContent = "Vizinhos";
@@ -1431,8 +1552,6 @@ class HiveFWPanel extends BasePanel {
       }
     }
 
-    // Fallback for a future bundle that has neither the legacy Devices button
-    // nor the canonical Vizinhos button. Normally this branch is never used.
     if (!neighbors) {
       neighbors = document.createElement("button");
       neighbors.dataset.hiveNeighborsTab = "1";
@@ -1446,26 +1565,16 @@ class HiveFWPanel extends BasePanel {
 
     neighbors.style.order = "4";
     neighbors.classList.toggle("active", this._activeTab === "neighbors");
-
-    // If the legacy Devices handler ran first, make sure its active class
-    // cannot survive once this button is acting as Vizinhos.
     if (this._activeTab !== "neighbors") {
       neighbors.classList.remove("active");
     }
 
-    if (!consoleTab) {
-      consoleTab = document.createElement("button");
-      consoleTab.dataset.hiveConsoleTab = "1";
-      consoleTab.textContent = "Consola";
-      consoleTab.addEventListener("click", () => {
-        this._activeTab = "console";
-        this.requestUpdate();
-      });
-      tabBar.appendChild(consoleTab);
+    // Consola no longer has a top-level tab. Remove only the wrapper-owned
+    // compatibility tab; hide a hypothetical stale native one without moving it.
+    if (consoleTab) {
+      if (consoleTab.dataset.hiveConsoleTab) consoleTab.remove();
+      else consoleTab.hidden = true;
     }
-    consoleTab.textContent = "Consola";
-    consoleTab.style.order = "5";
-    consoleTab.classList.toggle("active", this._activeTab === "console");
 
     const iconize = (button, iconName) => {
       if (!button) return;
@@ -1483,7 +1592,6 @@ class HiveFWPanel extends BasePanel {
     iconize(nodes, "mdi:map-marker-multiple-outline");
     iconize(neighbors, "mdi:access-point-network");
     iconize(settings, "mdi:cog-outline");
-    iconize(consoleTab, "mdi:console-line");
   }
 
   __ensureRepeaterStyles(root) {
@@ -2800,8 +2908,8 @@ class HiveFWPanel extends BasePanel {
     const body=modal?.querySelector(".modal-body");
     if(!body)return;
 
-    // Command execution now lives in the dedicated top-level Console tab.
-    // Remove the old modal launcher so Device contains device settings only.
+    // Command execution now lives in the full-width Consola card in Definições.
+    // Remove the old modal launcher so the overflow menu stays device-focused.
     for (const button of body.querySelectorAll(".modal-action")) {
       if (button.textContent?.trim() === "Issue Command") button.remove();
     }
@@ -2931,6 +3039,7 @@ class HiveFWPanel extends BasePanel {
     // These cards remain wrapper-specific.
     this.__renderRxLogCard(sroot, grid);
     this.__renderObservabilityCard(sroot, grid);
+    this.__renderSettingsConsoleCard(sroot, grid);
     this.__renderBackupRestoreCard(sroot, grid);
     this.__renderWifiPortalCard(sroot, grid);
 
@@ -2946,6 +3055,184 @@ class HiveFWPanel extends BasePanel {
     this.__settingsObserver?.observe(sroot, { childList: true, subtree: true });
   }
 
+
+  __renderSettingsConsoleCard(sroot, grid) {
+    let card = sroot.querySelector("#hive-console-settings-card");
+    if (!card) {
+      card = document.createElement("section");
+      card.id = "hive-console-settings-card";
+      card.className = "device-section";
+      card.dataset.hiveNativeHost = "console";
+      card.style.gridColumn = "1 / -1";
+
+      const title = document.createElement("div");
+      title.className = "card-title";
+      title.textContent = "Consola";
+
+      const description = document.createElement("div");
+      description.style.cssText =
+        "font-size:12px;line-height:1.45;color:var(--secondary-text-color);margin-bottom:14px;";
+      description.textContent =
+        "Executa comandos diretamente no rádio ligado ao Home Assistant. Os comandos locais não geram tráfego LoRa, exceto quando o próprio comando envia dados para a mesh.";
+
+      const host = document.createElement("div");
+      host.className = "hive-console-settings-host";
+      card.append(title, description, host);
+      grid.appendChild(card);
+    }
+
+    card.style.gridColumn = "1 / -1";
+    const host = card.querySelector(".hive-console-settings-host");
+    if (!host) return;
+
+    if (!sroot.querySelector("#hive-console-settings-style")) {
+      const style = document.createElement("style");
+      style.id = "hive-console-settings-style";
+      style.textContent = `
+        #hive-console-settings-card { grid-column:1 / -1; }
+        .hive-console-settings-host { min-width:0; }
+        .hivefw-console-page.hivefw-console-embedded {
+          width:100%;
+          height:auto;
+          min-height:0;
+          overflow:visible;
+          box-sizing:border-box;
+          padding:0;
+          color:var(--primary-text-color);
+          background:transparent;
+        }
+        .hivefw-console-embedded .hivefw-console-wrap {
+          width:100%;
+          margin:0;
+        }
+        .hivefw-console-embedded .hivefw-console-layout {
+          display:grid;
+          grid-template-columns:minmax(280px,.78fr) minmax(0,1.35fr);
+          gap:14px;
+          align-items:start;
+        }
+        .hivefw-console-embedded .hivefw-console-column {
+          min-width:0;
+          display:flex;
+          flex-direction:column;
+          gap:14px;
+        }
+        .hivefw-console-embedded .hivefw-console-card {
+          min-width:0;
+          max-width:100%;
+          overflow:hidden;
+          box-sizing:border-box;
+          border:1px solid var(--divider-color);
+          border-radius:12px;
+          background:var(--secondary-background-color,var(--card-background-color));
+          padding:14px;
+        }
+        .hivefw-console-section-title {
+          font-size:13px;
+          font-weight:650;
+          color:var(--primary-text-color);
+          margin-bottom:10px;
+        }
+        .hivefw-console-embedded .hivefw-console-toolbar,
+        .hivefw-console-embedded .hivefw-console-input-row {
+          display:flex;
+          align-items:center;
+          gap:8px;
+          flex-wrap:wrap;
+        }
+        .hivefw-console-embedded .hivefw-console-output {
+          min-height:320px;
+          max-height:58vh;
+          overflow:auto;
+          border-radius:10px;
+          background:#101418;
+          color:#d9e2e8;
+          padding:14px;
+          font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono",monospace;
+          font-size:12px;
+          line-height:1.55;
+        }
+        .hivefw-console-embedded .hivefw-console-entry {
+          padding:9px 0;
+          border-bottom:1px solid rgba(255,255,255,.08);
+        }
+        .hivefw-console-embedded .hivefw-console-entry:last-child { border-bottom:none; }
+        .hivefw-console-embedded .hivefw-console-command { color:#7dd3fc; white-space:pre-wrap; }
+        .hivefw-console-embedded .hivefw-console-response { color:#e5e7eb; white-space:pre-wrap; margin-top:4px; }
+        .hivefw-console-embedded .hivefw-console-entry.error .hivefw-console-response { color:#fca5a5; }
+        .hivefw-console-embedded .hivefw-console-time { color:#7b8794; margin-right:7px; }
+        .hivefw-console-embedded .hivefw-console-input {
+          flex:1 1 320px;
+          width:100%;
+          max-width:100%;
+          min-width:0;
+          box-sizing:border-box;
+          border:1px solid var(--divider-color);
+          border-radius:9px;
+          padding:10px 11px;
+          background:var(--card-background-color);
+          color:var(--primary-text-color);
+          font:13px ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;
+          outline:none;
+        }
+        .hivefw-console-embedded .hivefw-console-input:focus { border-color:var(--primary-color); }
+        .hivefw-console-embedded .hivefw-console-hint {
+          color:var(--secondary-text-color);
+          font-size:11px;
+          line-height:1.45;
+          margin-top:8px;
+        }
+        .hivefw-console-embedded .hivefw-console-error {
+          color:var(--error-color,#db4437);
+          font-size:12px;
+          margin-top:8px;
+        }
+        .hivefw-console-embedded .hivefw-console-empty {
+          color:#7b8794;
+          padding:28px 8px;
+          text-align:center;
+        }
+        .hivefw-console-action {
+          min-height:36px;
+          border:1px solid var(--divider-color);
+          border-radius:8px;
+          padding:7px 12px;
+          background:var(--card-background-color);
+          color:var(--primary-text-color);
+          font:inherit;
+          font-size:12px;
+          font-weight:600;
+          cursor:pointer;
+        }
+        .hivefw-console-action.primary {
+          border-color:var(--primary-color);
+          background:var(--primary-color);
+          color:#fff;
+        }
+        .hivefw-console-action.danger {
+          border-color:var(--error-color,#db4437);
+          color:var(--error-color,#db4437);
+          background:transparent;
+        }
+        .hivefw-console-action:disabled {
+          opacity:.45;
+          cursor:default;
+        }
+        @media(max-width:870px) {
+          .hivefw-console-embedded .hivefw-console-layout {
+            grid-template-columns:minmax(0,1fr);
+          }
+          .hivefw-console-embedded .hivefw-console-input {
+            flex-basis:100%;
+          }
+        }
+      `;
+      sroot.appendChild(style);
+    }
+
+    this.__consoleOverlay = host;
+    this.__renderConsole(host, true);
+  }
 
   __backupFilename(backup) {
     const rawName=String(backup?.name||"HiveFW")
@@ -7306,8 +7593,8 @@ class HiveFWPanel extends BasePanel {
     } catch (error) {
       this.__consoleError = error?.message || "Não foi possível carregar o histórico da Consola.";
     }
-    if (this._activeTab === "console" && this.__consoleOverlay) {
-      this.__renderConsole(this.__consoleOverlay);
+    if (this.__consoleOverlay?.isConnected) {
+      this.__renderConsole(this.__consoleOverlay, true);
     }
   }
 
@@ -7334,8 +7621,8 @@ class HiveFWPanel extends BasePanel {
       this.__consoleError = error?.message || "Falha ao executar o comando.";
     } finally {
       this.__consoleBusy = false;
-      if (this._activeTab === "console" && this.__consoleOverlay) {
-        this.__renderConsole(this.__consoleOverlay);
+      if (this.__consoleOverlay?.isConnected) {
+        this.__renderConsole(this.__consoleOverlay, true);
       }
     }
   }
@@ -7354,17 +7641,17 @@ class HiveFWPanel extends BasePanel {
       this.__consoleError = error?.message || "Não foi possível limpar a Consola.";
     } finally {
       this.__consoleBusy = false;
-      if (this._activeTab === "console" && this.__consoleOverlay) {
-        this.__renderConsole(this.__consoleOverlay);
+      if (this.__consoleOverlay?.isConnected) {
+        this.__renderConsole(this.__consoleOverlay, true);
       }
     }
   }
 
-  __renderConsole(container) {
+  __renderConsole(container, embedded = false) {
     container.replaceChildren();
 
     const page = document.createElement("div");
-    page.className = "hivefw-console-page";
+    page.className = "hivefw-console-page" + (embedded ? " hivefw-console-embedded" : "");
     const wrap = document.createElement("div");
     wrap.className = "hivefw-console-wrap";
     page.appendChild(wrap);
@@ -7379,22 +7666,24 @@ class HiveFWPanel extends BasePanel {
     layout.append(leftColumn, rightColumn);
     wrap.appendChild(layout);
 
-    const hero = document.createElement("section");
-    hero.className = "mcr-hero hivefw-console-description";
-    const heading = document.createElement("div");
-    const eyebrow = document.createElement("div");
-    eyebrow.className = "mcr-eyebrow";
-    eyebrow.textContent = "⌨  HIVEFW · CONSOLA";
-    const title = document.createElement("h1");
-    title.className = "mcr-title";
-    title.textContent = "Consola";
-    const subtitle = document.createElement("p");
-    subtitle.className = "mcr-subtitle";
-    subtitle.textContent =
-      "Executa comandos diretamente no rádio ligado ao Home Assistant. Os comandos locais não geram tráfego LoRa, exceto quando o próprio comando envia dados para a mesh.";
-    heading.append(eyebrow, title, subtitle);
-    hero.appendChild(heading);
-    leftColumn.appendChild(hero);
+    if (!embedded) {
+      const hero = document.createElement("section");
+      hero.className = "mcr-hero hivefw-console-description";
+      const heading = document.createElement("div");
+      const eyebrow = document.createElement("div");
+      eyebrow.className = "mcr-eyebrow";
+      eyebrow.textContent = "⌨  HIVEFW · CONSOLA";
+      const title = document.createElement("h1");
+      title.className = "mcr-title";
+      title.textContent = "Consola";
+      const subtitle = document.createElement("p");
+      subtitle.className = "mcr-subtitle";
+      subtitle.textContent =
+        "Executa comandos diretamente no rádio ligado ao Home Assistant. Os comandos locais não geram tráfego LoRa, exceto quando o próprio comando envia dados para a mesh.";
+      heading.append(eyebrow, title, subtitle);
+      hero.appendChild(heading);
+      leftColumn.appendChild(hero);
+    }
 
     // Reuse the exact command catalogue that powered the former Device
     // "Issue Command" dialog. This keeps one source of truth for command
@@ -7402,7 +7691,7 @@ class HiveFWPanel extends BasePanel {
     const presetCard = document.createElement("section");
     presetCard.className = "hivefw-console-card";
     const presetTitle = document.createElement("div");
-    presetTitle.className = "mcr-card-title";
+    presetTitle.className = embedded ? "hivefw-console-section-title" : "mcr-card-title";
     presetTitle.textContent = "Comandos pré-definidos";
 
     const commandElement = document.createElement("meshcore-command-dialog");
@@ -7537,7 +7826,7 @@ class HiveFWPanel extends BasePanel {
 
       const runPreset = document.createElement("button");
       runPreset.type = "button";
-      runPreset.className = "mcr-btn primary";
+      runPreset.className = embedded ? "hivefw-console-action primary" : "mcr-btn primary";
       runPreset.style.marginTop = "10px";
       runPreset.textContent = "Executar comando";
       runPreset.disabled = this.__consoleBusy;
@@ -7583,7 +7872,7 @@ class HiveFWPanel extends BasePanel {
     const commandCard = document.createElement("section");
     commandCard.className = "hivefw-console-card";
     const inputTitle = document.createElement("div");
-    inputTitle.className = "mcr-card-title";
+    inputTitle.className = embedded ? "hivefw-console-section-title" : "mcr-card-title";
     inputTitle.textContent = "Comando livre";
     const row = document.createElement("div");
     row.className = "hivefw-console-input-row";
@@ -7595,7 +7884,7 @@ class HiveFWPanel extends BasePanel {
     input.spellcheck = false;
     input.disabled = this.__consoleBusy;
     const run = document.createElement("button");
-    run.className = "mcr-btn primary";
+    run.className = embedded ? "hivefw-console-action primary" : "mcr-btn primary";
     run.type = "button";
     run.textContent = this.__consoleBusy ? "A executar…" : "Executar";
     run.disabled = this.__consoleBusy;
@@ -7653,17 +7942,17 @@ class HiveFWPanel extends BasePanel {
     const toolbar = document.createElement("div");
     toolbar.className = "hivefw-console-toolbar";
     const outputTitle = document.createElement("div");
-    outputTitle.className = "mcr-card-title";
+    outputTitle.className = embedded ? "hivefw-console-section-title" : "mcr-card-title";
     outputTitle.textContent = "Histórico";
     outputTitle.style.marginRight = "auto";
     const refresh = document.createElement("button");
-    refresh.className = "mcr-btn";
+    refresh.className = embedded ? "hivefw-console-action" : "mcr-btn";
     refresh.type = "button";
     refresh.textContent = "Atualizar";
     refresh.disabled = this.__consoleBusy;
     refresh.addEventListener("click", () => void this.__loadConsoleHistory());
     const clear = document.createElement("button");
-    clear.className = "mcr-btn danger";
+    clear.className = embedded ? "hivefw-console-action danger" : "mcr-btn danger";
     clear.type = "button";
     clear.textContent = "Limpar";
     clear.disabled = this.__consoleBusy || this.__consoleHistory.length === 0;
@@ -7776,7 +8065,7 @@ class HiveFWPanel extends BasePanel {
     }
 
     const refresh = document.createElement("button");
-    refresh.className = "mcr-btn";
+    refresh.className = embedded ? "hivefw-console-action" : "mcr-btn";
     refresh.disabled = this.__repeaterLoading;
     refresh.textContent = this.__repeaterLoading ? "A atualizar…" : "↻ Atualizar";
     refresh.addEventListener("click", () => void this.__loadRepeaterStatus());
@@ -8804,7 +9093,7 @@ class HiveFWPanel extends BasePanel {
     heading.append(eyebrow, title, subtitle);
 
     const refresh = document.createElement("button");
-    refresh.className = "mcr-btn";
+    refresh.className = embedded ? "hivefw-console-action" : "mcr-btn";
     refresh.disabled = this.__hiveNeighborsLoading;
     refresh.textContent = this.__hiveNeighborsLoading ? "A atualizar…" : "↻ Atualizar";
     refresh.addEventListener("click", () => void this.__loadHiveNeighbors());

@@ -1266,6 +1266,18 @@ export class SettingsPage extends LitElement {
               <div class="card-title">Alertas &amp; automações</div>
             </div>
 
+            <!-- Console now belongs to Definições and spans the full grid width. -->
+            <div id="hive-console-settings-card"
+                 class="device-section"
+                 data-hive-native-host="console"
+                 style="grid-column:1 / -1;">
+              <div class="card-title">Consola</div>
+              <div style="font-size:12px;line-height:1.45;color:var(--secondary-text-color);margin-bottom:14px;">
+                Executa comandos diretamente no rádio ligado ao Home Assistant. Os comandos locais não geram tráfego LoRa, exceto quando o próprio comando envia dados para a mesh.
+              </div>
+              <div class="hive-console-settings-host"></div>
+            </div>
+
             <!-- Location -->
             <div class="device-section">
               <div class="card-title">Location</div>
