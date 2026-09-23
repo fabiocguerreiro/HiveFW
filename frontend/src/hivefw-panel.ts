@@ -5296,8 +5296,6 @@ class HiveFWPanel extends BasePanel {
       .sort((a,b)=>b.score-a.score)
       .slice(0,60);
 
-    const totalRx=rows.reduce((sum,item)=>sum+item.rx,0);
-    const totalTx=rows.reduce((sum,item)=>sum+item.tx,0);
     const activeCount=rows.length;
     const top=rows[0];
 
