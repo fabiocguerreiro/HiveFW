@@ -6097,9 +6097,9 @@ class HiveFWPanel extends BasePanel {
           width:100%;
           min-width:0;
           padding:7px 9px;
-          border:1px solid var(--warning-color,#f57c00);
+          border:1px solid #f57c00;
           border-radius:7px;
-          background:var(--warning-color,#f57c00);
+          background:#f57c00;
           color:#fff;
           font:inherit;
           font-size:10px;
