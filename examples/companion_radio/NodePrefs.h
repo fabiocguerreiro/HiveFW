@@ -105,6 +105,10 @@ public:
   // Default: 24H.
   uint8_t clock_24h = 1;
 
+  // HiveFW — optional RTC sync from the trusted Portuguese MeshCore
+  // Timekeeper identity. APP/GPS remain primary sources.
+  uint8_t mesh_time_sync = 0;
+
 private:
   class RadioPrefs : public ConfigSerializer {  // COPIED from CommonCLI (for now)
     NodePrefs* _parent;
@@ -209,6 +213,7 @@ private:
       def("disp_to", _parent->display_timeout);
       def("disp_rot", _parent->display_rotation);
       def("clk24", _parent->clock_24h);
+      def("mesh_time", _parent->mesh_time_sync);
     }
   public:
     CompanionPrefs(NodePrefs* parent) : _parent(parent) { }
