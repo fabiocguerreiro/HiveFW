@@ -2267,6 +2267,28 @@ async def ws_get_local_repeater_status(hass, connection, msg):
                 "admin_password_set": False,
                 "guest_password_set": False,
                 "acl_count": None,
+                "acl_entries": [],
+            }
+        else:
+            acl_entries, acl_error = await _read_repeater_acl(
+                commands,
+                int(server_auth.get("acl_count") or 0),
+            )
+            if acl_entries is None:
+                _LOGGER.debug("Repeater ACL read failed: %s", acl_error)
+                server_auth["acl_entries"] = []
+                server_auth["acl_entries_error"] = acl_error
+            else:
+                server_auth["acl_entries"] = acl_entries
+
+        repeater_profile, profile_error = await _read_repeater_profile(commands)
+        if repeater_profile is None:
+            repeater_profile = {
+                "supported": False,
+                "owner_info": "",
+                "rx_boosted_gain": False,
+                "adc_multiplier": 0.0,
+                "error": profile_error,
             }
 
         core = await _payload(commands.get_stats_core) or {}
@@ -2453,6 +2475,7 @@ async def ws_get_local_repeater_status(hass, connection, msg):
                 "tuning": tuning_view,
                 "routing": routing,
                 "radio_guard": rf_config,
+                "repeater_profile": repeater_profile,
                 "server_auth": server_auth,
                 "clock": {
                     "timestamp": device_clock.get("time"),
@@ -2938,6 +2961,120 @@ async def _set_repeater_secret(commands, key: str, value: str):
         mesh_logger.removeFilter(secret_filter)
         for handler in handlers:
             handler.removeFilter(secret_filter)
+
+
+async def _read_repeater_profile(commands):
+    """Read Owner Info, RX Boosted Gain and ADC multiplier locally."""
+    from meshcore.events import EventType
+
+    pages = []
+    for page in (0, 1):
+        try:
+            result = await commands.send(
+                bytes((0x42, page)),
+                [EventType.CUSTOM_VARS, EventType.ERROR],
+            )
+        except Exception as ex:
+            return None, str(ex)
+
+        reason = _device_config_failure_reason(result)
+        if reason is not None:
+            return None, reason
+        pages.append(getattr(result, "payload", {}) or {})
+
+    try:
+        raw_owner = str(pages[0].get("owner", ""))
+        owner_bytes = base64.b64decode(raw_owner, validate=True) if raw_owner else b""
+        owner_info = owner_bytes.decode("utf-8", "replace")
+        rx_gain = int(pages[1].get("rxg", -1))
+        adc_milli = int(pages[1].get("adc_m", -1))
+    except (ValueError, TypeError, base64.binascii.Error) as ex:
+        return None, f"invalid Repeater profile response: {ex}"
+
+    if rx_gain not in (0, 1) or not 0 <= adc_milli <= 10000:
+        return None, "out-of-range Repeater profile response"
+
+    return {
+        "supported": True,
+        "owner_info": owner_info,
+        "rx_boosted_gain": bool(rx_gain),
+        "adc_multiplier": adc_milli / 1000.0,
+    }, None
+
+
+async def _read_repeater_acl(commands, expected_count: int):
+    """Read every persisted Repeater ACL identity over local Companion transport."""
+    from meshcore.events import EventType
+
+    count = max(0, min(20, int(expected_count or 0)))
+    entries = []
+    for index in range(count):
+        try:
+            result = await commands.send(
+                bytes((0x43, index & 0xFF)),
+                [EventType.CUSTOM_VARS, EventType.ERROR],
+            )
+        except Exception as ex:
+            return None, str(ex)
+
+        reason = _device_config_failure_reason(result)
+        if reason is not None:
+            return None, reason
+
+        payload = getattr(result, "payload", {}) or {}
+        try:
+            returned_index = int(payload.get("idx", -1))
+            total = int(payload.get("total", -1))
+            public_key = str(payload.get("key", "")).lower()
+            permissions = int(payload.get("perm", -1))
+            last_activity = int(payload.get("last", 0))
+        except (TypeError, ValueError):
+            return None, "invalid Repeater ACL response"
+
+        if (
+            returned_index != index
+            or total != count
+            or len(public_key) != 64
+            or any(ch not in "0123456789abcdef" for ch in public_key)
+            or permissions not in (1, 2, 3)
+        ):
+            return None, "invalid Repeater ACL response"
+
+        entries.append(
+            {
+                "index": returned_index,
+                "public_key": public_key,
+                "pubkey_prefix": public_key[:12],
+                "permissions": permissions,
+                "last_activity": last_activity,
+            }
+        )
+
+    return entries, None
+
+
+async def _set_repeater_acl_entry(commands, public_key: str, permissions: int):
+    """Set role 1..3 or remove (0) one persisted ACL identity."""
+    from meshcore.events import EventType
+
+    key = str(public_key or "").strip().lower()
+    try:
+        raw = bytes.fromhex(key)
+    except ValueError:
+        return "invalid ACL public key"
+
+    if len(raw) != 32 or permissions not in (0, 1, 2, 3):
+        return "invalid ACL entry"
+
+    try:
+        result = await commands.send(
+            bytes((0x44, permissions & 0xFF)) + raw,
+            [EventType.OK, EventType.ERROR],
+        )
+    except Exception as ex:
+        return str(ex)
+
+    return _device_config_failure_reason(result)
 
 
 async def _read_repeater_auth_config(commands):
@@ -3524,6 +3661,163 @@ async def ws_set_device_config(hass, connection, msg):
                 return
 
             changed.append("mesh_time_sync")
+
+        profile_keys = {"owner_info", "rx_boosted_gain", "adc_multiplier"}
+        if profile_keys & set(settings.keys()):
+            if "owner_info" in settings:
+                owner_info = str(settings.get("owner_info") or "")
+                if len(owner_info.encode("utf-8")) > 119:
+                    _send_device_config_failure(
+                        connection,
+                        msg["id"],
+                        "owner_info",
+                        "Owner Info must fit in 119 UTF-8 bytes",
+                        changed,
+                    )
+                    return
+                result = await coordinator.api.mesh_core.commands.set_custom_var(
+                    "owner",
+                    owner_info,
+                )
+                reason = _device_config_failure_reason(result)
+                if reason is not None:
+                    _send_device_config_failure(
+                        connection, msg["id"], "owner_info", reason, changed
+                    )
+                    return
+                changed.append("owner_info")
+
+            if "rx_boosted_gain" in settings:
+                result = await coordinator.api.mesh_core.commands.set_custom_var(
+                    "rxg",
+                    "1" if bool(settings["rx_boosted_gain"]) else "0",
+                )
+                reason = _device_config_failure_reason(result)
+                if reason is not None:
+                    _send_device_config_failure(
+                        connection, msg["id"], "rx_boosted_gain", reason, changed
+                    )
+                    return
+                changed.append("rx_boosted_gain")
+
+            if "adc_multiplier" in settings:
+                try:
+                    adc_multiplier = float(settings["adc_multiplier"])
+                except (TypeError, ValueError):
+                    adc_multiplier = -1.0
+                if not 0.0 <= adc_multiplier <= 10.0:
+                    _send_device_config_failure(
+                        connection,
+                        msg["id"],
+                        "adc_multiplier",
+                        "ADC multiplier must be between 0 and 10",
+                        changed,
+                    )
+                    return
+                adc_milli = int(round(adc_multiplier * 1000.0))
+                result = await coordinator.api.mesh_core.commands.set_custom_var(
+                    "adc_m",
+                    str(adc_milli),
+                )
+                reason = _device_config_failure_reason(result)
+                if reason is not None:
+                    _send_device_config_failure(
+                        connection, msg["id"], "adc_multiplier", reason, changed
+                    )
+                    return
+                changed.append("adc_multiplier")
+
+            verified_profile, reason = await _read_repeater_profile(
+                coordinator.api.mesh_core.commands
+            )
+            if verified_profile is None:
+                _send_device_config_failure(
+                    connection,
+                    msg["id"],
+                    "Repeater profile verification",
+                    reason or "no response",
+                    changed,
+                )
+                return
+
+            if (
+                "owner_info" in settings
+                and verified_profile["owner_info"] != str(settings.get("owner_info") or "")
+            ):
+                _send_device_config_failure(
+                    connection, msg["id"], "owner_info verification", "read-back mismatch", changed
+                )
+                return
+            if (
+                "rx_boosted_gain" in settings
+                and verified_profile["rx_boosted_gain"] != bool(settings["rx_boosted_gain"])
+            ):
+                _send_device_config_failure(
+                    connection, msg["id"], "rx_boosted_gain verification", "read-back mismatch", changed
+                )
+                return
+            if "adc_multiplier" in settings:
+                requested = float(settings["adc_multiplier"])
+                if abs(float(verified_profile["adc_multiplier"]) - requested) > 0.001:
+                    _send_device_config_failure(
+                        connection, msg["id"], "adc_multiplier verification", "read-back mismatch", changed
+                    )
+                    return
+
+        if "acl_public_key" in settings or "acl_permissions" in settings:
+            if "acl_public_key" not in settings or "acl_permissions" not in settings:
+                _send_device_config_failure(
+                    connection, msg["id"], "ACL entry", "public key and permissions are both required", changed
+                )
+                return
+            try:
+                permissions = int(settings["acl_permissions"])
+            except (TypeError, ValueError):
+                permissions = -1
+            reason = await _set_repeater_acl_entry(
+                coordinator.api.mesh_core.commands,
+                str(settings["acl_public_key"]),
+                permissions,
+            )
+            if reason is not None:
+                _send_device_config_failure(
+                    connection, msg["id"], "ACL entry", reason, changed
+                )
+                return
+            changed.append("acl_entry")
+
+            verified_auth, reason = await _read_repeater_auth_config(
+                coordinator.api.mesh_core.commands
+            )
+            if verified_auth is None:
+                _send_device_config_failure(
+                    connection, msg["id"], "ACL verification", reason or "no response", changed
+                )
+                return
+            entries, reason = await _read_repeater_acl(
+                coordinator.api.mesh_core.commands,
+                int(verified_auth.get("acl_count") or 0),
+            )
+            if entries is None:
+                _send_device_config_failure(
+                    connection, msg["id"], "ACL verification", reason or "no response", changed
+                )
+                return
+
+            key = str(settings["acl_public_key"]).strip().lower()
+            actual = next((row for row in entries if row["public_key"] == key), None)
+            if permissions == 0 and actual is not None:
+                _send_device_config_failure(
+                    connection, msg["id"], "ACL removal verification", "entry still present", changed
+                )
+                return
+            if permissions in (1, 2, 3) and (
+                actual is None or int(actual["permissions"]) != permissions
+            ):
+                _send_device_config_failure(
+                    connection, msg["id"], "ACL role verification", "read-back mismatch", changed
+                )
+                return
 
         # New HiveFW builds expose Duty Cycle as a first-class Companion
         # custom variable. Send the percentage directly so the firmware owns
