@@ -2705,7 +2705,10 @@ bool MyMesh::handleRepeaterRemoteCommand(
   }
 
   if (strcmp(command, "reboot") == 0) {
-    remote_reboot_at = futureMillis(1000);
+    // Leave enough time for the CLI_DATA response to clear the radio queue.
+    // The old 1 s delay rebooted successfully but could make the client report
+    // a timeout because the response was cut off mid-flight.
+    remote_reboot_at = futureMillis(5000);
     snprintf(reply, reply_size, "OK - rebooting");
     return true;
   }
