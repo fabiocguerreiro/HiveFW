@@ -1,157 +1,226 @@
 # HiveFW — Roadmap
 
-O HiveFW é agora um projeto unificado: firmware Companion + Repeater e integração
-Home Assistant vivem no mesmo repositório, usam a mesma versão e são publicados
-pela mesma linha de Releases.
+O HiveFW é um projeto unificado: firmware Companion + Repeater e integração
+Home Assistant vivem no mesmo repositório, partilham a mesma linha de versão e
+são publicados pela mesma linha de Releases.
 
-## Estado atual — 1.12.x
+## Estado atual — 1.14.6.1+
 
-### Projeto unificado
+### Projeto / manutenção
 
 - [x] firmware e Home Assistant no mesmo repositório;
-- [x] Heltec V3 e Heltec T114 como únicos alvos suportados;
-- [x] integração standalone sem dependência de uma instalação separada de `meshcore-ha`;
-- [x] `VERSION` e manifest sincronizados;
-- [x] HACS apontado para `fabiocguerreiro/HiveFW`;
-- [x] updater OTA apontado para as Releases do HiveFW;
-- [x] primeira Release unificada publicada: `v1.12.0`;
-- [x] repositórios antigos removidos;
-- [x] branches de migração/limpeza removidos;
-- [x] CI de firmware, frontend, backend, CodeQL e validação ativo.
-
-### Firmware
-
-- [x] Companion como modo base;
-- [x] Repeater opcional;
-- [x] Heltec V3 Wi-Fi/TCP;
-- [x] Heltec T114 BLE;
-- [x] portal Wi-Fi e credenciais NVS no V3;
-- [x] Web OTA seguro;
-- [x] BLE DFU / UF2 no T114;
-- [x] Smart Advert com slot diário determinístico de 24 h derivado do hash do nó;
-- [x] persistência apenas do último Auto Advert realmente originado;
-- [x] proteção at-most-once para Auto Advert;
-- [x] janela de segurança de 5 min após ativar Auto Advert quando não existe envio confirmado nas últimas 24 h;
-- [x] persistência da janela de ativação para impedir bypass por reboot;
-- [x] advert de recuperação quando não existe envio confirmado nas últimas 24 h;
-- [x] realinhamento automático ao slot por hash em até 48 h após um advert de recuperação;
-- [x] confirmação compacta no Companion com ETA do próximo Smart Advert em minutos (`ADV: Em XX Min.`);
-- [x] tabela acumulada de vizinhos Repeater zero-hop;
-- [x] exclusão de Share Contact da deteção de vizinhos RF;
-- [x] diagnóstico e recuperação de CAD Timeout;
-- [x] Regions / Flood Scopes;
-- [x] Flood Limits equivalentes ao simple_repeater (geral / unscoped / advert);
-- [x] Loop Detect equivalente ao simple_repeater (off / minimal / moderate / strict);
-- [x] Duty Cycle e Path Hash;
-- [x] UI HiveFW.
-
-### Home Assistant
-
-- [x] TCP/Wi-Fi e BLE;
-- [x] entidades, serviços, eventos e WebSocket API;
-- [x] painel HiveFW;
-- [x] Dispositivo, telemetria e configuração de rádio;
-- [x] Chat & Canais;
-- [x] Nós em lista + mapa + atividade;
-- [x] Vizinhos usando a tabela real do firmware;
-- [x] Console;
-- [x] Regions & Scopes;
-- [x] RX Log;
-- [x] firmware OTA e entidade update;
-- [x] Backup & Restore compatível com o formato MeshCore;
-- [x] import/export `discovered_contacts`;
-- [x] QR / URI de canais e contactos;
-- [x] Favorites, Tags e operações em massa;
-- [x] administração remota de Repeaters;
-- [x] LOS / Fresnel on-demand;
-- [x] health transitions e eventos HA;
-- [x] frontend e backend testados em CI;
-- [x] histórico RF/tráfego através do Recorder do Home Assistant;
-- [x] janela RF de 7 dias com média das últimas 24 h e tendência face às 24 h anteriores;
-- [x] cartão Smart Advert com countdown até ao próximo envio, independente de fuso horário.
-
-## Ponto de recuperação
-
-Antes da consolidação do frontend e da evolução da telemetria RF foi criado um
-checkpoint Git sem alterações de ficheiros:
-
-`f4fb93a7b03183194b87abe4df2c41ac6596ec2f`
-
-Esse commit representa o estado estável imediatamente após a limpeza RAK e pode
-ser usado como referência para comparar ou reverter esta fase sem depender de
-um branch de backup permanente.
-
-## Validação em hardware / utilização real
-
-Já confirmado no fluxo unificado:
-
-- [x] instalação/atualização da integração a partir do novo monorepo;
-- [x] painel HiveFW carregado a partir do repositório unificado;
-- [x] TCP/Wi-Fi no Heltec V3;
-- [x] Web OTA usando a primeira Release unificada.
-
-Continuar a observar/testar:
-
-- [ ] BLE num Heltec T114 em utilização prolongada;
-- [ ] BLE DFU / UF2 a partir de uma Release unificada;
-- [ ] reload / restart / reconnect repetidos;
-- [ ] confirmar ausência de ligações duplicadas após vários reloads;
-- [ ] Backup + Restore completo num equipamento de teste;
-- [ ] restauro de identidade/private key;
-- [ ] Smart Advert durante vários dias, incluindo slot por hash, ativação/desativação durante a janela de 5 min, reboot durante a grace period e recuperação após mais de 24 h sem envio;
-- [ ] tabela de vizinhos com vários Repeaters zero-hop durante utilização prolongada;
-- [ ] diagnóstico CAD durante operação prolongada.
-
-## Próxima fase — 1.12.x de estabilização
-
-- observar Smart Advert, CAD, reconnect e vizinhos antes de alterar a lógica RF;
-- corrigir apenas regressões e problemas encontrados em utilização real;
-- evitar uma nova Release apenas por reorganização interna de código;
-- usar Releases 1.12.x apenas quando existir uma correção que deva chegar aos equipamentos/utilizadores.
-
-## Próxima fase de desenvolvimento — 1.13
-
-### Frontend
-
-- [x] mover a fonte do wrapper `hivefw-panel.js` para `frontend/src/hivefw-panel.ts`;
-- [x] gerar `hivefw-integration-panel.js` e `hivefw-panel.js` pelo mesmo pipeline Rollup;
-- [x] deixar de usar a versão do `frontend/package.json` como versão do bundle e usar `VERSION`;
-- [ ] migrar gradualmente as extensões ainda existentes em `hivefw-panel.ts` para páginas/componentes TypeScript próprios;
-- [ ] reduzir manipulação DOM pós-render onde já existe um componente Lit equivalente;
-- [ ] remover o wrapper de extensão quando toda a funcionalidade HiveFW estiver integrada na árvore TypeScript principal.
-
-### Paridade com simple_repeater
-
-Implementar pela ordem definida para o Repeater HiveFW:
-
-- [x] 1. Flood Limits + Loop Detect;
-- [x] 2. CAD / interference / AGC + delays configuráveis;
-- [x] 3. Discovery rate limiting;
-- [x] 4. ACL + servidor de login Repeater;
-- [x] 5. GET_STATUS / TELEMETRY / NEIGHBOURS / ACCESS_LIST;
-- [x] 6. OWNER / REGIONS / CLOCK anónimos + remote CLI.
-
-### Observabilidade RF
-
-- [x] histórico local sem tráfego LoRa adicional;
-- [x] Noise Floor, RSSI, SNR, RX/TX rate, RX errors, TX queue e airtime no histórico;
-- [x] janela de 7 dias, média 24 h, delta 24 h e mínimos/máximos;
-- [ ] avaliar métricas adicionais apenas depois de recolher dados reais suficientes;
-- [ ] usar os dados reais para ajustar thresholds, sem assumir valores universais para todas as instalações.
-
-### Upstream
-
-- [x] manter referências explícitas a MeshCore, meshcore-ha, meshcore-ha-chat e meshcore_py;
-- [x] baseline versionado dos commits upstream já revistos;
-- [x] verificação automática semanal e manual de novos commits upstream;
-- [x] abrir/atualizar uma issue quando existir trabalho upstream por rever;
-- [ ] rever mudanças upstream seletivamente e portar apenas o que é relevante para HiveFW;
-- [ ] atualizar o baseline depois de cada revisão, mesmo quando a decisão for não importar uma alteração.
+- [x] Heltec V3 e Heltec T114 como alvos suportados;
+- [x] integração Home Assistant standalone;
+- [x] CI de firmware, frontend, backend, CodeQL e validação;
+- [x] OTA V3 e BLE DFU/UF2 T114;
+- [x] acompanhamento explícito de MeshCore, meshcore-ha, meshcore-ha-chat e meshcore_py;
+- [x] baseline upstream versionado;
+- [x] watcher semanal/manual de mudanças upstream;
+- [ ] continuar a rever upstreams seletivamente e avançar o baseline após cada revisão.
 
 Ver [docs/upstream-sync.md](docs/upstream-sync.md).
 
+### Firmware Companion + Repeater
+
+- [x] Companion como modo base com Repeater opcional;
+- [x] Wi-Fi/TCP no V3 e BLE no T114;
+- [x] Regions / Flood Scopes;
+- [x] Flood Limits geral / unscoped / advert;
+- [x] Loop Detect off / minimal / moderate / strict;
+- [x] CAD, interference threshold, AGC reset e RX/Flood/Direct TX delays;
+- [x] RX Boosted Gain persistente e aplicado ao SX126x;
+- [x] Duty Cycle, Path Hash e Multi ACK;
+- [x] expiração de pacotes TX antigos após 60 s com limpeza de dedup;
+- [x] contador de TX expirados;
+- [x] ACL persistente Repeater com roles Read Only / Read Write / Admin;
+- [x] login Admin/Guest com passwords write-only;
+- [x] GET_STATUS / TELEMETRY / NEIGHBOURS / ACCESS_LIST;
+- [x] OWNER / REGIONS / CLOCK anónimos e remote CLI;
+- [x] Owner Info persistente;
+- [x] ADC multiplier persistente com 0 = calibração padrão da placa;
+- [x] RegionMap local editável;
+- [x] Discovery rate limiting;
+- [x] tabela de vizinhos zero-hop acumulada;
+- [x] observação passiva de canais;
+- [x] sincronização RTC opcional por Timekeeper Mesh como fonte secundária;
+- [x] APP/GPS com prioridade sobre a fonte Mesh;
+- [x] curva LiPo interpolada para percentagem de bateria;
+- [x] Smart Advert com persistência, slot determinístico e proteção at-most-once.
+
+### Smart Advert atual
+
+O Smart Advert HiveFW continua independente dos timers clássicos do
+simple_repeater:
+
+- [x] slot determinístico derivado da identidade/public key;
+- [x] último Auto Advert realmente transmitido persistido;
+- [x] nunca originar dois Smart Adverts com menos de 24 h entre si;
+- [x] grace period de 5 min após ativação quando não houve advert confirmado nas últimas 24 h;
+- [x] grace period persistente contra bypass por reboot;
+- [x] advert de recuperação quando não existe envio confirmado há mais de 24 h;
+- [x] realinhamento automático ao slot determinístico;
+- [x] ETA do próximo Smart Advert exposto ao Companion/HA.
+
+### Advertising oficial — análise concluída, implementação futura
+
+O simple_repeater oficial mantém dois timers independentes:
+
+- `advert.interval`: advert zero-hop, 0 = off, intervalo válido 60–240 minutos;
+- `flood.advert.interval`: advert Flood, 0 = off, intervalo válido 3–168 horas;
+- depois de um Flood advert, o oficial reinicia também o timer zero-hop para
+  impedir que os dois anúncios ocorram colados.
+
+Objetivo HiveFW: expor estes dois parâmetros e reproduzir o comportamento
+oficial sem perder o Smart Advert nem as garantias já implementadas.
+
+Plano aprovado para uma implementação futura:
+
+1. manter três fontes de advert distintas:
+   - **Local Advert periódico oficial** — zero-hop;
+   - **Flood Advert periódico oficial** — Flood/Scope;
+   - **Smart Advert HiveFW** — política determinística própria;
+2. `advert.interval` e `flood.advert.interval` devem manter exatamente os
+   ranges/unidades do configurador oficial e aceitar 0 = off;
+3. um Flood advert periódico reinicia o timer zero-hop, igual ao oficial;
+4. o Smart Advert não é convertido num terceiro intervalo configurável e não
+   perde a sua persistência/at-most-once;
+5. qualquer advert automático realmente originado deve atualizar um estado
+   comum de “último advert automático” para permitir anti-colisão entre os
+   três schedulers;
+6. antes de transmitir, cada scheduler deve respeitar uma janela mínima de
+   separação face a outro advert automático recente;
+7. um Smart Advert que coincida com um Flood periódico deve ceder ao Flood e
+   recalcular o seu próximo slot elegível, sem criar um segundo advert;
+8. ações manuais **Local Advert** e **Flood Advert** continuam imediatas e não
+   são tratadas como Smart Advert; devem apenas realinhar os timers periódicos
+   quando isso reproduzir o comportamento oficial;
+9. alterações a nome não influenciam o Smart Advert: o HiveFW usa identidade /
+   public key para o slot;
+10. a UI futura deve mostrar separadamente os três mecanismos e o próximo envio
+    de cada um, evitando um único toggle ambíguo.
+
+- [ ] implementar esta coexistência apenas numa fase dedicada, com testes de
+  sequência temporal e sem alterar a lógica Smart Advert durante a atual fase
+  de paridade/configuração.
+
+### Home Assistant / UI
+
+- [x] Estado/identidade/telemetria;
+- [x] Chat & Canais;
+- [x] Canais Observados 48H;
+- [x] Nós em lista + mapa + atividade;
+- [x] Vizinhos passivos e Discovery ativo;
+- [x] Console integrado em Definições;
+- [x] Regions & Scopes;
+- [x] RX Log e observabilidade RF;
+- [x] firmware OTA;
+- [x] import/export de contactos;
+- [x] exportação de contactos MeshCore;
+- [x] configuração Repeater: Repeat, Multi ACK, Path Hash, Duty Cycle;
+- [x] configuração Routing/Flood + Loop Detect;
+- [x] configuração CAD/interference/AGC/delays;
+- [x] botão de releitura real da configuração do rádio;
+- [x] Owner Info local;
+- [x] RX Boosted Gain local;
+- [x] ADC multiplier local com explicação;
+- [x] ACL completa com chave, role, alteração e remoção individual;
+- [x] passwords Admin/Guest write-only e limpeza total da ACL;
+- [x] Frequências Repeater permitidas read-only;
+- [x] RTC Mesh opcional;
+- [x] Backup/Restore Companion separado do Backup/Restore Repeater;
+- [x] Backup Repeater inclui Owner Info, RX Gain, ADC, Repeat, Path Hash,
+  Multi ACK, Smart Advert, RTC Mesh, Duty Cycle, Routing/Flood, CAD/AGC/delays,
+  RegionMap e ACL;
+- [x] passwords Admin/Guest nunca são exportadas;
+- [x] popup do mapa dos Nós com idade do último advert, `Criado localmente`,
+  contraste corrigido e botão Fechar acessível em mobile;
+- [ ] validar em hardware o novo Owner Info / RX Gain / ADC / ACL /
+  Backup Repeater antes da próxima release.
+
+### Backup & Restore
+
+#### Companion
+
+Formato compatível com o backup MeshCore:
+
+- [x] nome;
+- [x] identidade/public key + private key;
+- [x] rádio;
+- [x] posição;
+- [x] auto-add;
+- [x] canais;
+- [x] contactos;
+- [x] restore da identidade com verificação.
+
+#### Repeater
+
+Formato HiveFW separado e identificado:
+
+- [x] modo Repeater;
+- [x] Owner Info;
+- [x] RX Boosted Gain;
+- [x] ADC multiplier;
+- [x] Path Hash;
+- [x] Multi ACK;
+- [x] Smart Advert ON/OFF;
+- [x] RTC Mesh ON/OFF;
+- [x] Duty Cycle;
+- [x] Flood Limits + Loop Detect;
+- [x] CAD / interference / AGC / delays;
+- [x] RegionMap;
+- [x] ACL completa;
+- [x] estado Admin/Guest sem exportar os segredos;
+- [x] restore mantém as passwords existentes;
+- [x] verificação pós-restore das secções críticas.
+
+## Frontend
+
+A árvore nativa Lit é agora a fonte preferencial. O wrapper
+`frontend/src/hivefw-panel.ts` continua apenas onde ainda fornece composição
+ou funcionalidades que não têm equivalente nativo seguro.
+
+- [x] fonte do wrapper migrada para TypeScript;
+- [x] bundle único via Rollup;
+- [x] Repeater Setup passou para a página nativa;
+- [x] RTC Mesh passou para a página nativa;
+- [x] leitura Repeater duplicada removida;
+- [x] estado Repeater serializado no backend para evitar respostas cruzadas;
+- [x] evitar novas extensões DOM pós-render quando existe componente Lit;
+- [ ] migrar apenas blocos restantes quando houver equivalência funcional
+  testada; não remover o wrapper de uma só vez enquanto ainda agrega funções
+  sem destino nativo;
+- [ ] remover o wrapper apenas quando a comparação funcional ficar 1:1.
+
+A prioridade é estabilidade e leveza; uma remoção total prematura do wrapper
+não é objetivo por si só.
+
+## Validação em hardware
+
+A utilização prolongada atual está estável e deixa de ser uma pendência geral:
+
+- [x] V3 Wi-Fi/TCP prolongado;
+- [x] T114 BLE prolongado;
+- [x] BLE DFU / UF2;
+- [x] reload / restart / reconnect repetidos;
+- [x] ausência de ligações duplicadas;
+- [x] Smart Advert durante utilização prolongada;
+- [x] múltiplos vizinhos zero-hop;
+- [x] CAD durante operação prolongada;
+- [x] RF/Retransmissão e Acesso remoto carregam ao abrir a página;
+- [ ] validar apenas as funcionalidades novas desta fase
+  (Owner Info, RX Gain, ADC, ACL completa e Backup Repeater).
+
+## Próximos passos
+
+1. validar em hardware o lote atual de paridade Repeater;
+2. corrigir eventuais regressões sem criar release intermédia desnecessária;
+3. publicar a próxima release apenas quando o lote estiver validado;
+4. numa fase separada, implementar o Advertising oficial + Smart Advert de
+   acordo com o desenho documentado acima;
+5. continuar o acompanhamento seletivo dos upstreams.
+
 ## Princípio de manutenção
 
-O HiveFW não pretende voltar a transportar indiscriminadamente todos os targets
-e ficheiros dos projetos upstream. Atualizações upstream devem ser revistas,
+O HiveFW não importa indiscriminadamente alterações upstream. Mudanças de
+MeshCore, meshcore-ha, meshcore-ha-chat e meshcore_py devem ser revistas,
 adaptadas ao V3/T114 e validadas antes de entrar no `main`.
