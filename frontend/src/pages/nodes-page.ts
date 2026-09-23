@@ -367,19 +367,24 @@ export class NodesPage extends LitElement {
     }
 
     .header-actions {
-      display: flex;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto auto;
       align-items: center;
       gap: 8px;
       width: 100%;
-      flex-wrap: wrap;
     }
 
     .header-actions .search-bar {
-      flex: 1 1 340px;
-      width: auto;
+      grid-column: 1 / -1;
+      width: 100%;
       max-width: none;
-      min-width: 220px;
+      min-width: 0;
       box-sizing: border-box;
+    }
+
+    .header-actions .sort-select {
+      width: 100%;
+      min-width: 0;
     }
 
     .export-btn {
