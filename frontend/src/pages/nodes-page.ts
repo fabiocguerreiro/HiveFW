@@ -95,7 +95,7 @@ export class NodesPage extends LitElement {
     }
 
     .nodes-header {
-      grid-column: 1 / -1;
+      grid-column: 1;
       grid-row: 1;
       display: flex;
       flex-direction: column;
@@ -108,7 +108,7 @@ export class NodesPage extends LitElement {
 
     .nodes-map-pane {
       grid-column: 2;
-      grid-row: 2;
+      grid-row: 1 / 3;
       position: relative;
       min-width: 0;
       min-height: 0;
@@ -122,6 +122,17 @@ export class NodesPage extends LitElement {
       width: 100%;
       height: 100%;
       min-height: 420px;
+    }
+
+    .nodes-transfer-pane {
+      grid-column: 3;
+      grid-row: 1;
+      min-width: 0;
+      padding: 12px;
+      box-sizing: border-box;
+      background: var(--card-background-color, #fff);
+      border-left: 1px solid var(--divider-color, #e0e0e0);
+      border-bottom: 1px solid var(--divider-color, #e0e0e0);
     }
 
     .nodes-activity-pane {
@@ -496,7 +507,7 @@ export class NodesPage extends LitElement {
       --nodes-list-width: 100%;
       --nodes-activity-width: 100%;
       grid-template-columns: 1fr;
-      grid-template-rows: auto minmax(280px, 34%) minmax(320px, 42%) minmax(260px, 24%);
+      grid-template-rows: auto minmax(280px, 34%) minmax(320px, 42%) auto minmax(260px, 24%);
       overflow-y: auto;
       overflow-x: hidden;
       -webkit-overflow-scrolling: touch;
@@ -516,9 +527,15 @@ export class NodesPage extends LitElement {
       grid-row: 3;
       border-left: none;
     }
-    :host([narrow]) .nodes-activity-pane {
+    :host([narrow]) .nodes-transfer-pane {
       grid-column: 1;
       grid-row: 4;
+      border-left: none;
+      border-top: 1px solid var(--divider-color, #e0e0e0);
+    }
+    :host([narrow]) .nodes-activity-pane {
+      grid-column: 1;
+      grid-row: 5;
       border-left: none;
       border-top: 1px solid var(--divider-color, #e0e0e0);
     }
@@ -624,6 +641,7 @@ export class NodesPage extends LitElement {
         </div>
 
         <section class="nodes-map-pane" aria-label="Mapa de nós"></section>
+        <aside class="nodes-transfer-pane" aria-label="Importar e exportar contactos"></aside>
         <aside class="nodes-activity-pane" aria-label="Atividade dos nós"></aside>
       </div>
 
