@@ -360,9 +360,6 @@ class HiveFWPanel extends BasePanel {
       this.__enhanceSettingsPage();
       this.__enhanceManualOtaCard(root);
       this.__renderOtaLiveProgress(root);
-      if (!this.__repeaterStatus && !this.__repeaterLoading) {
-        void this.__loadRepeaterStatus();
-      }
       if (this.__managedDevicesLoadedEntry !== entryId && !this.__managedDevicesLoading) {
         void this.__loadManagedDevices();
       }
@@ -3044,15 +3041,24 @@ class HiveFWPanel extends BasePanel {
     // New bundles own the Device structure from first paint. Keep these
     // renderers only as a compatibility fallback for an older cached bundle.
     if(!nativeLayout){
+      // Compatibility fallback for an older cached Settings bundle. Only the
+      // fallback needs wrapper-owned repeater state; the native page performs
+      // its own single authoritative radio read.
+      if (!this.__repeaterStatus && !this.__repeaterLoading) {
+        queueMicrotask(() => void this.__loadRepeaterStatus());
+      }
       this.__renderSettingsRepeaterCard(sroot, grid);
       this.__renderRegionsScopesCard(sroot, grid);
       this.__enhanceCompanionMeta(sroot);
+      this.__renderMeshTimeSettingsCard(sroot, grid);
+    } else {
+      // Remove a stale injected card left behind by an older wrapper render.
+      sroot.querySelector("#hive-mesh-time-settings-card")?.remove();
     }
 
     // These cards remain wrapper-specific.
     this.__renderRxLogCard(sroot, grid);
     this.__renderObservabilityCard(sroot, grid);
-    this.__renderMeshTimeSettingsCard(sroot, grid);
     this.__renderSettingsConsoleCard(sroot, grid);
     this.__renderBackupRestoreCard(sroot, grid);
     this.__renderWifiPortalCard(sroot, grid);
