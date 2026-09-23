@@ -1556,6 +1556,16 @@ bool MyMesh::handleRepeaterRemoteCommand(
     return true;
   }
 
+  if (strcmp(command, "get allow.read.only") == 0) {
+    snprintf(
+      reply,
+      reply_size,
+      "> %s",
+      _prefs.repeat.allow_read_only ? "on" : "off"
+    );
+    return true;
+  }
+
   if (strcmp(command, "get public.key") == 0) {
     char hex[PUB_KEY_SIZE * 2 + 1];
     mesh::Utils::toHex(hex, self_id.pub_key, PUB_KEY_SIZE);
@@ -2061,6 +2071,20 @@ bool MyMesh::handleRepeaterRemoteCommand(
     }
 
     _prefs.multi_acks = (uint8_t)value;
+    save_ok();
+    return true;
+  }
+
+  if (strncmp(command, "set allow.read.only ", 20) == 0) {
+    const char* value = command + 20;
+
+    if (strcmp(value, "on") != 0 && strcmp(value, "off") != 0) {
+      snprintf(reply, reply_size, "Err - use on or off");
+      return true;
+    }
+
+    _prefs.repeat.allow_read_only =
+      strcmp(value, "on") == 0 ? 1 : 0;
     save_ok();
     return true;
   }
