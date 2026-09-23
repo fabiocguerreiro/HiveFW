@@ -1401,6 +1401,23 @@ bool MyMesh::handleRepeaterRemoteCommand(
     command++;
   }
 
+  // Match simple_repeater exactly: Companion clients may prepend a
+  // two-character correlation token plus '|'. Reflect it in the reply so the
+  // app can associate asynchronous CLI responses with the originating field.
+  if (strlen(command) > 4 && command[2] == '|') {
+    if (reply_size <= 3) {
+      return false;
+    }
+    memcpy(reply, command, 3);
+    reply += 3;
+    reply_size -= 3;
+    command += 3;
+
+    while (*command == ' ' || *command == '\t') {
+      command++;
+    }
+  }
+
   size_t command_len = strlen(command);
   while (
     command_len > 0 &&
@@ -2099,7 +2116,7 @@ bool MyMesh::handleRepeaterRemoteCommand(
   if (strncmp(command, "set guest.password ", 19) == 0) {
     _prefs.setRepeaterGuestPassword(command + 19);
     savePrefs();
-    snprintf(reply, reply_size, "OK - guest password set");
+    snprintf(reply, reply_size, "OK");
     return true;
   }
 
