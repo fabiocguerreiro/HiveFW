@@ -5506,7 +5506,7 @@ void MyMesh::handleCmdFrame(size_t len) {
     appendCustomVar("auto_adv_diag", auto_adv_diag_value);
 
     // Compact CAD diagnostics:
-    // timeouts/recoveries/forced_tx/last_busy_ms/max_busy_ms/age_s
+    // timeouts/recoveries/forced_tx/last_busy_ms/max_busy_ms/age_s/expired_tx
     char cad_diag_value[80];
     snprintf(
       cad_diag_value,
