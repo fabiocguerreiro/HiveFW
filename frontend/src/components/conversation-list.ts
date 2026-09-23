@@ -447,7 +447,7 @@ export class ConversationList extends LitElement {
       </section>
 
       <div class="sidebar-header main-section-header">
-        <span class="sidebar-title main-section-title">Canais &amp; Chat</span>
+        <span class="sidebar-title main-section-title">Canais</span>
         <div class="apps-header-actions">
           <button
             class="compose-btn"
