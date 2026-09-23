@@ -4516,6 +4516,95 @@ async def ws_execute_local(hass, connection, msg):
         return
 
     try:
+        # The upstream meshcore_py set_default_flood_scope(None/empty) path in
+        # 2.3.14 builds the correct empty state and then calls len(scope),
+        # which raises for None. Handle this command locally and verify the
+        # device read-back so Network Settings never reports a false success.
+        if command == "set_default_flood_scope":
+            from meshcore.events import EventType
+            from hashlib import sha256
+
+            scope = args.get("scope")
+            scope_text = "" if scope is None else str(scope).strip()
+            clear = scope_text in {"", "0", "*", "None", "none"}
+
+            if clear:
+                frame = bytes((63,))
+                expected_name = ""
+            else:
+                if not scope_text.startswith("#"):
+                    scope_text = "#" + scope_text
+                encoded = scope_text.encode("utf-8")
+                if len(encoded) >= 31:
+                    connection.send_error(
+                        msg["id"],
+                        "invalid",
+                        "Default Region Scope must fit in 30 UTF-8 bytes",
+                    )
+                    return
+                scope_key = sha256(encoded).digest()[:16]
+                frame = bytes((63,)) + encoded + bytes(31 - len(encoded)) + scope_key
+                expected_name = scope_text
+
+            response = await coordinator.api.mesh_core.commands.send(
+                frame,
+                [EventType.OK, EventType.ERROR],
+            )
+            reason = _device_config_failure_reason(response)
+            if reason is not None:
+                connection.send_error(
+                    msg["id"],
+                    "command_failed",
+                    f"Default Region Scope: {reason}",
+                )
+                return
+
+            verified = await coordinator.api.mesh_core.commands.get_default_flood_scope()
+            reason = _device_config_failure_reason(verified)
+            if reason is not None:
+                connection.send_error(
+                    msg["id"],
+                    "command_failed",
+                    f"Default Region Scope read-back: {reason}",
+                )
+                return
+
+            payload = getattr(verified, "payload", None)
+            actual_name = ""
+            if isinstance(payload, dict):
+                actual_name = str(
+                    payload.get("name")
+                    or payload.get("scope")
+                    or payload.get("scope_name")
+                    or ""
+                )
+            elif payload is not None:
+                actual_name = str(payload)
+
+            # Event formatting differs slightly between meshcore_py versions.
+            # Only enforce the exact name when the SDK exposes one; the device
+            # OK response remains authoritative otherwise.
+            if actual_name and expected_name and expected_name not in actual_name:
+                connection.send_error(
+                    msg["id"],
+                    "command_failed",
+                    f"Default Region Scope read-back mismatch: {actual_name}",
+                )
+                return
+
+            timestamp = datetime.now().isoformat()
+            connection.send_result(
+                msg["id"],
+                {
+                    "response": (
+                        f"Default Region Scope: {expected_name or '<null>'}"
+                    ),
+                    "success": True,
+                    "timestamp": timestamp,
+                },
+            )
+            return
+
         # Get the command method from mesh_core.commands
         command_method = getattr(coordinator.api.mesh_core.commands, command, None)
         if not command_method:
