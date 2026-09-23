@@ -427,6 +427,77 @@ void MyMesh::onAdvertRecv(mesh::Packet* packet, const mesh::Identity& id,
   );
   _processing_shared_advert = false;
 
+  // Optional secondary RTC source: trusted Portuguese MeshCore Timekeeper.
+  // APP/GPS are always primary. Once either has synchronized this boot, mesh
+  // adverts no longer adjust the clock until the next boot.
+  if (
+    _prefs.mesh_time_sync &&
+    packet != NULL &&
+    !shared_advert
+  ) {
+    static const uint8_t PORTUGAL_TIMEKEEPER_ID[PUB_KEY_SIZE] = {
+      0x01, 0xB2, 0xF5, 0xDA, 0x46, 0xBC, 0x0A, 0x9C,
+      0x67, 0xFB, 0x8E, 0xDC, 0x36, 0x62, 0x57, 0xB6,
+      0x04, 0x52, 0x73, 0xB8, 0x9F, 0x37, 0xF3, 0x08,
+      0x04, 0x4A, 0xD5, 0x57, 0x17, 0x34, 0xD4, 0x62
+    };
+
+    const mesh::RTCClock::SyncSource current_source =
+      getRTCClock()->getLastSyncSource();
+
+    if (
+      current_source != mesh::RTCClock::SyncSource::Companion &&
+      current_source != mesh::RTCClock::SyncSource::GPS &&
+      timestamp >= 1767225600UL &&
+      packet->getPathHashCount() < 8 &&
+      memcmp(id.pub_key, PORTUGAL_TIMEKEEPER_ID, PUB_KEY_SIZE) == 0
+    ) {
+      AdvertDataParser time_parser(app_data, app_data_len);
+
+      if (
+        time_parser.isValid() &&
+        time_parser.getType() == ADV_TYPE_NONE &&
+        (last_network_sync_time == 0 ||
+         timestamp > last_network_sync_time)
+      ) {
+        const uint32_t now = getRTCClock()->getCurrentTime();
+        const int64_t diff = (int64_t)timestamp - (int64_t)now;
+        const bool initial =
+          now < 1767225600UL ||
+          current_source != mesh::RTCClock::SyncSource::Mesh;
+
+        // First mesh sync is forward-only. Once Mesh is the active source,
+        // maintenance corrections are constrained to +/-60 seconds.
+        const bool apply =
+          initial
+            ? diff > 0
+            : (diff >= -60 && diff <= 60);
+
+        if (apply) {
+          getRTCClock()->setCurrentTimeFromSource(
+            timestamp,
+            mesh::RTCClock::SyncSource::Mesh
+          );
+          last_network_sync_time = timestamp;
+
+          // Smart Advert deadlines are based on RTC and must be recalculated.
+          next_smart_advert = 0;
+
+          MESH_DEBUG_PRINTLN(
+            "HiveFW Mesh Time: %s sync applied (diff=%ld sec)",
+            initial ? "initial" : "maintenance",
+            (long)diff
+          );
+        } else {
+          MESH_DEBUG_PRINTLN(
+            "HiveFW Mesh Time: sync rejected (diff=%ld sec)",
+            (long)diff
+          );
+        }
+      }
+    }
+  }
+
   if (!_prefs.isRepeatEn()) {
     return;
   }
@@ -4365,6 +4436,7 @@ void MyMesh::begin(bool has_display) {
   _prefs.tx_delay_factor = constrain(_prefs.tx_delay_factor, 0, 2.0f);
   _prefs.direct_tx_delay_factor = constrain(_prefs.direct_tx_delay_factor, 0, 2.0f);
   _prefs.cad_enabled = constrain(_prefs.cad_enabled, 0, 1);
+  _prefs.mesh_time_sync = constrain(_prefs.mesh_time_sync, 0, 1);
   _prefs.airtime_factor = constrain(_prefs.airtime_factor, 0, 9.0f);
   _prefs.freq = constrain(_prefs.freq, 150.0f, 2500.0f);
   _prefs.bw = constrain(_prefs.bw, 7.8f, 500.0f);
@@ -5339,6 +5411,10 @@ void MyMesh::handleCmdFrame(size_t len) {
       "auto_advert",
       _prefs.isAutoAdvertEn() ? "1" : "0"
     );
+    appendCustomVar(
+      "mesh_time",
+      _prefs.mesh_time_sync ? "1" : "0"
+    );
 
     float duty_af = _prefs.airtime_factor;
     if (duty_af < 1.0f) duty_af = 1.0f;
@@ -5435,13 +5511,14 @@ void MyMesh::handleCmdFrame(size_t len) {
     snprintf(
       cad_diag_value,
       sizeof(cad_diag_value),
-      "%lu/%lu/%lu/%lu/%lu/%lu",
+      "%lu/%lu/%lu/%lu/%lu/%lu/%lu",
       (unsigned long)getCADTimeoutCount(),
       (unsigned long)getCADRecoveryCount(),
       (unsigned long)getCADForcedTxCount(),
       (unsigned long)getCADLastBusyMillis(),
       (unsigned long)getCADLongestBusyMillis(),
-      (unsigned long)getCADLastTimeoutAgeSeconds()
+      (unsigned long)getCADLastTimeoutAgeSeconds(),
+      (unsigned long)getNumExpired()
     );
     appendCustomVar("cad_diag", cad_diag_value);
 
@@ -5472,6 +5549,15 @@ void MyMesh::handleCmdFrame(size_t len) {
       if (strcmp(sp, "auto_advert") == 0) {
         if (strcmp(np, "0") == 0 || strcmp(np, "1") == 0) {
           setAutoAdvertEnabled(np[0] == '1');
+          success = true;
+        }
+      } else if (strcmp(sp, "mesh_time") == 0) {
+        if (strcmp(np, "0") == 0 || strcmp(np, "1") == 0) {
+          _prefs.mesh_time_sync = np[0] == '1' ? 1 : 0;
+          if (!_prefs.mesh_time_sync) {
+            last_network_sync_time = 0;
+          }
+          savePrefs();
           success = true;
         }
       } else if (strcmp(sp, "route") == 0) {
