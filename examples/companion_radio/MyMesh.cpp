@@ -1323,6 +1323,14 @@ static bool isHiveFWRepeaterAdminCommand(const char* text) {
   while (*text == ' ' || *text == '\t') text++;
   if (*text == '\0') return false;
 
+  // MeshCore clients can prefix remote CLI commands with a two-character
+  // correlation token plus '|', e.g. "0A|get radio". The command handler
+  // already reflects this prefix in its response; strip it only for routing.
+  if (strlen(text) > 3 && text[2] == '|') {
+    text += 3;
+    while (*text == ' ' || *text == '\t') text++;
+  }
+
   // Keep normal Companion chat available even for identities that are also in
   // the Repeater ACL. Only strings in the official Repeater CLI namespace are
   // consumed by the admin adapter.
