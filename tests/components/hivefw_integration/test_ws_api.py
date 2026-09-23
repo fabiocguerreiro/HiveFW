@@ -180,6 +180,92 @@ def companion_entry(hass: HomeAssistant) -> MockConfigEntry:
 # ─── Pure-helper tests ─────────────────────────────────────────────────
 
 
+async def test_read_repeater_profile_decodes_owner_and_hardware_settings() -> None:
+    commands = MagicMock()
+    first = MagicMock()
+    first.type = object()
+    first.payload = {"owner": "VGVzdCBvd25lcg=="}
+    second = MagicMock()
+    second.type = object()
+    second.payload = {"rxg": "1", "adc_m": "5420"}
+    commands.send = AsyncMock(side_effect=[first, second])
+
+    profile, error = await ws_api._read_repeater_profile(commands)
+
+    assert error is None
+    assert profile == {
+        "supported": True,
+        "owner_info": "Test owner",
+        "rx_boosted_gain": True,
+        "adc_multiplier": 5.42,
+    }
+    assert commands.send.await_count == 2
+    assert commands.send.await_args_list[0].args[0] == bytes((0x42, 0))
+    assert commands.send.await_args_list[1].args[0] == bytes((0x42, 1))
+
+
+async def test_read_repeater_acl_returns_full_persisted_identities() -> None:
+    commands = MagicMock()
+    key_a = "11" * 32
+    key_b = "22" * 32
+
+    first = MagicMock()
+    first.type = object()
+    first.payload = {
+        "idx": "0",
+        "total": "2",
+        "key": key_a,
+        "perm": "1",
+        "last": "123",
+    }
+    second = MagicMock()
+    second.type = object()
+    second.payload = {
+        "idx": "1",
+        "total": "2",
+        "key": key_b,
+        "perm": "3",
+        "last": "456",
+    }
+    commands.send = AsyncMock(side_effect=[first, second])
+
+    entries, error = await ws_api._read_repeater_acl(commands, 2)
+
+    assert error is None
+    assert entries == [
+        {
+            "index": 0,
+            "public_key": key_a,
+            "pubkey_prefix": key_a[:12],
+            "permissions": 1,
+            "last_activity": 123,
+        },
+        {
+            "index": 1,
+            "public_key": key_b,
+            "pubkey_prefix": key_b[:12],
+            "permissions": 3,
+            "last_activity": 456,
+        },
+    ]
+
+
+async def test_set_repeater_acl_entry_uses_full_key_and_role() -> None:
+    commands = MagicMock()
+    result = MagicMock()
+    result.type = object()
+    result.payload = {}
+    commands.send = AsyncMock(return_value=result)
+
+    key = "ab" * 32
+    error = await ws_api._set_repeater_acl_entry(commands, key, 2)
+
+    assert error is None
+    frame = commands.send.await_args.args[0]
+    assert frame[:2] == bytes((0x44, 2))
+    assert frame[2:] == bytes.fromhex(key)
+
+
 def test_compute_type_counts_buckets_correctly() -> None:
     contacts = [
         {"type": 0}, {"type": 1}, {"type": 1},  # 3 clients
