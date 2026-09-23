@@ -6930,6 +6930,7 @@ class HiveFWPanel extends BasePanel {
     root.style.minWidth="300px";
     root.style.maxWidth="410px";
     root.style.fontFamily="var(--paper-font-body1_-_font-family, sans-serif)";
+    root.style.color="var(--primary-text-color,#212121)";
 
     const header=document.createElement("div");
     header.style.cssText="display:flex;align-items:center;gap:10px;padding-top:14px;margin-bottom:8px;";
@@ -6999,19 +7000,6 @@ class HiveFWPanel extends BasePanel {
         });
         tagRow.appendChild(chip);
       }
-      const addTag=document.createElement("button");
-      addTag.type="button";addTag.textContent="+ Tag";addTag.title="Adicionar tag local";
-      addTag.style.cssText="padding:3px 7px;border:1px dashed var(--divider-color,#aaa);border-radius:999px;background:transparent;color:var(--primary-color,#03a9f4);font-size:10px;font-weight:650;cursor:pointer;";
-      addTag.addEventListener("click",(event)=>{
-        event.preventDefault();event.stopPropagation();
-        const raw=window.prompt("Nova tag para este nó:","");
-        if(raw==null)return;
-        const tag=raw.trim().replace(/^#+/,"").replace(/\s+/g," ").slice(0,24);
-        if(!tag)return;
-        const next=[...new Set([...meta.tags,tag])].slice(0,8);
-        this.__setNodeMeta(contact,{tags:next});
-      });
-      tagRow.appendChild(addTag);
       root.appendChild(tagRow);
     }
 
@@ -7033,16 +7021,36 @@ class HiveFWPanel extends BasePanel {
     if(Number.isFinite(rssi))rows.push(["RSSI",`${rssi} dBm`]);
     if(Number.isFinite(snr))rows.push(["SNR",`${snr} dB`]);
 
+    const formatElapsed=(seconds)=>{
+      const total=Math.max(0,Math.floor(Number(seconds)||0));
+      if(total<60)return total+" s";
+      if(total<3600)return Math.floor(total/60)+" min";
+      if(total<86400){
+        const hours=Math.floor(total/3600);
+        const minutes=Math.floor((total%3600)/60);
+        return hours+" h"+(minutes?" "+minutes+" min":"");
+      }
+      const days=Math.floor(total/86400);
+      const hours=Math.floor((total%86400)/3600);
+      return days+" d"+(hours?" "+hours+" h":"");
+    };
+
     const lastAdvert=Number(contact.last_advert||0);
     if(lastAdvert>0){
       const date=new Date(lastAdvert*1000);
-      if(!Number.isNaN(date.getTime()))rows.push(["Último advert",date.toLocaleString()]);
+      if(!Number.isNaN(date.getTime())){
+        const ageSeconds=(Date.now()-date.getTime())/1000;
+        rows.push([
+          "Último advert",
+          date.toLocaleString()+"\nHá "+formatElapsed(ageSeconds)
+        ]);
+      }
     }
 
     const lastmod=Number(contact.lastmod ?? contact.last_modified ?? 0);
     if(lastmod>0){
       const date=new Date(lastmod*1000);
-      if(!Number.isNaN(date.getTime()))rows.push(["Atualizado localmente",date.toLocaleString()]);
+      if(!Number.isNaN(date.getTime()))rows.push(["Criado localmente",date.toLocaleString()]);
     }
 
     const lat=Number(contact.adv_lat ?? contact.latitude);
@@ -7087,11 +7095,14 @@ class HiveFWPanel extends BasePanel {
 
       const key=document.createElement("span");
       key.textContent=label;
-      key.style.color="var(--secondary-text-color,#666)";
+      key.style.color="var(--primary-text-color,#212121)";
+      key.style.fontWeight="650";
 
       const val=document.createElement("span");
       val.textContent=String(value);
       val.style.fontWeight="500";
+      val.style.color="var(--primary-text-color,#212121)";
+      val.style.whiteSpace="pre-line";
       val.style.minWidth="0";
       val.style.overflowWrap="anywhere";
       if(mono)val.style.fontFamily="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace";
@@ -7185,6 +7196,17 @@ class HiveFWPanel extends BasePanel {
     actions.appendChild(copy);
     root.appendChild(actions);
 
+    const close=document.createElement("button");
+    close.type="button";
+    close.textContent="Fechar";
+    close.style.cssText="width:100%;margin-top:7px;padding:7px 9px;border:1px solid var(--divider-color,#bbb);border-radius:6px;background:var(--card-background-color,#fff);color:var(--primary-text-color,#212121);font-size:12px;font-weight:600;cursor:pointer;";
+    close.addEventListener("click",(event)=>{
+      event.preventDefault();
+      event.stopPropagation();
+      this.__closePersistentNodePopup();
+    });
+    root.appendChild(close);
+
     return root;
   }
 
@@ -7254,7 +7276,7 @@ class HiveFWPanel extends BasePanel {
       autoPan:true,
       autoClose:false,
       closeOnClick:false,
-      closeButton:true,
+      closeButton:false,
       minWidth:320,
       maxWidth:440,
       className:"hivefw-node-popup",
