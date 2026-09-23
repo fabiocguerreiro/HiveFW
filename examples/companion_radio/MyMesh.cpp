@@ -1375,7 +1375,7 @@ bool MyMesh::handleRepeaterRemoteCommand(
   }
 
   if (strcmp(command, "get name") == 0) {
-    snprintf(reply, reply_size, "%s", _prefs.node_name);
+    snprintf(reply, reply_size, "> %s", _prefs.node_name);
     return true;
   }
 
@@ -1383,7 +1383,7 @@ bool MyMesh::handleRepeaterRemoteCommand(
     snprintf(
       reply,
       reply_size,
-      "%.3f,%.3f,%u,%u",
+      "> %.3f,%.3f,%u,%u",
       _prefs.freq,
       _prefs.bw,
       (unsigned)_prefs.sf,
@@ -1393,17 +1393,17 @@ bool MyMesh::handleRepeaterRemoteCommand(
   }
 
   if (strcmp(command, "get freq") == 0) {
-    snprintf(reply, reply_size, "%.3f", _prefs.freq);
+    snprintf(reply, reply_size, "> %.3f", _prefs.freq);
     return true;
   }
 
   if (strcmp(command, "get tx") == 0) {
-    snprintf(reply, reply_size, "%d", (int)_prefs.tx_power_dbm);
+    snprintf(reply, reply_size, "> %d", (int)_prefs.tx_power_dbm);
     return true;
   }
 
   if (strcmp(command, "get af") == 0) {
-    snprintf(reply, reply_size, "%.3f", _prefs.airtime_factor);
+    snprintf(reply, reply_size, "> %.3f", _prefs.airtime_factor);
     return true;
   }
 
@@ -1411,17 +1411,17 @@ bool MyMesh::handleRepeaterRemoteCommand(
     const float pct =
       100.0f / (_prefs.airtime_factor + 1.0f);
 
-    snprintf(reply, reply_size, "%.1f%%", pct);
+    snprintf(reply, reply_size, "> %.1f%%", pct);
     return true;
   }
 
   if (strcmp(command, "get lat") == 0) {
-    snprintf(reply, reply_size, "%.6f", _prefs.node_lat);
+    snprintf(reply, reply_size, "> %.6f", _prefs.node_lat);
     return true;
   }
 
   if (strcmp(command, "get lon") == 0) {
-    snprintf(reply, reply_size, "%.6f", _prefs.node_lon);
+    snprintf(reply, reply_size, "> %.6f", _prefs.node_lon);
     return true;
   }
 
@@ -1429,29 +1429,29 @@ bool MyMesh::handleRepeaterRemoteCommand(
     snprintf(
       reply,
       reply_size,
-      "%s",
+      "> %s",
       _prefs.isRepeatEn() ? "on" : "off"
     );
     return true;
   }
 
   if (strcmp(command, "get rxdelay") == 0) {
-    snprintf(reply, reply_size, "%.3f", _prefs.rx_delay_base);
+    snprintf(reply, reply_size, "> %.3f", _prefs.rx_delay_base);
     return true;
   }
 
   if (strcmp(command, "get txdelay") == 0) {
-    snprintf(reply, reply_size, "%.3f", _prefs.tx_delay_factor);
+    snprintf(reply, reply_size, "> %.3f", _prefs.tx_delay_factor);
     return true;
   }
 
   if (strcmp(command, "get direct.txdelay") == 0) {
-    snprintf(reply, reply_size, "%.3f", _prefs.direct_tx_delay_factor);
+    snprintf(reply, reply_size, "> %.3f", _prefs.direct_tx_delay_factor);
     return true;
   }
 
   if (strcmp(command, "get flood.max") == 0) {
-    snprintf(reply, reply_size, "%u", (unsigned)_prefs.getFloodMax());
+    snprintf(reply, reply_size, "> %u", (unsigned)_prefs.getFloodMax());
     return true;
   }
 
@@ -1459,7 +1459,7 @@ bool MyMesh::handleRepeaterRemoteCommand(
     snprintf(
       reply,
       reply_size,
-      "%u",
+      "> %u",
       (unsigned)_prefs.getFloodMaxUnscoped()
     );
     return true;
@@ -1469,7 +1469,7 @@ bool MyMesh::handleRepeaterRemoteCommand(
     snprintf(
       reply,
       reply_size,
-      "%u",
+      "> %u",
       (unsigned)_prefs.getFloodMaxAdvert()
     );
     return true;
@@ -1479,7 +1479,7 @@ bool MyMesh::handleRepeaterRemoteCommand(
     snprintf(
       reply,
       reply_size,
-      "%u",
+      "> %u",
       (unsigned)_prefs.interference_threshold
     );
     return true;
@@ -1489,26 +1489,26 @@ bool MyMesh::handleRepeaterRemoteCommand(
     snprintf(
       reply,
       reply_size,
-      "%u",
-      (unsigned)_prefs.agc_reset_interval
+      "> %u",
+      (unsigned)_prefs.agc_reset_interval * 4U
     );
     return true;
   }
 
   if (strcmp(command, "get multi.acks") == 0) {
-    snprintf(reply, reply_size, "%u", (unsigned)_prefs.multi_acks);
+    snprintf(reply, reply_size, "> %u", (unsigned)_prefs.multi_acks);
     return true;
   }
 
   if (strcmp(command, "get public.key") == 0) {
     char hex[PUB_KEY_SIZE * 2 + 1];
     mesh::Utils::toHex(hex, self_id.pub_key, PUB_KEY_SIZE);
-    snprintf(reply, reply_size, "%s", hex);
+    snprintf(reply, reply_size, "> %s", hex);
     return true;
   }
 
   if (strcmp(command, "get role") == 0) {
-    snprintf(reply, reply_size, "repeater");
+    snprintf(reply, reply_size, "> repeater");
     return true;
   }
 
@@ -1516,7 +1516,7 @@ bool MyMesh::handleRepeaterRemoteCommand(
     snprintf(
       reply,
       reply_size,
-      "%s",
+      "> %s",
       _prefs.getRepeaterGuestPassword()
     );
     return true;
@@ -1524,6 +1524,10 @@ bool MyMesh::handleRepeaterRemoteCommand(
 
   if (strcmp(command, "get owner.info") == 0) {
     size_t out = 0;
+    if (reply_size > 2) {
+      reply[out++] = '>';
+      reply[out++] = ' ';
+    }
     for (
       const char* sp = _prefs.owner_info;
       *sp && out + 1 < reply_size;
@@ -1536,7 +1540,7 @@ bool MyMesh::handleRepeaterRemoteCommand(
   }
 
   if (strcmp(command, "get path.hash.mode") == 0) {
-    snprintf(reply, reply_size, "%u", (unsigned)_prefs.path_hash_mode);
+    snprintf(reply, reply_size, "> %u", (unsigned)_prefs.path_hash_mode);
     return true;
   }
 
@@ -1551,7 +1555,7 @@ bool MyMesh::handleRepeaterRemoteCommand(
     const uint8_t mode =
       constrain(_prefs.getLoopDetect(), 0, 3);
 
-    snprintf(reply, reply_size, "%s", names[mode]);
+    snprintf(reply, reply_size, "> %s", names[mode]);
     return true;
   }
 
@@ -1559,7 +1563,7 @@ bool MyMesh::handleRepeaterRemoteCommand(
     snprintf(
       reply,
       reply_size,
-      "%s",
+      "> %s",
       _prefs.rx_boosted_gain ? "on" : "off"
     );
     return true;
