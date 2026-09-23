@@ -739,7 +739,7 @@ export class ChatPage extends LitElement {
                 this.selectedId = newId;
                 this._narrowShowMessages = true;
               }}
-              @manage-requested=${() => this._onManageRequested()}></meshcore-conversation-list>
+              @manage-requested=${(e: CustomEvent<{ tab?: 'contacts' | 'channels' }>) => this._onManageRequested(e)}></meshcore-conversation-list>
             <aside
               class="hive-observed-column"
               data-hive-observed-host
@@ -779,7 +779,7 @@ export class ChatPage extends LitElement {
             }
             this.selectedId = newId;
           }}
-          @manage-requested=${() => this._onManageRequested()}></meshcore-conversation-list>
+          @manage-requested=${(e: CustomEvent<{ tab?: 'contacts' | 'channels' }>) => this._onManageRequested(e)}></meshcore-conversation-list>
         <div class="chat-main">
           ${this.selectedId ? html`
             <div class="narrow-header" style="display: flex; align-items: center; padding: 8px 16px;">
@@ -1217,8 +1217,8 @@ export class ChatPage extends LitElement {
     return !/^\d+$/.test(this.selectedId);
   }
 
-  private _onManageRequested() {
-    this._manageInitialTab = 'contacts';
+  private _onManageRequested(event?: CustomEvent<{ tab?: 'contacts' | 'channels' }>) {
+    this._manageInitialTab = event?.detail?.tab === 'channels' ? 'channels' : 'contacts';
     this._manageOpen = true;
   }
 
