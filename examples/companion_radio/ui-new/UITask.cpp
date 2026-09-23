@@ -1980,7 +1980,13 @@ class HomeScreen : public UIScreen {
 
     const char* source_name = "NENHUMA";
     if (synced) {
-      source_name = source == mesh::RTCClock::SyncSource::GPS ? "GPS" : "APP";
+      if (source == mesh::RTCClock::SyncSource::GPS) {
+        source_name = "GPS";
+      } else if (source == mesh::RTCClock::SyncSource::Mesh) {
+        source_name = "MESH";
+      } else {
+        source_name = "APP";
+      }
     }
 
     char origin[24];
