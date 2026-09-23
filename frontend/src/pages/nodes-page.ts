@@ -139,6 +139,7 @@ export class NodesPage extends LitElement {
       grid-column: 3;
       grid-row: 2;
       min-width: 0;
+      margin-top: -28px;
       min-height: 0;
       overflow: hidden;
       background: var(--card-background-color, #fff);
