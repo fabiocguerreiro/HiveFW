@@ -2109,8 +2109,6 @@ export class SettingsPage extends LitElement {
   // _renderAdvancedSettings removed — path hash mode moved to Radio & RF Settings
   // _renderLocationSource removed — merged into _renderLocation
 
-  // Config backup, diagnostics, and backup & recovery removed — low value
-
   private _renderRegionsScopes() {
     const local = this._localRegions;
     const localActionNeedsName = this._localRegionAction !== 'clear_default';
