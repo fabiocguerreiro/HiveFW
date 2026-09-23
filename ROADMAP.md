@@ -92,8 +92,8 @@ Plano aprovado para uma implementação futura:
 7. um Smart Advert que coincida com um Flood periódico deve ceder ao Flood e
    recalcular o seu próximo slot elegível, sem criar um segundo advert;
 8. ações manuais **Local Advert** e **Flood Advert** continuam imediatas e não
-   são tratadas como Smart Advert; devem apenas realinhar os timers periódicos
-   quando isso reproduzir o comportamento oficial;
+   são tratadas como Smart Advert; tal como no simple_repeater oficial, não
+   reiniciam os timers periódicos;
 9. alterações a nome não influenciam o Smart Advert: o HiveFW usa identidade /
    public key para o slot;
 10. a UI futura deve mostrar separadamente os três mecanismos e o próximo envio
@@ -127,7 +127,8 @@ Plano aprovado para uma implementação futura:
 - [x] passwords Admin/Guest write-only e limpeza total da ACL;
 - [x] Frequências Repeater permitidas read-only;
 - [x] RTC Mesh opcional;
-- [x] Backup/Restore Companion separado do Backup/Restore Repeater;
+- [x] Backup/Restore Companion separado do Backup/Restore Repeater e renderizado
+  nativamente em Definições, sem injeção DOM pelo wrapper;
 - [x] Backup Repeater inclui Owner Info, RX Gain, ADC, Repeat, Path Hash,
   Multi ACK, Smart Advert, RTC Mesh, Duty Cycle, Routing/Flood, CAD/AGC/delays,
   RegionMap e ACL;
@@ -185,6 +186,8 @@ ou funcionalidades que não têm equivalente nativo seguro.
 - [x] RTC Mesh passou para a página nativa;
 - [x] leitura Repeater duplicada removida;
 - [x] estado Repeater serializado no backend para evitar respostas cruzadas;
+- [x] Backup & Restore migrado do wrapper para a página Lit nativa;
+- [x] RX Boosted Gain e ADC multiplier integrados no cartão Radio nativo;
 - [x] evitar novas extensões DOM pós-render quando existe componente Lit;
 - [ ] migrar apenas blocos restantes quando houver equivalência funcional
   testada; não remover o wrapper de uma só vez enquanto ainda agrega funções
