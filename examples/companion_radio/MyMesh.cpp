@@ -5061,13 +5061,6 @@ uint32_t MyMesh::getActiveRepeatFreqKhz() const {
   return (uint32_t)(_prefs.freq * 1000.0f + 0.5f);
 }
 
-bool MyMesh::isValidClientRepeatFreq(uint32_t f) const {
-  // This is now a view of the current configuration, not a compile-time
-  // whitelist. A radio-setting command may move _prefs.freq; once saved, that
-  // new value automatically becomes the Repeater frequency too.
-  return f == getActiveRepeatFreqKhz();
-}
-
 void MyMesh::startInterface(BaseSerialInterface &serial) {
   _serial = &serial;
   serial.enable();
