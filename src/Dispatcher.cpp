@@ -12,6 +12,10 @@ namespace mesh {
 #define MIN_TX_BUDGET_RESERVE_MS   100    // min budget (ms) required before allowing next TX
 #define MIN_TX_BUDGET_AIRTIME_DIV  2      // require at least 1/N of estimated airtime as budget before TX
 
+#ifndef MAX_PACKET_QUEUE_AGE_MS
+#define MAX_PACKET_QUEUE_AGE_MS 60000UL
+#endif
+
 #ifndef NOISE_FLOOR_CALIB_INTERVAL
   #define NOISE_FLOOR_CALIB_INTERVAL   2000     // 2 seconds
 #endif
@@ -19,6 +23,7 @@ namespace mesh {
 void Dispatcher::begin() {
   n_sent_flood = n_sent_direct = 0;
   n_recv_flood = n_recv_direct = 0;
+  n_expired = 0;
   cad_busy_start = 0;
   cad_episode_start = 0;
   cad_last_timeout_millis = 0;
@@ -152,6 +157,7 @@ void Dispatcher::loop() {
     }
   }
   checkRecv();
+  expireAgedOutbound();
   checkSend();
 }
 
@@ -277,6 +283,7 @@ void Dispatcher::processRecvPacket(Packet* pkt) {
     uint8_t priority = (action >> 24) - 1;
     uint32_t _delay = action & 0xFFFFFF;
 
+    pkt->queued_at = _ms->getMillis();
     _mgr->queueOutbound(pkt, priority, futureMillis(_delay));
   }
 }
@@ -357,6 +364,24 @@ void Dispatcher::checkSend() {
   cad_recovery_attempted = false;
 
   outbound = _mgr->getNextOutbound(_ms->getMillis());
+
+  while (
+    outbound &&
+    (long)(_ms->getMillis() - outbound->queued_at) >
+      (long)MAX_PACKET_QUEUE_AGE_MS
+  ) {
+    MESH_DEBUG_PRINTLN(
+      "%s Dispatcher::checkSend(): outbound packet expired in TX queue (age=%lu ms), dropping",
+      getLogDateTime(),
+      (unsigned long)(_ms->getMillis() - outbound->queued_at)
+    );
+    onPacketExpired(outbound);
+    n_expired++;
+    _err_flags |= ERR_EVENT_PKT_EXPIRED;
+    releasePacket(outbound);
+    outbound = _mgr->getNextOutbound(_ms->getMillis());
+  }
+
   if (outbound) {
     int len = 0;
     uint8_t raw[MAX_TRANS_UNIT];
@@ -420,11 +445,36 @@ void Dispatcher::releasePacket(Packet* packet) {
   _mgr->free(packet);
 }
 
+void Dispatcher::expireAgedOutbound() {
+  const unsigned long now = _ms->getMillis();
+  const int count = _mgr->getOutboundTotal();
+
+  for (int i = count - 1; i >= 0; i--) {
+    Packet* pkt = _mgr->getOutboundByIdx(i);
+    if (pkt == NULL || pkt->queued_at == 0) continue;
+
+    if ((long)(now - pkt->queued_at) > (long)MAX_PACKET_QUEUE_AGE_MS) {
+      MESH_DEBUG_PRINTLN(
+        "%s Dispatcher::expireAgedOutbound(): packet expired in TX queue (age=%lu ms), dropping",
+        getLogDateTime(),
+        (unsigned long)(now - pkt->queued_at)
+      );
+
+      _mgr->removeOutboundByIdx(i);
+      onPacketExpired(pkt);
+      n_expired++;
+      _err_flags |= ERR_EVENT_PKT_EXPIRED;
+      releasePacket(pkt);
+    }
+  }
+}
+
 void Dispatcher::sendPacket(Packet* packet, uint8_t priority, uint32_t delay_millis) {
   if (!Packet::isValidPathLen(packet->path_len) || packet->payload_len > MAX_PACKET_PAYLOAD) {
     MESH_DEBUG_PRINTLN("%s Dispatcher::sendPacket(): ERROR: invalid packet... path_len=%d, payload_len=%d", getLogDateTime(), (uint32_t) packet->path_len, (uint32_t) packet->payload_len);
     _mgr->free(packet);
   } else {
+    packet->queued_at = _ms->getMillis();
     _mgr->queueOutbound(packet, priority, futureMillis(delay_millis));
   }
 }
