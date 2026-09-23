@@ -589,6 +589,8 @@ private:
   uint32_t companion_advert_tx_count = 0;
   uint32_t companion_advert_rx_count = 0;
   uint32_t companion_auto_advert_tx_count = 0;
+  // Highest trusted Mesh Timekeeper timestamp accepted this boot.
+  uint32_t last_network_sync_time = 0;
 
   struct RepeaterNeighbour {
     mesh::Identity id;
