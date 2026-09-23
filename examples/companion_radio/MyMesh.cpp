@@ -1982,12 +1982,6 @@ bool MyMesh::handleRepeaterRemoteCommand(
       return true;
     }
 
-    const uint32_t freq_khz = (uint32_t)(freq * 1000.0f + 0.5f);
-    if (_prefs.isRepeatEn() && !isValidClientRepeatFreq(freq_khz)) {
-      snprintf(reply, reply_size, "Err - frequency not allowed for HiveFW Repeater");
-      return true;
-    }
-
     _prefs.freq = freq;
     _prefs.bw = bw;
     _prefs.sf = (uint8_t)sf;
@@ -2000,12 +1994,10 @@ bool MyMesh::handleRepeaterRemoteCommand(
 
   if (strncmp(command, "set freq ", 9) == 0) {
     const float value = atof(command + 9);
-    const uint32_t freq_khz = (uint32_t)(value * 1000.0f + 0.5f);
 
     if (
       value < 150.0f ||
-      value > 2500.0f ||
-      (_prefs.isRepeatEn() && !isValidClientRepeatFreq(freq_khz))
+      value > 2500.0f
     ) {
       snprintf(reply, reply_size, "Err - invalid Repeater frequency");
       return true;
@@ -5059,25 +5051,21 @@ bool MyMesh::syncClockFromCompanionTime() {
 }
 
 
-struct FreqRange {
-  uint32_t lower_freq, upper_freq;
-};
-
-static FreqRange repeat_freq_ranges[] = {
-  #ifdef ALLOWED_REPEAT_FREQ_RANGE
-  ALLOWED_REPEAT_FREQ_RANGE
-  #else
-  { 433375, 433375 },
-  { 869618, 869618 }
-  #endif
-};
+// HiveFW Companion + Repeater uses one RF configuration only.
+//
+// The Repeater role does not own a second/fixed frequency whitelist. Its
+// frequency is always the current Companion radio frequency in NodePrefs.
+// CMD_GET_ALLOWED_REPEAT_FREQ still exists for Companion/mobile clients, but
+// exposes that one mutable frequency as a single-point range.
+uint32_t MyMesh::getActiveRepeatFreqKhz() const {
+  return (uint32_t)(_prefs.freq * 1000.0f + 0.5f);
+}
 
 bool MyMesh::isValidClientRepeatFreq(uint32_t f) const {
-  for (int i = 0; i < sizeof(repeat_freq_ranges)/sizeof(repeat_freq_ranges[0]); i++) {
-    auto r = &repeat_freq_ranges[i];
-    if (f >= r->lower_freq && f <= r->upper_freq) return true;
-  }
-  return false;
+  // This is now a view of the current configuration, not a compile-time
+  // whitelist. A radio-setting command may move _prefs.freq; once saved, that
+  // new value automatically becomes the Repeater frequency too.
+  return f == getActiveRepeatFreqKhz();
 }
 
 void MyMesh::startInterface(BaseSerialInterface &serial) {
@@ -5499,9 +5487,7 @@ void MyMesh::handleCmdFrame(size_t len) {
       repeat = cmd_frame[i++];   // FIRMWARE_VER_CODE  9+
     }
 
-    if (repeat && !isValidClientRepeatFreq(freq)) {
-      writeErrFrame(ERR_CODE_ILLEGAL_ARG);
-    } else if (freq >= 150000 && freq <= 2500000 && sf >= 5 && sf <= 12 && cr >= 5 && cr <= 8 && bw >= 7000 &&
+    if (freq >= 150000 && freq <= 2500000 && sf >= 5 && sf <= 12 && cr >= 5 && cr <= 8 && bw >= 7000 &&
         bw <= 500000) {
       _prefs.sf = sf;
       _prefs.cr = cr;
@@ -7109,11 +7095,14 @@ void MyMesh::handleCmdFrame(size_t len) {
   } else if (cmd_frame[0] == CMD_GET_ALLOWED_REPEAT_FREQ) {
     int i = 0;
     out_frame[i++] = RESP_ALLOWED_REPEAT_FREQ;
-    for (int k = 0; k < sizeof(repeat_freq_ranges)/sizeof(repeat_freq_ranges[0]) && i + 8 < sizeof(out_frame); k++) {
-      auto r = &repeat_freq_ranges[k];
-      memcpy(&out_frame[i], &r->lower_freq, 4); i += 4;
-      memcpy(&out_frame[i], &r->upper_freq, 4); i += 4;
-    }
+
+    // One mutable entry: the Repeater uses exactly the active Companion
+    // frequency. Encode it as a single-point [min,max] range for protocol
+    // compatibility with clients that expect repeat-frequency ranges.
+    const uint32_t active_freq = getActiveRepeatFreqKhz();
+    memcpy(&out_frame[i], &active_freq, 4); i += 4;
+    memcpy(&out_frame[i], &active_freq, 4); i += 4;
+
     _serial->writeFrame(out_frame, i);
   } else if (cmd_frame[0] == CMD_SEND_RAW_PACKET && len >= 4) {
     auto pkt = obtainNewPacket();
