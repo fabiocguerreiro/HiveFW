@@ -2333,6 +2333,20 @@ async def ws_get_local_repeater_status(hass, connection, msg):
             "on",
             "yes",
         }
+        neighbor_advert_supported = "nbr_adv" in custom_vars
+        neighbor_advert_interval = None
+        if neighbor_advert_supported:
+            try:
+                parsed_neighbor_advert = int(
+                    str(custom_vars.get("nbr_adv", "")).strip()
+                )
+                if parsed_neighbor_advert == 0 or (
+                    60 <= parsed_neighbor_advert <= 240
+                    and parsed_neighbor_advert % 2 == 0
+                ):
+                    neighbor_advert_interval = parsed_neighbor_advert
+            except (TypeError, ValueError):
+                neighbor_advert_interval = None
         mesh_time_sync_supported = "mt" in custom_vars
         mesh_time_sync = str(custom_vars.get("mt", "0")).strip().lower() in {
             "1",
@@ -2459,6 +2473,8 @@ async def ws_get_local_repeater_status(hass, connection, msg):
                 "repeat": repeat_enabled,
                 "auto_advert_supported": auto_advert_supported,
                 "auto_advert": auto_advert,
+                "neighbor_advert_supported": neighbor_advert_supported,
+                "neighbor_advert_interval": neighbor_advert_interval,
                 "mesh_time_sync_supported": mesh_time_sync_supported,
                 "mesh_time_sync": mesh_time_sync,
                 "smart_advert": smart_advert,
@@ -3646,6 +3662,78 @@ async def ws_set_device_config(hass, connection, msg):
                 )
                 return
             changed.append("auto_advert")
+
+        if "neighbor_advert_interval" in settings:
+            try:
+                neighbor_minutes = int(settings["neighbor_advert_interval"])
+            except (TypeError, ValueError):
+                neighbor_minutes = -1
+
+            if not (
+                neighbor_minutes == 0
+                or (
+                    60 <= neighbor_minutes <= 240
+                    and neighbor_minutes % 2 == 0
+                )
+            ):
+                _send_device_config_failure(
+                    connection,
+                    msg["id"],
+                    "neighbor_advert_interval",
+                    "interval must be 0 or 60-240 minutes in steps of 2",
+                    changed,
+                )
+                return
+
+            result = await coordinator.api.mesh_core.commands.set_custom_var(
+                "nbr_adv",
+                str(neighbor_minutes),
+            )
+            reason = _device_config_failure_reason(result)
+            if reason is not None:
+                _send_device_config_failure(
+                    connection,
+                    msg["id"],
+                    "neighbor_advert_interval",
+                    reason,
+                    changed,
+                )
+                return
+
+            verified = await coordinator.api.mesh_core.commands.get_custom_vars()
+            reason = _device_config_failure_reason(verified)
+            if reason is not None:
+                _send_device_config_failure(
+                    connection,
+                    msg["id"],
+                    "neighbor_advert_interval verification",
+                    reason,
+                    changed,
+                )
+                return
+
+            verified_payload = getattr(verified, "payload", {}) or {}
+            try:
+                actual_neighbor_minutes = int(
+                    str(verified_payload.get("nbr_adv", "")).strip()
+                )
+            except (TypeError, ValueError):
+                actual_neighbor_minutes = -1
+
+            if actual_neighbor_minutes != neighbor_minutes:
+                _send_device_config_failure(
+                    connection,
+                    msg["id"],
+                    "neighbor_advert_interval verification",
+                    (
+                        "read-back mismatch: requested "
+                        f"{neighbor_minutes} min, got {actual_neighbor_minutes} min"
+                    ),
+                    changed,
+                )
+                return
+
+            changed.append("neighbor_advert_interval")
 
         if "mesh_time_sync" in settings:
             requested_mesh_time = bool(settings["mesh_time_sync"])
