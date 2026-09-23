@@ -4250,7 +4250,7 @@ let e,t,i,o,a,r,s,n,l,d,c,p,h,u,v,g,m,f,_,b,y,x,w,$,k,C,S,M,A,R,z,T,I,N,F,D,E,O,
       grid-column: 3;
       grid-row: 1;
       min-width: 0;
-      padding: 12px;
+      padding: 12px 12px 0;
       box-sizing: border-box;
       background: var(--card-background-color, #fff);
       border-left: 1px solid var(--divider-color, #e0e0e0);
