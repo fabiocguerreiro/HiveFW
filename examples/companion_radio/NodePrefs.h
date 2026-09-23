@@ -256,6 +256,9 @@ public:
   bool isAutoAdvertEn() const { return repeat.auto_advert == 1; }
   void setAutoAdvertEn(bool en) { repeat.auto_advert = en ? 1 : 0; }
 
+  bool isAllowReadOnlyEn() const { return repeat.allow_read_only == 1; }
+  void setAllowReadOnlyEn(bool en) { repeat.allow_read_only = en ? 1 : 0; }
+
   uint32_t getLastAutoAdvertEpoch() const {
     return repeat.last_auto_advert_epoch;
   }
