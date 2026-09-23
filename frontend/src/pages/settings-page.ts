@@ -135,6 +135,7 @@ export class SettingsPage extends LitElement {
   @state() private _adminPasswordDraft = '';
   @state() private _guestPasswordDraft = '';
   @state() private _repeaterAccessBusy: 'admin' | 'guest' | 'acl' | null = null;
+  @state() private _repeaterReadBusy = false;
   @state() private _confirmAction: ConfirmAction | null = null;
   @state() private _confirmDialogOpen = false;
   @state() private _locationSource: 'gps' | 'manual' | 'ha_location' = 'manual';
@@ -1146,19 +1147,9 @@ export class SettingsPage extends LitElement {
     try {
       this._deviceConfig = await getDeviceConfig(this.hass, this.config?.entry_id);
       // Repeater status is best-effort: Settings remains usable even when an
-      // older Companion cannot answer the newer stats/tuning queries.
-      try {
-        this._repeaterStatus = await getLocalRepeaterStatus(this.hass, this.config?.entry_id);
-        if (
-          this._repeaterStatus?.duty_cycle !== undefined &&
-          this._dutyCycleReadValue === null
-        ) {
-          this._dutyCycleValue = Number(this._repeaterStatus.duty_cycle);
-          this._dutyCycleReadValue = Number(this._repeaterStatus.duty_cycle);
-        }
-      } catch {
-        this._repeaterStatus = null;
-      }
+      // older Companion cannot answer the newer stats/tuning queries. Keep
+      // this as the single authoritative read for the native Settings page.
+      await this._readRepeaterStatus(false, false);
       try {
         this._localRegions = await getLocalRegions(
           this.hass,
@@ -1231,7 +1222,16 @@ export class SettingsPage extends LitElement {
                  class="device-section"
                  data-hive-native="repeater"
                  style="margin-bottom:16px;">
-              <div class="card-title">Repeater Setup</div>
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;">
+                <div class="card-title" style="margin:0;">Repeater Setup</div>
+                <button
+                  class="action-btn"
+                  style="white-space:nowrap;"
+                  ?disabled=${this._repeaterReadBusy || this._saving}
+                  @click=${() => this._readRepeaterStatus(true, true)}>
+                  ${this._repeaterReadBusy ? 'A ler…' : '↻ Ler configuração'}
+                </button>
+              </div>
               ${this._renderRepeaterSettings()}
               <div style="height:1px;background:var(--divider-color);margin:16px 0;"></div>
               <div style="font-size:13px;font-weight:600;margin-bottom:10px;">Regions &amp; Scopes</div>
@@ -2134,6 +2134,10 @@ export class SettingsPage extends LitElement {
     const repeat = Boolean(this._editValues['repeat'] ?? status.repeat);
     const autoAdvertSupported = Boolean(status.auto_advert_supported);
     const autoAdvert = Boolean(this._editValues['auto_advert'] ?? status.auto_advert);
+    const meshTimeSupported = Boolean(status.mesh_time_sync_supported);
+    const meshTimeSync = Boolean(
+      this._editValues['mesh_time_sync'] ?? status.mesh_time_sync
+    );
     const multiAcks = Number(this._editValues['multi_acks'] ?? status.radio.multi_acks ?? 0);
     const rxDelay = Number(this._editValues['rx_delay'] ?? status.tuning.rx_delay ?? 0);
     const routing = status.routing;
@@ -2189,6 +2193,31 @@ export class SettingsPage extends LitElement {
             }}
           />
           ${autoAdvert ? 'Ativo' : 'Desligado'}
+        </label>
+      </div>
+
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;padding:10px 12px;border-radius:8px;background:var(--secondary-background-color);">
+        <div>
+          <div style="font-size:13px;font-weight:600;">Sincronização RTC via Mesh</div>
+          <div style="font-size:11px;color:var(--secondary-text-color);margin-top:2px;line-height:1.45;">
+            Fonte secundária: adverts assinados pelo Timekeeper português
+            (01B2F5DA…1734D462). APP/GPS mantêm prioridade.
+          </div>
+        </div>
+        <label style="display:flex;align-items:center;gap:8px;font-size:12px;">
+          <input
+            type="checkbox"
+            .checked=${meshTimeSync}
+            ?disabled=${!meshTimeSupported}
+            @change=${(e: Event) => {
+              this._editValues['mesh_time_sync'] =
+                (e.target as HTMLInputElement).checked;
+              this._editValues = { ...this._editValues };
+            }}
+          />
+          ${meshTimeSupported
+            ? (meshTimeSync ? 'Ativada' : 'Desativada')
+            : 'Não suportada'}
         </label>
       </div>
 
@@ -2517,12 +2546,69 @@ export class SettingsPage extends LitElement {
     `;
   }
 
+  private async _readRepeaterStatus(
+    showMessage = false,
+    resetDrafts = false,
+  ) {
+    if (!this.hass || this._repeaterReadBusy) return;
+
+    this._repeaterReadBusy = true;
+    try {
+      const status = await getLocalRepeaterStatus(
+        this.hass,
+        this.config?.entry_id,
+      );
+      this._repeaterStatus = status;
+
+      if (status?.duty_cycle !== undefined) {
+        this._dutyCycleValue = Number(status.duty_cycle);
+        this._dutyCycleReadValue = Number(status.duty_cycle);
+      }
+
+      if (resetDrafts) {
+        for (const key of [
+          'repeat',
+          'auto_advert',
+          'mesh_time_sync',
+          'multi_acks',
+          'rx_delay',
+          'flood_max',
+          'flood_max_unscoped',
+          'flood_max_advert',
+          'loop_detect',
+          'cad_enabled',
+          'interference_threshold',
+          'agc_reset_interval',
+          'flood_tx_delay',
+          'direct_tx_delay',
+        ]) {
+          delete this._editValues[key];
+        }
+        this._editValues = { ...this._editValues };
+      }
+
+      this.requestUpdate();
+      if (showMessage) {
+        this._showStatusMessage(
+          'Configuração do Repeater relida diretamente do rádio.',
+          'success',
+        );
+      }
+    } catch (error) {
+      this._repeaterStatus = null;
+      if (showMessage) {
+        this._showStatusMessage(
+          'Leitura da configuração do Repeater: ' + String(error),
+          'error',
+        );
+      }
+    } finally {
+      this._repeaterReadBusy = false;
+    }
+  }
+
   private async _refreshRepeaterAccessStatus() {
-    if (!this.hass) return;
-    this._repeaterStatus = await getLocalRepeaterStatus(
-      this.hass,
-      this.config?.entry_id,
-    );
+    await this._readRepeaterStatus(false, false);
   }
 
   private async _saveRepeaterPassword(kind: 'admin' | 'guest') {
@@ -2706,6 +2792,12 @@ export class SettingsPage extends LitElement {
     if (status.auto_advert_supported && this._editValues['auto_advert'] !== undefined) {
       settings.auto_advert = Boolean(this._editValues['auto_advert']);
     }
+    if (
+      status.mesh_time_sync_supported &&
+      this._editValues['mesh_time_sync'] !== undefined
+    ) {
+      settings.mesh_time_sync = Boolean(this._editValues['mesh_time_sync']);
+    }
     for (const key of [
       'path_hash_mode',
       'flood_max',
@@ -2743,6 +2835,7 @@ export class SettingsPage extends LitElement {
       for (const key of [
         'repeat',
         'auto_advert',
+        'mesh_time_sync',
         'multi_acks',
         'rx_delay',
         'flood_max',
