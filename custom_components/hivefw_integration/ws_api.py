@@ -6513,10 +6513,17 @@ async def ws_start_hive_neighbor_discovery(hass, connection, msg):
             return
 
         try:
-            path_len = int(payload.get("path_len") or 0)
+            # CONTROL_DATA exposes the raw MeshCore path header byte:
+            # bits 0..5 = hop count, bits 6..7 = path-hash size.
+            # A direct zero-hop response can therefore be 0x00, 0x40,
+            # 0x80 or 0xC0 depending on the sender's hash mode. Testing the
+            # whole byte against zero incorrectly discarded valid direct
+            # repeaters whenever path hashes were larger than one byte.
+            raw_path_len = int(payload.get("path_len") or 0) & 0xFF
         except (TypeError, ValueError):
-            path_len = 0
-        if path_len != 0:
+            raw_path_len = 0
+        hop_count = raw_path_len & 0x3F
+        if hop_count != 0:
             return
 
         pubkey = str(payload.get("pubkey") or "").strip().lower()
@@ -6543,6 +6550,8 @@ async def ws_start_hive_neighbor_discovery(hass, connection, msg):
             "request_snr": payload.get("SNR_in"),
             "rssi": payload.get("RSSI"),
             "path_len": 0,
+            "path_header": raw_path_len,
+            "path_hash_size": ((raw_path_len >> 6) & 0x03) + 1,
             "discovered_at": datetime.now().astimezone().isoformat(),
             "_seen_ts": time.time(),
         }
