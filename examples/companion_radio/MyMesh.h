@@ -313,6 +313,12 @@ protected:
     char* reply,
     size_t reply_size
   );
+  bool handleRepeaterAdminText(
+    const ContactInfo& from,
+    mesh::Packet* packet,
+    uint32_t sender_timestamp,
+    const char* text
+  );
   void sendFloodScoped(const ContactInfo& recipient, mesh::Packet* pkt, uint32_t delay_millis=0) override;
   void sendFloodScoped(const mesh::GroupChannel& channel, mesh::Packet* pkt, uint32_t delay_millis=0) override;
 
