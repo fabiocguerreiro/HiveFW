@@ -340,6 +340,54 @@ export async function setDeviceConfig(
   }
 }
 
+export async function exportCompanionBackup(
+  hass: HomeAssistant,
+  entryId?: string,
+): Promise<Record<string, unknown>> {
+  const msg: Record<string, unknown> = {
+    type: 'hivefw_integration/export_backup',
+  };
+  if (entryId) msg.entry_id = entryId;
+  return hass.callWS<Record<string, unknown>>(msg);
+}
+
+export async function restoreCompanionBackup(
+  hass: HomeAssistant,
+  backup: Record<string, unknown>,
+  entryId?: string,
+): Promise<Record<string, unknown>> {
+  const msg: Record<string, unknown> = {
+    type: 'hivefw_integration/restore_backup',
+    backup,
+  };
+  if (entryId) msg.entry_id = entryId;
+  return hass.callWS<Record<string, unknown>>(msg);
+}
+
+export async function exportRepeaterBackup(
+  hass: HomeAssistant,
+  entryId?: string,
+): Promise<Record<string, unknown>> {
+  const msg: Record<string, unknown> = {
+    type: 'hivefw_integration/export_repeater_backup',
+  };
+  if (entryId) msg.entry_id = entryId;
+  return hass.callWS<Record<string, unknown>>(msg);
+}
+
+export async function restoreRepeaterBackup(
+  hass: HomeAssistant,
+  backup: Record<string, unknown>,
+  entryId?: string,
+): Promise<Record<string, unknown>> {
+  const msg: Record<string, unknown> = {
+    type: 'hivefw_integration/restore_repeater_backup',
+    backup,
+  };
+  if (entryId) msg.entry_id = entryId;
+  return hass.callWS<Record<string, unknown>>(msg);
+}
+
 /**
  * Execute a local command
  */
