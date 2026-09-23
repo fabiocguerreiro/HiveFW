@@ -1860,6 +1860,12 @@ export class SettingsPage extends LitElement {
     if (!this._deviceConfig) return;
 
     const profile = this._repeaterStatus?.repeater_profile;
+    const rxBoostedGain = Boolean(
+      this._editValues['rx_boosted_gain'] ?? profile?.rx_boosted_gain ?? false
+    );
+    const adcMultiplier = Number(
+      this._editValues['adc_multiplier'] ?? profile?.adc_multiplier ?? 0
+    );
     const profileChanged =
       (this._editValues['rx_boosted_gain'] !== undefined &&
         Boolean(this._editValues['rx_boosted_gain']) !== Boolean(profile?.rx_boosted_gain)) ||
@@ -2426,12 +2432,6 @@ export class SettingsPage extends LitElement {
     const profile = status.repeater_profile;
     const ownerInfo = String(
       this._editValues['owner_info'] ?? profile?.owner_info ?? ''
-    );
-    const rxBoostedGain = Boolean(
-      this._editValues['rx_boosted_gain'] ?? profile?.rx_boosted_gain ?? false
-    );
-    const adcMultiplier = Number(
-      this._editValues['adc_multiplier'] ?? profile?.adc_multiplier ?? 0
     );
     const floodMax = Number(this._editValues['flood_max'] ?? routing?.flood_max ?? 64);
     const floodMaxUnscoped = Number(this._editValues['flood_max_unscoped'] ?? routing?.flood_max_unscoped ?? 64);
