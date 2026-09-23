@@ -165,6 +165,9 @@ private:
     // exactly like the official Repeater preference.
     uint8_t allow_read_only = 0;
     uint8_t auto_advert = 0;
+    // Local zero-hop neighbour advert interval, stored exactly like the
+    // official SimpleRepeater: minutes / 2. 120 => 240 minutes.
+    uint8_t neighbor_advert_interval = 120;
     uint32_t last_auto_advert_epoch = 0;
     uint32_t auto_advert_enabled_epoch = 0;
     uint8_t auto_advert_state_version = 0;
@@ -184,6 +187,7 @@ private:
       def("disable", disable_fwd);
       def("allow_ro", allow_read_only);
       def("auto_adv", auto_advert);
+      def("nbr_adv", neighbor_advert_interval);
       def("last_adv", last_auto_advert_epoch);
       def("adv_on", auto_advert_enabled_epoch);
       def("adv_ver", auto_advert_state_version);
@@ -255,6 +259,14 @@ public:
 
   bool isAutoAdvertEn() const { return repeat.auto_advert == 1; }
   void setAutoAdvertEn(bool en) { repeat.auto_advert = en ? 1 : 0; }
+
+  uint16_t getNeighborAdvertIntervalMinutes() const {
+    return (uint16_t)repeat.neighbor_advert_interval * 2U;
+  }
+  void setNeighborAdvertIntervalMinutes(uint16_t minutes) {
+    repeat.neighbor_advert_interval =
+      minutes == 0 ? 0 : (uint8_t)(minutes / 2U);
+  }
 
   bool isAllowReadOnlyEn() const { return repeat.allow_read_only == 1; }
   void setAllowReadOnlyEn(bool en) { repeat.allow_read_only = en ? 1 : 0; }
