@@ -199,6 +199,9 @@ static size_t hivefwBase64Encode(
 // - state version 1 distinguishes this scheme from the old "seed timestamp"
 //   implementation that could store a reference without transmitting.
 static constexpr uint32_t HIVEFW_SMART_ADVERT_INTERVAL_SECONDS = 24UL * 60UL * 60UL;
+// Match the official SimpleRepeater local advert cadence: advert_interval=1
+// means one direct/zero-hop Repeater advert every two minutes.
+static constexpr uint32_t HIVEFW_NEIGHBOR_ADVERT_INTERVAL_MILLIS = 2UL * 60UL * 1000UL;
 static constexpr uint32_t HIVEFW_SMART_ADVERT_ENABLE_GRACE_SECONDS = 5UL * 60UL;
 static constexpr uint32_t HIVEFW_SMART_ADVERT_VALID_EPOCH_MIN = 1577836800UL;
 static constexpr uint8_t HIVEFW_SMART_ADVERT_STATE_VERSION = 1;
@@ -1882,6 +1885,10 @@ bool MyMesh::handleRepeaterRemoteCommand(
     }
 
     _prefs.setRepeatEn(strcmp(value, "on") == 0);
+    // Re-arm the direct neighbour advert cadence from the moment Repeater
+    // mode changes. OFF disables it immediately; ON schedules a fresh
+    // zero-hop advert in two minutes, matching SimpleRepeater.
+    next_neighbor_advert = 0;
     savePrefs();
     snprintf(
       reply,
@@ -4725,6 +4732,7 @@ MyMesh::MyMesh(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMe
   dirty_contacts_expiry = 0;
   remote_reboot_at = 0;
   next_smart_advert = 0;
+  next_neighbor_advert = 0;
   memset(advert_paths, 0, sizeof(advert_paths));
   memset(repeater_neighbours, 0, sizeof(repeater_neighbours));
   memset(send_scope.key, 0, sizeof(send_scope.key));
@@ -5388,6 +5396,7 @@ void MyMesh::handleCmdFrame(size_t len) {
       _prefs.freq = (float)freq / 1000.0;
       _prefs.bw = (float)bw / 1000.0;
       _prefs.setRepeatEn(repeat != 0);
+      next_neighbor_advert = 0;
       savePrefs();
 
       radio_driver.setParams(_prefs.freq, _prefs.bw, _prefs.sf, _prefs.cr);
@@ -8579,6 +8588,24 @@ void MyMesh::loop() {
     dirty_contacts_expiry = 0;
   }
 
+  // Direct neighbour advert, kept deliberately separate from Smart Advert.
+  // This is the same local-presence behaviour as official SimpleRepeater:
+  // one ADV_TYPE_REPEATER advert every two minutes, transmitted only with
+  // sendZeroHop(). It is never flooded or forwarded by other Repeaters.
+  if (_prefs.isRepeatEn()) {
+    if (next_neighbor_advert == 0) {
+      updateNeighborAdvertTimer();
+    } else if (millisHasNowPassed(next_neighbor_advert)) {
+      next_neighbor_advert = 0;
+      if (advert(false, 0)) {
+        MESH_DEBUG_PRINTLN("HiveFW: sent zero-hop neighbour advert");
+      }
+      updateNeighborAdvertTimer();
+    }
+  } else {
+    next_neighbor_advert = 0;
+  }
+
   // Smart Advert is exclusively a Repeater feature.
   // The normal daily slot is deterministic from the node hash. Persistence is
   // only a 24 h at-most-once guard: it never chooses the node's daily slot.
@@ -8881,6 +8908,16 @@ bool MyMesh::getSmartAdvertSecondsUntilNext(uint32_t& seconds) {
     : next_epoch - now_epoch;
 
   return true;
+}
+
+void MyMesh::updateNeighborAdvertTimer() {
+  if (!_prefs.isRepeatEn()) {
+    next_neighbor_advert = 0;
+    return;
+  }
+
+  next_neighbor_advert =
+      futureMillis((int)HIVEFW_NEIGHBOR_ADVERT_INTERVAL_MILLIS);
 }
 
 void MyMesh::updateSmartAdvertTimer() {
