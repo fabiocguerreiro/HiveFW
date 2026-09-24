@@ -81,10 +81,6 @@ class HiveFWPanel extends BasePanel {
     this.__lastTrace = null;
     this.__lastTraceLoadedEntry = null;
     this.__traceRouteLayer = null;
-    this.__traceHistory = [];
-    this.__traceHistoryLoadedEntry = null;
-    this.__traceHistoryLoading = false;
-    this.__traceHistoryPanel = null;
     this.__peerActivity = { peers: {}, links: {}, edges: {} };
     this.__peerActivityLoadedEntry = null;
     this.__peerActivityLoading = false;
@@ -5380,96 +5376,6 @@ class HiveFWPanel extends BasePanel {
     };
   }
 
-  async __loadTraceHistory(force=false) {
-    const entryId=this.__entryId()||null;
-    if(this.__traceHistoryLoading)return;
-    if(!force&&this.__traceHistoryLoadedEntry===entryId)return;
-    this.__traceHistoryLoading=true;
-    try{
-      const msg={type:"hivefw_integration/get_trace_history",limit:100};
-      if(entryId)msg.entry_id=entryId;
-      const result=await this.hass.callWS(msg);
-      this.__traceHistory=Array.isArray(result?.traces)?result.traces:[];
-      this.__traceHistoryLoadedEntry=entryId;
-    }catch(error){
-      console.warn("HiveFW trace history load failed",error);
-      this.__traceHistory=[];
-      this.__traceHistoryLoadedEntry=entryId;
-    }finally{
-      this.__traceHistoryLoading=false;
-    }
-  }
-
-  async __clearTraceHistory() {
-    const msg={type:"hivefw_integration/clear_trace_history"};
-    const entryId=this.__entryId();
-    if(entryId)msg.entry_id=entryId;
-    try{await this.hass.callWS(msg);}catch(error){console.warn("HiveFW trace history clear failed",error);}
-    this.__traceHistory=[];
-    this.__traceHistoryPanel?.remove();
-    this.__traceHistoryPanel=null;
-  }
-
-  async __toggleTraceHistory() {
-    if(this.__traceHistoryPanel?.isConnected){
-      this.__traceHistoryPanel.remove();
-      this.__traceHistoryPanel=null;
-      return;
-    }
-    await this.__loadTraceHistory(true);
-    const pane=this.__nodesMapPane;
-    if(!pane)return;
-    const panel=document.createElement("div");
-    panel.className="hive-trace-history";
-    panel.style.cssText="position:absolute;left:10px;top:68px;z-index:36;width:min(390px,calc(100% - 20px));max-height:55%;overflow:auto;padding:9px;border:1px solid var(--divider-color,#ccc);border-radius:10px;background:color-mix(in srgb,var(--card-background-color,#fff) 96%,transparent);box-shadow:0 2px 8px rgba(0,0,0,.22);font-size:10px;color:var(--primary-text-color,#222);";
-    const head=document.createElement("div");
-    head.style.cssText="display:flex;align-items:center;gap:8px;margin-bottom:7px;";
-    const title=document.createElement("strong");title.textContent="Histórico de Trace";title.style.flex="1";
-    const clear=document.createElement("button");clear.type="button";clear.textContent="Limpar";clear.style.cssText="border:0;background:transparent;color:var(--error-color,#db4437);font:inherit;font-weight:700;cursor:pointer;";
-    clear.addEventListener("click",()=>void this.__clearTraceHistory());
-    const close=document.createElement("button");close.type="button";close.textContent="✕";close.style.cssText="border:0;background:transparent;color:var(--secondary-text-color);cursor:pointer;";
-    close.addEventListener("click",()=>{panel.remove();this.__traceHistoryPanel=null;});
-    head.append(title,clear,close);panel.appendChild(head);
-    if(!this.__traceHistory.length){
-      const empty=document.createElement("div");empty.textContent="Ainda não existem traces guardados.";empty.style.color="var(--secondary-text-color)";panel.appendChild(empty);
-    }else{
-      for(const record of this.__traceHistory){
-        const row=document.createElement("button");
-        row.type="button";
-        row.style.cssText="display:block;width:100%;padding:7px 8px;margin:0 0 5px;text-align:left;border:1px solid var(--divider-color,#ddd);border-radius:7px;background:transparent;color:inherit;cursor:pointer;font:inherit;";
-        const when=document.createElement("div");
-        const dt=new Date(record.timestamp);
-        when.textContent=(Number.isNaN(dt.getTime())?String(record.timestamp||""):dt.toLocaleString())+" · "+String(record.target_prefix||"");
-        when.style.fontWeight="700";
-        const details=document.createElement("div");
-        const parts=[String(record.round_trip_ms||0)+" ms",String(record.hops||0)+" hops",String(record.source||"manual")];
-        if(Number.isFinite(Number(record.final_snr)))parts.push("SNR "+Number(record.final_snr).toFixed(1)+" dB");
-        details.textContent=parts.join(" · ");details.style.cssText="margin-top:2px;color:var(--secondary-text-color);";
-        row.append(when,details);
-        row.addEventListener("click",()=>{
-          this.__lastTrace={
-            timestamp:record.timestamp,
-            source:"history",
-            target:{pubkey_prefix:String(record.target_prefix||""),adv_name:String(record.target_prefix||"Nó")},
-            result:{
-              round_trip_ms:Number(record.round_trip_ms)||0,
-              response_time:String(Number(record.round_trip_ms)||0)+"ms",
-              hops:Number(record.hops)||0,
-              final_snr:record.final_snr,
-              path:Array.isArray(record.path)?record.path:[],
-            },
-          };
-          this.__lastTraceLoadedEntry=String(this.__entryId()||"default");
-          panel.remove();this.__traceHistoryPanel=null;
-          this.__drawLastTraceRoute();
-        });
-        panel.appendChild(row);
-      }
-    }
-    pane.appendChild(panel);
-    this.__traceHistoryPanel=panel;
-  }
-
   async __showMessageRouteOnMap(message) {
     const observations=Array.isArray(message?.rxLogData)?message.rxLogData:[];
     if(!observations.length)return;
@@ -9855,7 +9761,9 @@ class HiveFWPanel extends BasePanel {
       host.appendChild(count);
 
       const map=document.createElement("ha-map");
-      map.autoFit=true;
+      // Contactos Descobertos is always local-first. Do not auto-fit every
+      // contact across the country/world; open around the connected repeater.
+      map.autoFit=false;
       map.clusterMarkers=true;
       map.scaleRuler=true;
       map.themeMode="light";
@@ -9881,6 +9789,13 @@ class HiveFWPanel extends BasePanel {
       }else{
         map.entities=this.__mapEntities(mapContacts);
         if("editableLocations" in map)map.editableLocations=this.__mapLocations(mapContacts);
+        const localCoords=local?this.__nodeCoords(local):null;
+        if(localCoords){
+          map.setView?.(localCoords,11);
+        }else{
+          const firstCoords=mapContacts.map((contact)=>this.__nodeCoords(contact)).find(Boolean);
+          if(firstCoords)map.setView?.(firstCoords,11);
+        }
       }
       this.__drawLastTraceRoute();
       return;
