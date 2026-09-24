@@ -53,7 +53,6 @@ class HiveFWPanel extends BasePanel {
     this.__regionName = "";
     this.__regionsBusy = false;
     this.__nodesMapPane = null;
-    this.__nodesActivityPane = null;
     this.__nodesMapElement = null;
     this.__nodesMapContacts = null;
     this.__nodesMapLoading = false;
@@ -64,13 +63,9 @@ class HiveFWPanel extends BasePanel {
     this.__nodesMapFocusId = "";
     this.__nodesPopupId = "";
     this.__nodesPersistentPopup = null;
-    this.__nodesInitialViewport = null;
-    this.__nodesMapInitialViewEntry = null;
     this.__nodesMapFrame = 0;
-    this.__nodesHeaderResizeObserver = null;
     this.__mapLoadStarted = false;
     this.__mapLoadPromise = null;
-    this.__nodesMapRetryTimer = null;
 
     this.__diagHistory = null;
     this.__diagHistoryKey = "";
@@ -295,9 +290,7 @@ class HiveFWPanel extends BasePanel {
       this.__nodesMapFocusId = "";
       this.__nodesPopupId = "";
       this.__nodesPersistentPopup = null;
-      this.__nodesInitialViewport = null;
-      this.__nodesMapInitialViewEntry = null;
-      this.__peerActivityLoadedEntry = null;
+          this.__peerActivityLoadedEntry = null;
       this.__observabilityLoadedEntry = null;
       this.__observabilitySettings = null;
       this.__observabilityState = {};
@@ -5331,7 +5324,6 @@ class HiveFWPanel extends BasePanel {
     if(this.__peerActivityLoading)return;
     if(!force&&this.__peerActivityLoadedEntry===entryId)return;
     this.__peerActivityLoading=true;
-    this.__renderActivityPane();
     try{
       const msg={type:"hivefw_integration/get_peer_activity"};
       if(entryId)msg.entry_id=entryId;
@@ -5348,8 +5340,7 @@ class HiveFWPanel extends BasePanel {
       this.__peerActivityLoadedEntry=entryId;
     }finally{
       this.__peerActivityLoading=false;
-      this.__renderActivityPane();
-      if(this._activeTab==="network")this.__rerenderHivePage();
+        if(this._activeTab==="network")this.__rerenderHivePage();
     }
   }
 
@@ -5372,132 +5363,6 @@ class HiveFWPanel extends BasePanel {
     }
     return match&&typeof match==="object"?match:null;
   }
-
-  __renderActivityPane() {
-    const pane=this.__nodesActivityPane;
-    if(!pane?.isConnected)return;
-
-    const source=(Array.isArray(this.__nodesMapContacts)&&this.__nodesMapContacts.length)
-      ? this.__nodesMapContacts
-      : (Array.isArray(this._contacts)?this._contacts:[]);
-    pane.replaceChildren();
-
-    const inner=document.createElement("section");
-    inner.className="hive-activity-pane-inner";
-
-    const header=document.createElement("div");
-    header.className="hive-activity-pane-header";
-    const title=document.createElement("strong");
-    title.textContent="Atividade";
-    const refresh=document.createElement("button");
-    refresh.type="button";
-    refresh.textContent=this.__peerActivityLoading?"A carregar…":"Atualizar";
-    refresh.disabled=!!this.__peerActivityLoading;
-    refresh.addEventListener("click",()=>void this.__loadPeerActivity(true));
-    header.append(title,refresh);
-    inner.appendChild(header);
-
-    if(this.__peerActivityLoadedEntry!==this.__entryId()||this.__peerActivityLoading){
-      const loading=document.createElement("div");
-      loading.className="hive-activity-empty";
-      loading.textContent="A carregar atividade…";
-      inner.appendChild(loading);
-      pane.appendChild(inner);
-      return;
-    }
-
-    // Recreate the useful behaviour of the former Activity pane without
-    // bringing back any map overlays. Direct peers contribute RX/TX and
-    // path hashes contribute observed path volume. Resolve each hash only
-    // once so this stays cheap even with a large contact list.
-    const byId=new Map();
-    for(const contact of source){
-      const peer=this.__activityPeerFor(contact);
-      const id=this.__nodeId(contact);
-      if(!id)continue;
-      byId.set(id,{
-        contact,
-        rx:Number(peer?.rx)||0,
-        tx:Number(peer?.tx)||0,
-        messages:Number(peer?.messages)||0,
-        linkVolume:0,
-      });
-    }
-
-    const links=this.__peerActivity?.links||{};
-    for(const [hash,value] of Object.entries(links)){
-      const resolved=this.__resolveTraceHash(hash);
-      if(!resolved)continue;
-      const id=this.__nodeId(resolved);
-      const item=byId.get(id);
-      if(!item)continue;
-      item.linkVolume+=Number(value?.observations)||0;
-    }
-
-    const rows=[...byId.values()]
-      .map((item)=>({...item,score:item.rx+item.tx+item.linkVolume}))
-      .filter((item)=>item.score>0)
-      .sort((a,b)=>b.score-a.score)
-      .slice(0,60);
-
-    const activeCount=rows.length;
-    const top=rows[0];
-
-    const summary=document.createElement("div");
-    summary.className="hive-activity-pane-summary";
-    const stat=(label,value)=>{
-      const box=document.createElement("div");
-      box.className="hive-activity-stat";
-      const l=document.createElement("span");
-      l.textContent=label;
-      const v=document.createElement("strong");
-      v.textContent=String(value);
-      box.append(l,v);
-      return box;
-    };
-    summary.append(
-      stat("Nós ativos",activeCount),
-      stat("Mais ativo",top?String(top.contact.adv_name||top.contact.pubkey_prefix||"Nó"):"—")
-    );
-    inner.appendChild(summary);
-
-    const list=document.createElement("div");
-    list.className="hive-activity-list";
-    if(!rows.length){
-      const empty=document.createElement("div");
-      empty.className="hive-activity-empty";
-      empty.textContent="Ainda não existe atividade local registada.";
-      list.appendChild(empty);
-    }else{
-      for(const item of rows){
-        const row=document.createElement("button");
-        row.type="button";
-        row.className="hive-activity-row";
-
-        const left=document.createElement("div");
-        left.className="hive-activity-row-main";
-        const name=document.createElement("div");
-        name.className="hive-activity-name";
-        name.textContent=String(item.contact.adv_name||item.contact.pubkey_prefix||"Nó");
-        const detail=document.createElement("div");
-        detail.className="hive-activity-detail";
-        detail.textContent=`Paths ${item.linkVolume}`;
-        left.append(name,detail);
-
-        const score=document.createElement("span");
-        score.className="hive-activity-score";
-        score.textContent=String(item.score);
-
-        row.append(left,score);
-        row.addEventListener("click",()=>this.__focusNodeOnMap(item.contact,true));
-        list.appendChild(row);
-      }
-    }
-
-    inner.appendChild(list);
-    pane.appendChild(inner);
-  }
-
 
   __peerActivityFor(contact) {
     const peers=this.__peerActivity?.peers||{};
@@ -5966,7 +5831,7 @@ class HiveFWPanel extends BasePanel {
     }
   }
 
-  async __importHiveFWContacts(file,button,page) {
+  async __importHiveFWContacts(file,button) {
     if(!this.hass||!file)return;
     const original=button?.textContent||"Importar";
     if(button){
@@ -5995,11 +5860,13 @@ class HiveFWPanel extends BasePanel {
       this.__nodesMapContacts=null;
       this.__nodesMapLoadedEntry=null;
       this.__nodesMapSignature="";
-      page?._syncAll?.();
-      if(this.__nodesMapPane?.isConnected){
-        await this.__loadNodesMapContacts();
-        void this.__ensureSplitMap(page,this.__nodesMapPane);
+      await this.__loadNodesMapContacts();
+      const mapHost=this.__networkOverlay?.querySelector(".hive-neighbors-map");
+      if(mapHost&&this.__hiveNeighborMapMode==="contacts"){
+        void this.__renderHiveNeighborDiscoveryMap(mapHost);
       }
+      const contactHost=this.__networkOverlay?.querySelector(".hive-network-contacts");
+      if(contactHost)this.__renderNetworkContacts(contactHost);
 
       if(button){
         const imported=Number(result?.imported||0);
@@ -6147,28 +6014,6 @@ class HiveFWPanel extends BasePanel {
       this.__openPersistentNodePopup(contact);
     }
     if(this._activeTab==="settings")this.__enhanceSettingsPage();
-  }
-
-  __decorateNodeCards(nroot) {
-    if(!nroot)return;
-    for(const card of nroot.querySelectorAll("meshcore-contact-card")){
-      const root=card.shadowRoot;
-      const name=root?.querySelector(".contact-name");
-      if(!name)continue;
-      let badge=root.querySelector(".hive-node-meta-inline");
-      if(!badge){
-        badge=document.createElement("span");
-        badge.className="hive-node-meta-inline";
-        badge.style.cssText="margin-left:5px;font-size:10px;color:var(--primary-color,#03a9f4);font-weight:650;";
-        name.appendChild(badge);
-      }
-      const meta=this.__nodeMeta(card.contact);
-      const parts=[];
-      if(meta.favorite)parts.push("★");
-      parts.push(...meta.tags.slice(0,2).map((tag)=>"#"+tag));
-      badge.textContent=parts.length?" "+parts.join(" "):"";
-      badge.hidden=!parts.length;
-    }
   }
 
   async __loadNodesMapContacts() {
@@ -6957,197 +6802,6 @@ class HiveFWPanel extends BasePanel {
     this.__nodesPersistentPopup=popup;
     this.__nodesPopupId=id;
     return true;
-  }
-
-  __resetNodesMapView() {
-    const map=this.__nodesMapElement?.leafletMap;
-    const saved=this.__nodesInitialViewport;
-    if(!map||!saved)return false;
-    this.__closePersistentNodePopup();
-    map.setView([saved.lat,saved.lng],saved.zoom,{animate:true});
-    return true;
-  }
-
-  async __applyInitialNodesMapView(localRepeater) {
-    const mapEl=this.__nodesMapElement;
-    if(!mapEl||!localRepeater)return false;
-    if(!await this.__waitForLegacyLeaflet(mapEl))return false;
-
-    const coords=this.__nodeCoords(localRepeater);
-    if(!coords)return false;
-
-    const bounds=mapEl.Leaflet.circle(coords,{radius:100000}).getBounds();
-    mapEl.leafletMap.fitBounds(bounds,{animate:false});
-
-    const center=mapEl.leafletMap.getCenter?.();
-    const zoom=mapEl.leafletMap.getZoom?.();
-    if(center && Number.isFinite(center.lat) && Number.isFinite(center.lng) && Number.isFinite(zoom)){
-      this.__nodesInitialViewport={lat:center.lat,lng:center.lng,zoom};
-    }
-    return true;
-  }
-
-  async __ensureSplitMap(page,pane) {
-    if(!pane?.isConnected)return;
-    const entryId=this.__entryId()||null;
-    if(!this.__repeaterStatus && !this.__repeaterLoading){
-      await this.__loadRepeaterStatus();
-    }
-    if(!Array.isArray(this.__nodesMapContacts)||this.__nodesMapLoadedEntry!==entryId){
-      if(!pane.querySelector(".hive-map-note")){
-        const note=document.createElement("div");
-        note.className="hive-map-note";
-        note.textContent="A carregar nós…";
-        pane.appendChild(note);
-      }
-      await this.__loadNodesMapContacts();
-    }
-
-    const ready=await this.__ensureMapLoaded();
-    if(!pane.isConnected)return;
-
-    const source=Array.isArray(this.__nodesMapContacts)?this.__nodesMapContacts:[];
-    const contacts=this.__validMapContacts();
-    const localRepeater=this.__localRepeaterMapContact();
-    const localId=localRepeater?this.__nodeId(localRepeater):"";
-    const mapContacts=localRepeater
-      ? [localRepeater,...contacts.filter((contact)=>this.__nodeId(contact)!==localId)]
-      : contacts;
-
-    if(!ready){
-      if(!this.__nodesMapElement?.isConnected){
-        pane.replaceChildren();
-        const note=document.createElement("div");
-        note.className="hive-map-note";
-        note.textContent="Não foi possível carregar o mapa do Home Assistant.";
-        pane.appendChild(note);
-      }
-      return;
-    }
-
-    if(!contacts.length){
-      if(!this.__nodesMapElement?.isConnected){
-        pane.replaceChildren();
-        const note=document.createElement("div");
-        note.className="hive-map-note";
-        note.textContent=`0 nós com localização · ${source.length} nós no total. Os nós sem GPS anunciado permanecem na lista.`;
-        pane.appendChild(note);
-      }
-      return;
-    }
-
-    if(!this.__nodesMapElement?.isConnected){
-      pane.replaceChildren();
-
-      const count=document.createElement("div");
-      count.className="hive-map-count";
-      pane.appendChild(count);
-
-      const map=document.createElement("ha-map");
-      map.autoFit=false;
-      map.clusterMarkers=true;
-      map.scaleRuler=true;
-      map.themeMode="light";
-      map.addEventListener("editable-location-clicked",(e)=>{
-        const id=e.detail?.id;
-        const contact=this.__validMapContacts().find((c)=>this.__nodeId(c)===id);
-        if(contact){
-          this.__focusNodeOnMap(contact);
-        }
-      });
-      pane.appendChild(map);
-      this.__nodesMapElement=map;
-      this.__nodesMapSignature="";
-    }
-
-    const signature=mapContacts.map((c)=>{
-      const p=this.__nodeCoords(c);
-      const meta=this.__nodeMeta(c); return `${this.__nodeId(c)}:${p?.[0]}:${p?.[1]}:${c?.map_entity_id||""}:${String(c?.adv_name||"")}:${c?.__hivefw_local?1:0}:${meta.favorite?1:0}:${meta.tags.join(",")}`;
-    }).join("|");
-
-    const count=pane.querySelector(".hive-map-count");
-    if(count){
-      count.replaceChildren();
-      const label=document.createElement("span");
-      label.textContent=`${contacts.length} nós com localização - `;
-      const center=document.createElement("button");
-      center.type="button";
-      center.textContent="CENTRAR";
-      center.title="Centrar no repetidor local";
-      center.addEventListener("click",(event)=>{
-        event.preventDefault();
-        event.stopPropagation();
-
-        const local=this.__localRepeaterMapContact();
-        if(!local)return;
-
-        const id=this.__nodeId(local);
-        const marker=this.__nodesLeafletMarkers.get(id);
-
-        // This is intentionally the same operation as clicking the actual
-        // local contact marker. Because "local" is now the real discovered
-        // contact, its marker id/coordinates are the same ones shown on map.
-        if(marker?.fire){
-          marker.fire("click");
-          return;
-        }
-        this.__focusNodeOnMap(local,true);
-      });
-      count.append(label,center);
-    }
-
-    // Home Assistant 2026.9's ha-map has no editableLocations API yet.
-    // It does expose Leaflet layers, so use real Leaflet markers there.
-    // Newer HA builds are feature-detected and use editableLocations/entities.
-    if(this.__nodesMapSignature!==signature){
-      const map=this.__nodesMapElement;
-      if("layers" in map && await this.__waitForLegacyLeaflet(map)){
-        map.entities=[];
-        map.layers=this.__legacyLeafletLayers(map,mapContacts,page);
-      }else{
-        map.entities=this.__mapEntities(mapContacts);
-        if("editableLocations" in map){
-          map.editableLocations=this.__mapLocations(mapContacts);
-        }
-      }
-      this.__nodesMapSignature=signature;
-    }
-
-    if(localRepeater && this.__nodesMapInitialViewEntry!==entryId){
-      if(await this.__applyInitialNodesMapView(localRepeater)){
-        this.__nodesMapInitialViewEntry=entryId;
-      }
-    }
-    this.__drawLastTraceRoute();
-  }
-
-  __focusNodeOnMap(contact,openPopup=true) {
-    const coords=this.__nodeCoords(contact);
-    const pane=this.__nodesMapPane;
-    if(!coords||!pane||!this.__nodesMapElement)return;
-
-    const id=this.__nodeId(contact);
-    this.__nodesMapFocusId=id;
-
-    const selected=pane.querySelector(".hive-map-selection");
-    if(selected)selected.hidden=true;
-
-    const contacts=this.__validMapContacts();
-    const map=this.__nodesMapElement;
-    if(map.leafletMap){
-      map.leafletMap.setView(coords,12,{animate:true});
-      if(openPopup){
-        const marker=this.__nodesLeafletMarkers.get(id);
-        marker?.setZIndexOffset?.(2000);
-        window.setTimeout(()=>{
-          this.__openPersistentNodePopup(contact);
-        },180);
-      }
-    }else if(!("layers" in map)){
-      map.entities=this.__mapEntities(contacts);
-      if("editableLocations" in map)map.editableLocations=this.__mapLocations(contacts);
-      map.setView?.(coords,12);
-    }
   }
 
     __settingsSelect(label, options, value) {
@@ -9267,7 +8921,7 @@ class HiveFWPanel extends BasePanel {
       input.addEventListener("change",async()=>{
         const file=input.files?.[0];
         if(!file)return;
-        await this.__importHiveFWContacts(file,importButton,null);
+        await this.__importHiveFWContacts(file,importButton);
         this.__nodesMapContacts=null;
         this.__nodesMapLoadedEntry=null;
         await this.__loadNodesMapContacts();
