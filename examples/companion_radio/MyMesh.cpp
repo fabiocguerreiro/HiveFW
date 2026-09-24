@@ -579,6 +579,7 @@ void MyMesh::onAdvertRecv(mesh::Packet* packet, const mesh::Identity& id,
   neighbour->advert_timestamp = timestamp;
   neighbour->heard_timestamp = now;
   neighbour->snr = (int8_t)(packet->getSNR() * 4);
+  markRepeaterNeighboursDirty();
 }
 
 void MyMesh::onDiscoveredContact(ContactInfo &contact, bool is_new, uint8_t path_len, const uint8_t* path) {
@@ -4277,6 +4278,90 @@ int16_t MyMesh::getRepeaterRSSI() const
   return (int16_t)radio_driver.getLastRSSI();
 }
 
+void MyMesh::markRepeaterNeighboursDirty()
+{
+  repeater_neighbours_dirty = true;
+
+  // Coalesce frequent zero-hop adverts into one filesystem write.
+  // Thirty seconds is short enough to survive normal update/reboot cycles
+  // while avoiding a flash write for every received advert.
+  if (repeater_neighbours_save_at == 0) {
+    repeater_neighbours_save_at = futureMillis(30UL * 1000UL);
+  }
+}
+
+void MyMesh::persistRepeaterNeighbours()
+{
+  HiveFWRepeaterNeighbourRecord records[MAX_REPEATER_NEIGHBOURS];
+  int count = 0;
+
+  for (int i = 0; i < MAX_REPEATER_NEIGHBOURS; i++) {
+    if (repeater_neighbours[i].heard_timestamp == 0) continue;
+
+    HiveFWRepeaterNeighbourRecord& record = records[count++];
+    memcpy(
+      record.pub_key,
+      repeater_neighbours[i].id.pub_key,
+      PUB_KEY_SIZE
+    );
+    record.advert_timestamp = repeater_neighbours[i].advert_timestamp;
+    record.heard_timestamp = repeater_neighbours[i].heard_timestamp;
+    record.snr = repeater_neighbours[i].snr;
+  }
+
+  if (_store->saveRepeaterNeighbours(records, count)) {
+    repeater_neighbours_dirty = false;
+    repeater_neighbours_save_at = 0;
+  } else {
+    // Retry later if the filesystem was temporarily unavailable.
+    repeater_neighbours_save_at = futureMillis(60UL * 1000UL);
+  }
+}
+
+void MyMesh::loadRepeaterNeighbours()
+{
+  HiveFWRepeaterNeighbourRecord records[MAX_REPEATER_NEIGHBOURS];
+  const int count = _store->loadRepeaterNeighbours(
+    records,
+    MAX_REPEATER_NEIGHBOURS
+  );
+
+  memset(
+    repeater_neighbours,
+    0,
+    sizeof(repeater_neighbours)
+  );
+
+  const uint32_t now = getRTCClock()->getCurrentTime();
+
+  int restored = 0;
+  for (int i = 0; i < count && restored < MAX_REPEATER_NEIGHBOURS; i++) {
+    // Only restore the same 48-hour history that the HA view exposes.
+    // Invalid/future RTC values are kept defensively and will be refreshed
+    // by the next real advert from that neighbour.
+    if (
+      now > records[i].heard_timestamp &&
+      (now - records[i].heard_timestamp) > 48UL * 60UL * 60UL
+    ) {
+      continue;
+    }
+
+    RepeaterNeighbour& neighbour = repeater_neighbours[restored++];
+    neighbour.id = mesh::Identity(records[i].pub_key);
+    neighbour.advert_timestamp = records[i].advert_timestamp;
+    neighbour.heard_timestamp = records[i].heard_timestamp;
+    neighbour.snr = records[i].snr;
+  }
+
+  repeater_neighbours_dirty = false;
+  repeater_neighbours_save_at = 0;
+
+  MESH_DEBUG_PRINTLN(
+    "HiveFW: restored %d persistent zero-hop neighbours",
+    restored
+  );
+}
+
 int MyMesh::getRepeaterNeighbourCount() const
 {
   int count = 0;
@@ -4993,6 +5078,7 @@ void MyMesh::begin(bool has_display) {
   resetContacts();
   _store->loadContacts(this);
   bootstrapRTCfromContacts();
+  loadRepeaterNeighbours();
   addChannel("Public", PUBLIC_GROUP_PSK); // pre-configure Andy's public channel
   _store->loadChannels(this);
 
@@ -8709,6 +8795,14 @@ void MyMesh::loop() {
   if (dirty_contacts_expiry && millisHasNowPassed(dirty_contacts_expiry)) {
     saveContacts();
     dirty_contacts_expiry = 0;
+  }
+
+  if (
+    repeater_neighbours_dirty &&
+    repeater_neighbours_save_at &&
+    millisHasNowPassed(repeater_neighbours_save_at)
+  ) {
+    persistRepeaterNeighbours();
   }
 
   // Direct neighbour advert, kept deliberately separate from Smart Advert.
