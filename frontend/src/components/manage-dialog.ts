@@ -791,7 +791,6 @@ export class ManageDialog extends LitElement {
   private _switchTab(tab: ManageTab) {
     this._activeTab = tab;
     this._searchQuery = '';
-    this._categoryFilter = 'all';
     this._typeFilter = 'all';
     this._confirmingRemoveContact = null;
     this._confirmingRemoveChannel = null;
