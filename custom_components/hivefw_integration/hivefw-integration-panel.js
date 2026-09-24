@@ -6936,7 +6936,7 @@ let e,t,i,s,a,r,n,o,l,c,d,h,p,u,g,A,f,m,_,v,w,b,y,x,E,C,B,S,k,I,R,M,D,F,T,Q,P,O,
                 <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
                   <select
                     class="form-select"
-                    style="width:72px;min-width:72px;flex:0 0 72px;"
+                    style="width:100%;min-width:0;max-width:100%;flex:1 1 auto;"
                     .value=${0}
                     ?disabled=${0}
                     @change=${0}>
