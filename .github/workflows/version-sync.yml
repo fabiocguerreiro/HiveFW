@@ -1,11 +1,14 @@
 name: Version sync
 
 on:
+  # On main, validate only once the canonical VERSION file changes. Release
+  # preparation updates manifest.json first and VERSION second, so triggering
+  # on both files creates a guaranteed transient mismatch and noisy failure
+  # notifications for the intermediate commit.
   push:
     branches: [main]
     paths:
       - "VERSION"
-      - "custom_components/hivefw_integration/manifest.json"
       - ".github/workflows/version-sync.yml"
   pull_request:
     paths:
