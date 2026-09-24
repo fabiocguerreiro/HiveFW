@@ -662,6 +662,14 @@ export async function setLocalRegion(
   return hass.callWS<LocalRegionsResponse & { success: boolean; operation: string }>(msg);
 }
 
+export interface FirmwareDownload {
+  target: 'v3-wifi' | 'v3-ble' | 't114-ble';
+  label: string;
+  name: string;
+  url: string;
+  size?: number | null;
+}
+
 export interface FirmwareOtaStatus {
   supported: boolean;
   secure_ota: boolean;
@@ -671,6 +679,7 @@ export interface FirmwareOtaStatus {
   latest_version?: string | null;
   release_url?: string | null;
   release_name?: string | null;
+  downloads?: FirmwareDownload[];
   release_available: boolean;
   update_available: boolean;
 }
