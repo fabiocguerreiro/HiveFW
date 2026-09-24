@@ -23,6 +23,13 @@
 // Sem indicação = comando normal.
 #define HIVEFW_HA_FLAG_LOCATION 0x01
 
+struct HiveFWRepeaterNeighbourRecord {
+  uint8_t pub_key[PUB_KEY_SIZE];
+  uint32_t advert_timestamp;
+  uint32_t heard_timestamp;
+  int8_t snr;
+};
+
 struct HiveFWHACommand {
   char name[HIVEFW_HA_NAME_LEN];
   char command[HIVEFW_HA_COMMAND_LEN];
@@ -63,6 +70,15 @@ public:
   bool saveMainIdentity(const mesh::LocalIdentity &identity);
   void loadPrefs(NodePrefs& prefs);
   bool savePrefs(NodePrefs& prefs);
+
+  int loadRepeaterNeighbours(
+    HiveFWRepeaterNeighbourRecord dest[],
+    int max_count
+  );
+  bool saveRepeaterNeighbours(
+    const HiveFWRepeaterNeighbourRecord src[],
+    int count
+  );
 
   // HiveFW — comandos Home Assistant personalizados.
   int loadHACommands(
