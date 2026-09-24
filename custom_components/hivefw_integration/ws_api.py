@@ -2148,10 +2148,23 @@ async def ws_get_device_config(hass, connection, msg):
         "max_channels": coordinator.max_channels,
     }
 
-    # Radio settings from SELF_INFO plus capabilities/settings that only
-    # exist in DEVICE_INFO (notably path_hash_mode and repeat).
-    self_info = getattr(coordinator.api, 'self_info', {}) or {}
+    # Refresh SELF_INFO explicitly. BW/SF/CR/frequency live in APPSTART;
+    # relying on coordinator.api.self_info here could leave the Radio Setup
+    # dropdowns showing values from before a radio reconfiguration.
+    self_info = getattr(coordinator.api, "self_info", {}) or {}
     device_info = {}
+    try:
+        self_event = await coordinator.api.mesh_core.commands.send_appstart()
+        self_payload = getattr(self_event, "payload", None)
+        if isinstance(self_payload, dict):
+            self_info = self_payload
+            try:
+                coordinator.api._cache_self_info_event(self_event)
+            except Exception:
+                pass
+    except Exception as ex:
+        _LOGGER.debug("Unable to refresh SELF_INFO for settings: %s", ex)
+
     try:
         device_query = await coordinator.api.mesh_core.commands.send_device_query()
         payload = getattr(device_query, "payload", None)
