@@ -141,6 +141,7 @@ export class SettingsPage extends LitElement {
   @state() private _firmwareBusy = false;
   @state() private _firmwareChecking = false;
   @state() private _firmwareUploadStage: 'uploading' | 'rebooting' | 'reconnecting' | null = null;
+  @state() private _firmwareDownloadTarget: 'v3-wifi' | 'v3-ble' | 't114-ble' = 'v3-wifi';
   @state() private _usbFlashHardware: UsbFlashHardware = 'heltec-v3';
   @state() private _usbFlashVariant: UsbFlashVariant = 'wifi';
   @state() private _usbFlashSource: UsbFlashSource = 'latest';
@@ -454,11 +455,20 @@ export class SettingsPage extends LitElement {
       .managed-device-state.online { color: #2e7d32; }
       .managed-device-state.offline { color: var(--secondary-text-color); }
 
+      @media (max-width: 1100px) {
+        .firmware-actions-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .firmware-release-card,
+        .firmware-flash-manual-card,
+        .hivefw-manual-ota-card,
+        .firmware-download-card { grid-column:auto; grid-row:auto; }
+      }
+
       @media (max-width: 870px) {
         .managed-device-list,
         .repeater-setup-grid,
         .repeater-region-form,
-        .backup-restore-grid {
+        .backup-restore-grid,
+        .firmware-actions-grid {
           grid-template-columns: 1fr;
         }
       }
@@ -659,24 +669,19 @@ export class SettingsPage extends LitElement {
 
       .firmware-actions-grid {
         display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+        grid-template-columns: repeat(4, minmax(0, 1fr));
         gap: 12px;
-        align-items:start;
+        align-items: stretch;
       }
 
-      .firmware-release-card {
-        grid-column:1;
-        grid-row:1;
-      }
+      .firmware-release-card { grid-column:1; grid-row:1; }
+      .firmware-flash-manual-card { grid-column:2; grid-row:1; }
+      .hivefw-manual-ota-card { grid-column:3; grid-row:1; }
+      .firmware-download-card { grid-column:4; grid-row:1; }
 
-      .firmware-flash-manual-card {
-        grid-column:1;
-        grid-row:2;
-      }
-
-      .hivefw-manual-ota-card {
-        grid-column:1;
-        grid-row:3;
+      .firmware-actions-grid > .firmware-action-card {
+        height:100%;
+        box-sizing:border-box;
       }
 
       .firmware-action-card {
@@ -789,16 +794,6 @@ export class SettingsPage extends LitElement {
         display: block;
         margin-bottom: 2px;
         font-size: 12px;
-      }
-
-      .firmware-usb-card {
-        grid-column:2;
-        grid-row:1 / span 3;
-        margin-top: 0;
-        padding: 14px;
-        border: 1px solid var(--divider-color);
-        border-radius: 10px;
-        background: var(--primary-background-color);
       }
 
       .firmware-usb-controls {
@@ -1651,133 +1646,57 @@ export class SettingsPage extends LitElement {
             </button>
           </div>
 
-        <div class="firmware-usb-card">
-          <div class="firmware-action-title">Flasher USB</div>
-          <div class="firmware-action-text" style="min-height:0;margin-bottom:0;">
-            Instala HiveFW diretamente num Heltec ligado por USB. Podes usar um ficheiro local
-            ou a última build publicada. O flash ocorre no browser; o Home Assistant não recebe acesso à porta USB.
+        <div class="firmware-action-card firmware-download-card">
+          <div class="firmware-action-title">Download da última Release</div>
+          <div class="firmware-action-text">
+            Escolhe o rádio e descarrega diretamente o firmware correspondente à versão mais recente publicada.
           </div>
 
-          ${!usbFlasherSupported() ? html`
-            <div class="firmware-notice warning" style="margin:12px 0 0;">
-              Web Serial está bloqueado neste contexto. Usa Chrome/Edge em HTTPS (ou localhost) num computador com o rádio ligado por USB. Em HTTP por endereço IP, o bloqueio é imposto pelo browser.
-            </div>
-          ` : nothing}
+          <select
+            class="form-select"
+            .value=${this._firmwareDownloadTarget}
+            @change=${(e: Event) => {
+              this._firmwareDownloadTarget =
+                (e.target as HTMLSelectElement).value as 'v3-wifi' | 'v3-ble' | 't114-ble';
+            }}>
+            <option value="v3-wifi">Heltec V3 · Wi-Fi</option>
+            <option value="v3-ble">Heltec V3 · BLE</option>
+            <option value="t114-ble">Heltec T114 · BLE</option>
+          </select>
 
-          <div class="firmware-usb-controls">
-            <div class="firmware-usb-field">
-              <label>Equipamento</label>
-              <select class="form-select"
-                .value=${this._usbFlashHardware}
-                ?disabled=${this._usbFlashBusy}
-                @change=${(e: Event) => {
-                  this._usbFlashHardware = (e.target as HTMLSelectElement).value as UsbFlashHardware;
-                  if (this._usbFlashHardware === 'heltec-t114') this._usbFlashVariant = 'ble';
-                  this._usbFlashFile = null;
-                }}>
-                <option value="heltec-v3">Heltec V3</option>
-                <option value="heltec-t114">Heltec T114</option>
-              </select>
-            </div>
-
-            <div class="firmware-usb-field">
-              <label>Firmware</label>
-              <select class="form-select"
-                .value=${this._usbFlashVariant}
-                ?disabled=${this._usbFlashBusy || this._usbFlashHardware === 'heltec-t114'}
-                @change=${(e: Event) => {
-                  this._usbFlashVariant = (e.target as HTMLSelectElement).value as UsbFlashVariant;
-                  this._usbFlashFile = null;
-                }}>
-                <option value="ble">Companion BLE</option>
-                ${this._usbFlashHardware === 'heltec-v3'
-                  ? html`<option value="wifi">Companion Wi-Fi</option>`
-                  : nothing}
-              </select>
-            </div>
-
-            <div class="firmware-usb-field">
-              <label>Origem</label>
-              <select class="form-select"
-                .value=${this._usbFlashSource}
-                ?disabled=${this._usbFlashBusy}
-                @change=${(e: Event) => {
-                  this._usbFlashSource = (e.target as HTMLSelectElement).value as UsbFlashSource;
-                  this._usbFlashFile = null;
-                }}>
-                <option value="latest">Última build publicada</option>
-                <option value="manual">Ficheiro manual</option>
-              </select>
-            </div>
-          </div>
-
-          ${this._usbFlashSource === 'manual' ? html`
-            <label class="firmware-file-picker" style="margin-top:12px;">
-              <span>${this._usbFlashFile
-                ? this._usbFlashFile.name
-                : this._usbFlashHardware === 'heltec-v3'
-                  ? 'Selecionar .bin'
-                  : 'Selecionar ZIP DFU (.zip)'}</span>
-              <input
-                type="file"
-                accept=${this._usbFlashHardware === 'heltec-v3'
-                  ? '.bin,application/octet-stream'
-                  : '.zip,application/zip'}
-                ?disabled=${this._usbFlashBusy}
-                @change=${(e: Event) => {
-                  const input = e.target as HTMLInputElement;
-                  this._usbFlashFile = input.files?.[0] || null;
-                }}
-              />
-            </label>
-          ` : nothing}
-
-          <label class="firmware-usb-erase">
-            <input
-              type="checkbox"
-              .checked=${this._usbFlashErase}
-              ?disabled=${this._usbFlashBusy}
-              @change=${(e: Event) => {
-                this._usbFlashErase = (e.target as HTMLInputElement).checked;
-              }}
-            />
-            <span>
-              <strong>Apagar flash antes de instalar</strong><br />
-              Remove configurações e dados guardados. No V3 usa uma imagem merged completa;
-              no T114 executa primeiro o formatter nRF52 e depois instala a firmware.
-            </span>
-          </label>
-
-          <div class="firmware-usb-actions">
-            ${this._usbFlashHardware === 'heltec-t114' ? html`
-              <button class="action-btn"
-                ?disabled=${this._usbFlashBusy || !usbFlasherSupported()}
-                @click=${this._enterT114Dfu}>
-                Entrar em DFU
-              </button>
-            ` : nothing}
-            <button class="apply-button"
-              style="width:auto;margin:0;"
-              ?disabled=${
-                this._usbFlashBusy ||
-                !usbFlasherSupported() ||
-                (this._usbFlashSource === 'manual' && !this._usbFlashFile)
-              }
-              @click=${this._startUsbFlash}>
-              ${this._usbFlashBusy ? 'A instalar…' : 'Selecionar USB e instalar'}
-            </button>
-          </div>
-
-          ${this._usbFlashStage ? html`
-            <div class="firmware-usb-progress" aria-label="Progresso do flash USB">
-              <div style=${`width:${this._usbFlashProgress}%`}></div>
-            </div>
-            <div style="margin-top:6px;font-size:11px;color:var(--secondary-text-color);">
-              ${Math.round(this._usbFlashProgress)}% · ${this._usbFlashStage}
-            </div>
-          ` : nothing}
-
-          ${this._usbFlashLog ? html`<div class="firmware-usb-log">${this._usbFlashLog}</div>` : nothing}
+          ${(() => {
+            const asset = ota?.downloads?.find(
+              (item) => item.target === this._firmwareDownloadTarget,
+            );
+            if (!asset) {
+              return html`
+                <div class="firmware-empty">
+                  ${ota?.release_available
+                    ? 'Asset ainda não disponível nesta Release.'
+                    : 'Verifica primeiro a última Release.'}
+                </div>
+              `;
+            }
+            return html`
+              <div class="firmware-release-row">
+                <div style="min-width:0;">
+                  <div class="firmware-release-label">Ficheiro</div>
+                  <div class="firmware-release-version"
+                       style="font-size:11px;overflow-wrap:anywhere;">${asset.name}</div>
+                </div>
+              </div>
+              <a
+                class="apply-button firmware-primary-action"
+                style="display:flex;align-items:center;justify-content:center;text-decoration:none;"
+                href=${asset.url}
+                target="_blank"
+                rel="noopener"
+                download>
+                Download ${latest}
+              </a>
+            `;
+          })()}
+        </div>
         </div>
         </div>
 
