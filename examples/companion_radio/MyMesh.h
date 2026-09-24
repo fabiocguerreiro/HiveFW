@@ -471,6 +471,7 @@ private:
   int loadContactsByHashFromStore(const uint8_t* hash, ContactInfo dest[], int max_matches) override {
     return _store->loadNodesByHash(hash, dest, max_matches);
   }
+  bool isContactCachePinned(const ContactInfo* contact) const override;
 
   bool handleCLIRegionCommand(
     char* command
