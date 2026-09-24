@@ -233,75 +233,25 @@ void MyMesh::writeDisabledFrame() {
   _serial->writeFrame(buf, 1);
 }
 
-static void hivefwTranslateContactForOfficial(const ContactInfo& source, ContactInfo& compat) {
-  compat = source;
-
-  // The HiveFW Node Store is authoritative, but the Companion protocol must
-  // expose only values understood by stock MeshCore clients.
-  switch (compat.type) {
-    case ADV_TYPE_CHAT:
-    case ADV_TYPE_REPEATER:
-    case ADV_TYPE_ROOM:
-    case ADV_TYPE_SENSOR:
-      break;
-    default:
-      compat.type = ADV_TYPE_CHAT;
-      break;
-  }
-
-  // Stock Companion currently only defines bit 0 (favourite) for contact
-  // flags. Never leak HiveFW/private metadata bits over the official wire.
-  compat.flags &= 0x01;
-
-  // A persisted HiveFW contact can exist without a currently usable route.
-  // Stock MeshCore represents that condition as OUT_PATH_UNKNOWN.
-  if (compat.out_path_len != OUT_PATH_UNKNOWN &&
-      !mesh::Packet::isValidPathLen(compat.out_path_len)) {
-    compat.out_path_len = OUT_PATH_UNKNOWN;
-    memset(compat.out_path, 0, sizeof(compat.out_path));
-  }
-
-  compat.name[sizeof(compat.name) - 1] = '\0';
-
-  // Old/migrated HiveFW records can legitimately have lastmod == 0. Stock
-  // apps use lastmod as their incremental-sync watermark, so export a stable,
-  // non-zero compatibility value without rewriting the Node Store.
-  if (compat.lastmod == 0) {
-    compat.lastmod = compat.last_advert_timestamp != 0
-      ? compat.last_advert_timestamp
-      : 1;
-  }
-
-  // Reject impossible persisted coordinates at the protocol boundary.
-  if (compat.gps_lat < -90000000 || compat.gps_lat > 90000000 ||
-      compat.gps_lon < -180000000 || compat.gps_lon > 180000000) {
-    compat.gps_lat = 0;
-    compat.gps_lon = 0;
-  }
-}
-
 void MyMesh::writeContactRespFrame(uint8_t code, const ContactInfo &contact) {
-  ContactInfo compat;
-  hivefwTranslateContactForOfficial(contact, compat);
-
   int i = 0;
   out_frame[i++] = code;
-  memcpy(&out_frame[i], compat.id.pub_key, PUB_KEY_SIZE);
+  memcpy(&out_frame[i], contact.id.pub_key, PUB_KEY_SIZE);
   i += PUB_KEY_SIZE;
-  out_frame[i++] = compat.type;
-  out_frame[i++] = compat.flags;
-  out_frame[i++] = compat.out_path_len;
-  memcpy(&out_frame[i], compat.out_path, MAX_PATH_SIZE);
+  out_frame[i++] = contact.type;
+  out_frame[i++] = contact.flags;
+  out_frame[i++] = contact.out_path_len;
+  memcpy(&out_frame[i], contact.out_path, MAX_PATH_SIZE);
   i += MAX_PATH_SIZE;
-  StrHelper::strzcpy((char *)&out_frame[i], compat.name, 32);
+  StrHelper::strzcpy((char *)&out_frame[i], contact.name, 32);
   i += 32;
-  memcpy(&out_frame[i], &compat.last_advert_timestamp, 4);
+  memcpy(&out_frame[i], &contact.last_advert_timestamp, 4);
   i += 4;
-  memcpy(&out_frame[i], &compat.gps_lat, 4);
+  memcpy(&out_frame[i], &contact.gps_lat, 4);
   i += 4;
-  memcpy(&out_frame[i], &compat.gps_lon, 4);
+  memcpy(&out_frame[i], &contact.gps_lon, 4);
   i += 4;
-  memcpy(&out_frame[i], &compat.lastmod, 4);
+  memcpy(&out_frame[i], &contact.lastmod, 4);
   i += 4;
   _serial->writeFrame(out_frame, i);
 }
@@ -475,12 +425,10 @@ void MyMesh::onContactOverwrite(const uint8_t* pub_key) {
 }
 
 void MyMesh::onContactsFull() {
-  // In HiveFW this means only that the RAM working cache is saturated.
-  // The persistent Node Store has already accepted the discovered contact,
-  // so reporting CONTACTS_FULL to Companion clients would be a false
-  // capacity error. The contact remains available through CMD_GET_CONTACTS
-  // and is materialised into RAM on demand.
-  MESH_DEBUG_PRINTLN("HiveFW: contact RAM cache full; persistent store remains available");
+  if (_serial->isConnected()) {
+    out_frame[0] = PUSH_CODE_CONTACTS_FULL;
+    _serial->writeFrame(out_frame, 1);
+  }
 }
 
 static bool hivefwIsSharedAdvert(const mesh::Packet* packet) {
@@ -635,10 +583,6 @@ void MyMesh::onAdvertRecv(mesh::Packet* packet, const mesh::Identity& id,
 }
 
 void MyMesh::onDiscoveredContact(ContactInfo &contact, bool is_new, uint8_t path_len, const uint8_t* path) {
-  // A valid advert is already a HiveFW contact. Flash is authoritative;
-  // contacts[] is only a working cache.
-  _store->upsertNode(contact, true, getRTCClock()->getCurrentTime());
-
   if (_serial->isConnected()) {
     if (is_new) {
       writeContactRespFrame(PUSH_CODE_NEW_ADVERT, contact);
@@ -1002,17 +946,6 @@ void MyMesh::onContactPathUpdated(const ContactInfo &contact) {
   _serial->writeFrame(out_frame, 1 + PUB_KEY_SIZE); // NOTE: app may not be connected
 
   dirty_contacts_expiry = futureMillis(LAZY_CONTACTS_WRITE_DELAY);
-}
-
-bool MyMesh::isContactCachePinned(const ContactInfo* contact) const {
-  if (contact == nullptr) return false;
-  for (int i = 0; i < EXPECTED_ACK_TABLE_SIZE; i++) {
-    if (expected_ack_table[i].ack != 0 &&
-        expected_ack_table[i].contact == contact) {
-      return true;
-    }
-  }
-  return false;
 }
 
 ContactInfo*  MyMesh::processAck(const uint8_t *data) {
@@ -5230,11 +5163,8 @@ void MyMesh::handleCmdFrame(size_t len) {
     int i = 0;
     out_frame[i++] = RESP_CODE_DEVICE_INFO;
     out_frame[i++] = FIRMWARE_VER_CODE;
-    // Official MeshCore clients interpret this historical byte as half
-    // the displayed contact capacity. Keep the upstream convention so a
-    // HiveFW MAX_CONTACTS of 350 is shown as 350, not 510.
-    out_frame[i++] = MAX_CONTACTS / 2;    // v3+ official compatibility
-    out_frame[i++] = MAX_GROUP_CHANNELS; // v3+ (100 on HiveFW targets)
+    out_frame[i++] = MAX_CONTACTS / 2;   // v3+
+    out_frame[i++] = MAX_GROUP_CHANNELS; // v3+
     memcpy(&out_frame[i], &_prefs.ble_pin, 4);
     i += 4;
     memset(&out_frame[i], 0, 12);
@@ -5255,14 +5185,9 @@ void MyMesh::handleCmdFrame(size_t len) {
     MESH_DEBUG_PRINTLN("App %s connected", app_name);
 
     _iter_started = false; // stop any left-over ContactsIterator
-    _force_full_contact_sync_once = true; // first sync in this app session must expose the unified store
     int i = 0;
     out_frame[i++] = RESP_CODE_SELF_INFO;
-    // The connected interface is always a Companion endpoint. Keep this
-    // byte identical to official MeshCore so mobile/desktop Companion apps
-    // enter the normal contacts/channels flow. Repeater identity belongs to
-    // RF adverts (createSelfAdvert), not to RESP_CODE_SELF_INFO.
-    out_frame[i++] = ADV_TYPE_CHAT;
+    out_frame[i++] = _prefs.isRepeatEn() ? ADV_TYPE_REPEATER : ADV_TYPE_CHAT; // what this node Advert identifies as (maybe node's pronouns too?? :-)
     out_frame[i++] = _prefs.tx_power_dbm;
     out_frame[i++] = MAX_LORA_TX_POWER;
     memcpy(&out_frame[i], self_id.pub_key, PUB_KEY_SIZE);
@@ -5404,14 +5329,7 @@ void MyMesh::handleCmdFrame(size_t len) {
     if (_iter_started) {
       writeErrFrame(ERR_CODE_BAD_STATE); // iterator is currently busy
     } else {
-      if (_force_full_contact_sync_once) {
-        // Existing MeshCore apps may hold a 'since' watermark from before
-        // HiveFW started exposing discovered nodes as normal contacts. A full
-        // sync once per APP_START makes those historical contacts visible
-        // without disabling incremental sync for later requests.
-        _iter_filter_since = 0;
-        _force_full_contact_sync_once = false;
-      } else if (len >= 5) { // has optional 'since' param
+      if (len >= 5) { // has optional 'since' param
         memcpy(&_iter_filter_since, &cmd_frame[1], 4);
       } else {
         _iter_filter_since = 0;
@@ -5419,12 +5337,12 @@ void MyMesh::handleCmdFrame(size_t len) {
 
       uint8_t reply[5];
       reply[0] = RESP_CODE_CONTACTS_START;
-      uint32_t count = _store->countNodes(false); // all persistent HiveFW contacts
+      uint32_t count = getNumContacts(); // total, NOT filtered count
       memcpy(&reply[1], &count, 4);
       _serial->writeFrame(reply, 5);
 
-      // Stream the persistent store using the unchanged official wire format.
-      _store_iter_index = 0;
+      // start iterator
+      _iter = startContactsIterator();
       _iter_started = true;
       _most_recent_lastmod = 0;
     }
@@ -5546,7 +5464,6 @@ void MyMesh::handleCmdFrame(size_t len) {
     if (recipient) {
       updateContactFromFrame(*recipient, last_mod, cmd_frame, len);
       recipient->lastmod = last_mod;
-      _store->upsertNode(*recipient, true, getRTCClock()->getCurrentTime());
       dirty_contacts_expiry = futureMillis(LAZY_CONTACTS_WRITE_DELAY);
       writeOKFrame();
     } else {
@@ -5554,28 +5471,22 @@ void MyMesh::handleCmdFrame(size_t len) {
       updateContactFromFrame(contact, last_mod, cmd_frame, len);
       contact.lastmod = last_mod;
       contact.sync_since = 0;
-      _store->upsertNode(contact, true, getRTCClock()->getCurrentTime());
-      addContact(contact); // cache optimisation only; storage is authoritative
-      dirty_contacts_expiry = futureMillis(LAZY_CONTACTS_WRITE_DELAY);
-      writeOKFrame();
+      if (addContact(contact)) {
+        dirty_contacts_expiry = futureMillis(LAZY_CONTACTS_WRITE_DELAY);
+        writeOKFrame();
+      } else {
+        writeErrFrame(ERR_CODE_TABLE_FULL);
+      }
     }
   } else if (cmd_frame[0] == CMD_REMOVE_CONTACT) {
     uint8_t *pub_key = &cmd_frame[1];
-    ContactInfo stored;
-    if (_store->loadNodeByKey(pub_key, PUB_KEY_SIZE, stored, false) &&
-        _store->deleteNode(pub_key)) {
-      ContactsIterator it = startContactsIterator();
-      ContactInfo cached;
-      while (it.hasNext(this, cached)) {
-        if (memcmp(cached.id.pub_key, pub_key, PUB_KEY_SIZE) == 0) {
-          removeContact(cached);
-          break;
-        }
-      }
+    ContactInfo *recipient = lookupContactByPubKey(pub_key, PUB_KEY_SIZE);
+    if (recipient && removeContact(*recipient)) {
+      _store->deleteBlobByKey(pub_key, PUB_KEY_SIZE);
       dirty_contacts_expiry = futureMillis(LAZY_CONTACTS_WRITE_DELAY);
       writeOKFrame();
     } else {
-      writeErrFrame(ERR_CODE_NOT_FOUND);
+      writeErrFrame(ERR_CODE_NOT_FOUND); // not found, or unable to remove
     }
   } else if (cmd_frame[0] == CMD_SHARE_CONTACT) {
     uint8_t *pub_key = &cmd_frame[1];
@@ -5595,15 +5506,7 @@ void MyMesh::handleCmdFrame(size_t len) {
     if (contact) {
       writeContactRespFrame(RESP_CODE_CONTACT, *contact);
     } else {
-      // The RAM table is only a working cache in HiveFW. Official Companion
-      // clients must still be able to resolve every contact exposed from the
-      // persistent Node Store.
-      ContactInfo stored;
-      if (_store->loadNodeByKey(pub_key, PUB_KEY_SIZE, stored, false)) {
-        writeContactRespFrame(RESP_CODE_CONTACT, stored);
-      } else {
-        writeErrFrame(ERR_CODE_NOT_FOUND);
-      }
+      writeErrFrame(ERR_CODE_NOT_FOUND); // not found
     }
   } else if (cmd_frame[0] == CMD_EXPORT_CONTACT) {
     if (len < 1 + PUB_KEY_SIZE) {
@@ -8855,18 +8758,11 @@ void MyMesh::checkSerialInterface() {
              && !_serial->isWriteBusy() // don't spam the Serial Interface too quickly!
   ) {
     ContactInfo contact;
-    if (_store->getNodeByIndex(_store_iter_index++, contact, false, nullptr)) {
-      ContactInfo compat;
-      hivefwTranslateContactForOfficial(contact, compat);
-
-      // IMPORTANT: filter on the same translated lastmod that is sent over
-      // the official Companion wire. Historical HiveFW records may have
-      // lastmod == 0 in flash; the compatibility layer exports those as a
-      // stable non-zero value, so they must not be discarded before export.
-      if (compat.lastmod > _iter_filter_since) {
-        writeContactRespFrame(RESP_CODE_CONTACT, compat);
-        if (compat.lastmod > _most_recent_lastmod) {
-          _most_recent_lastmod = compat.lastmod;
+    if (_iter.hasNext(this, contact)) {
+      if (contact.lastmod > _iter_filter_since) { // apply the 'since' filter
+        writeContactRespFrame(RESP_CODE_CONTACT, contact);
+        if (contact.lastmod > _most_recent_lastmod) {
+          _most_recent_lastmod = contact.lastmod; // save for the RESP_CODE_END_OF_CONTACTS frame
         }
       }
     } else { // EOF
