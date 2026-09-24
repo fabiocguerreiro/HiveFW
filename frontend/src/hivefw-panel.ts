@@ -5344,26 +5344,6 @@ class HiveFWPanel extends BasePanel {
     }
   }
 
-  __activityPeerFor(contact) {
-    const peers=this.__peerActivity?.peers||{};
-    const key=String(contact?.public_key||"").trim().toLowerCase();
-    const prefix=String(contact?.pubkey_prefix||key.slice(0,12)).trim().toLowerCase();
-    let match=null;
-    let matchedLength=-1;
-    for(const [candidate,value] of Object.entries(peers)){
-      const c=String(candidate||"").trim().toLowerCase();
-      if(!c)continue;
-      const matches=(key&&(key.startsWith(c)||c.startsWith(key)))||
-        (prefix&&(prefix.startsWith(c)||c.startsWith(prefix)));
-      if(!matches)continue;
-      if(c.length>matchedLength){
-        match=value;
-        matchedLength=c.length;
-      }
-    }
-    return match&&typeof match==="object"?match:null;
-  }
-
   __peerActivityFor(contact) {
     const peers=this.__peerActivity?.peers||{};
     const links=this.__peerActivity?.links||{};
@@ -9064,16 +9044,6 @@ class HiveFWPanel extends BasePanel {
     this.__renderNetworkContacts(contacts);
   }
 
-  __ensureNeighborsOverlay(container) {
-    if (this.__neighborsOverlay?.isConnected) return this.__neighborsOverlay;
-
-    const overlay = document.createElement("div");
-    overlay.className = "hive-neighbors-overlay";
-    container.appendChild(overlay);
-    this.__neighborsOverlay = overlay;
-    return overlay;
-  }
-
   __removeNeighborsOverlay() {
     if (this.__neighborsOverlay?.isConnected) {
       this.__neighborsOverlay.remove();
@@ -10057,60 +10027,6 @@ class HiveFWPanel extends BasePanel {
         }
       }
     }
-  }
-
-  __neighborCard(neighbor) {
-    const card = document.createElement("article");
-    card.className = "hive-neighbor-card";
-
-    const icon = document.createElement("div");
-    icon.className = "hive-neighbor-icon";
-    icon.textContent = "⌁";
-
-    const info = document.createElement("div");
-
-    const name = document.createElement("div");
-    name.className = "hive-neighbor-name";
-    name.textContent = neighbor.name || neighbor.pubkey_prefix || "Repeater";
-
-    const prefix = document.createElement("div");
-    prefix.className = "hive-neighbor-prefix";
-    prefix.textContent = String(neighbor.pubkey_prefix || "").toUpperCase();
-
-    const meta = document.createElement("div");
-    meta.className = "hive-neighbor-meta";
-
-    const direct = document.createElement("span");
-    direct.className = "hive-neighbor-pill";
-    direct.textContent = "ZERO-HOP";
-    meta.appendChild(direct);
-
-    if (neighbor.known_contact) {
-      const known = document.createElement("span");
-      known.textContent = "Contacto adicionado";
-      meta.appendChild(known);
-    } else {
-      const discovered = document.createElement("span");
-      discovered.textContent = "Descoberto";
-      meta.appendChild(discovered);
-    }
-
-    info.append(name, prefix, meta);
-
-    const side = document.createElement("div");
-    side.className = "hive-neighbor-side";
-
-    const age = document.createElement("div");
-    age.className = "hive-neighbor-age";
-    age.textContent = this.__age(Number(neighbor.secs_ago || 0));
-
-    const label = document.createElement("div");
-    label.className = "hive-neighbor-side-label";
-    label.textContent = "último advert";
-
-    side.append(age, label);
-    card.append(icon, info, side);
-    return card;
   }
 
   __age(seconds) {
