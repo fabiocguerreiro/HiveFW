@@ -1,7 +1,7 @@
 import { LitElement, html, css } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 import type { HomeAssistant, Contact, Channel } from '../types';
-import { getContacts, getChannels, getDeviceConfig, removeContact, removeChannel } from '../api';
+import { getContacts, getChannels, getDeviceConfig, addContact, removeContact, removeChannel } from '../api';
 import { attachDialogA11y } from '../utils/dialog-a11y';
 import './channel-dialog';
 
@@ -51,6 +51,7 @@ export class ManageDialog extends LitElement {
   @state() private _contacts: Contact[] = [];
   @state() private _channels: Channel[] = [];
   @state() private _searchQuery = '';
+  @state() private _categoryFilter: 'all' | 'added' | 'discovered' = 'all';
   @state() private _typeFilter: 'all' | 'clients' | 'repeaters' = 'all';
   @state() private _loading = false;
   @state() private _actionInProgress: string | null = null;
@@ -551,10 +552,10 @@ export class ManageDialog extends LitElement {
         class="dialog"
         role="dialog"
         aria-modal="true"
-        aria-label="Gerir contactos e canais"
+        aria-label="Manage contacts and channels"
         @click=${(e: Event) => e.stopPropagation()}>
         <div class="dialog-header">
-          <span class="dialog-title">Gerir</span>
+          <span class="dialog-title">Manage</span>
           <button class="close-btn" aria-label="Close" @click=${this._close}>✕</button>
         </div>
 
@@ -562,19 +563,32 @@ export class ManageDialog extends LitElement {
           <button
             class=${this._activeTab === 'contacts' ? 'active' : ''}
             @click=${() => this._switchTab('contacts')}>
-            Contactos
+            Contacts
           </button>
           <button
             class=${this._activeTab === 'channels' ? 'active' : ''}
             @click=${() => this._switchTab('channels')}>
-            Canais
+            Channels
           </button>
         </div>
 
         ${this._activeTab === 'contacts'
           ? html`
               <div class="filter-bar">
-                <span class="filter-bar-label">Tipo</span>
+                <span class="filter-bar-label">Show</span>
+                <div class="filter-bar-group">
+                  ${(['all', 'added', 'discovered'] as const).map(
+                    (c) => html`
+                      <button
+                        class="filter-chip ${this._categoryFilter === c ? 'active' : ''}"
+                        @click=${() => { this._categoryFilter = c; }}
+                      >
+                        ${c === 'all' ? 'All' : c === 'added' ? 'Added' : 'Discovered'}
+                      </button>
+                    `,
+                  )}
+                </div>
+                <span class="filter-bar-label">Type</span>
                 <div class="filter-bar-group">
                   ${(['all', 'clients', 'repeaters'] as const).map(
                     (t) => html`
@@ -582,7 +596,7 @@ export class ManageDialog extends LitElement {
                         class="filter-chip ${this._typeFilter === t ? 'active' : ''}"
                         @click=${() => { this._typeFilter = t; }}
                       >
-                        ${t === 'all' ? 'Todos' : t === 'clients' ? 'Clients' : 'Repeaters'}
+                        ${t === 'all' ? 'All' : t === 'clients' ? 'Clients' : 'Repeaters'}
                       </button>
                     `,
                   )}
@@ -591,8 +605,8 @@ export class ManageDialog extends LitElement {
               <div class="search-bar">
                 <input
                   type="text"
-                  aria-label="Pesquisar contactos"
-                  placeholder="Pesquisar contactos..."
+                  aria-label="Search contacts"
+                  placeholder="Search contacts..."
                   .value=${this._searchQuery}
                   @input=${(e: Event) => {
                     this._searchQuery = (e.target as HTMLInputElement).value;
@@ -646,55 +660,72 @@ export class ManageDialog extends LitElement {
     if (filtered.length === 0) {
       const isFiltered =
         !!this._searchQuery
+        || this._categoryFilter !== 'all'
         || this._typeFilter !== 'all';
       return html`
         <div class="empty-state">
           <div class="empty-icon"><svg viewBox="0 0 24 24" width="32" height="32" fill="currentColor" opacity="0.5"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg></div>
           <div class="empty-text">
-            ${isFiltered ? 'Nenhum contacto corresponde ao filtro' : 'Nenhum contacto guardado'}
+            ${isFiltered ? 'No contacts match' : 'No contacts discovered'}
           </div>
         </div>
       `;
     }
 
-    const sorted = [...filtered].sort((a, b) =>
-      (a.adv_name || '').localeCompare(b.adv_name || '')
-    );
+    // Sort: added contacts first, then alphabetical
+    const sorted = [...filtered].sort((a, b) => {
+      if (a.added_to_node !== b.added_to_node) {
+        return a.added_to_node ? -1 : 1;
+      }
+      return a.adv_name.localeCompare(b.adv_name);
+    });
 
     return sorted.map((contact) => this._renderContactItem(contact));
   }
 
   private _renderContactItem(contact: Contact) {
     const avatar = contact.pubkey_prefix.substring(0, 2).toUpperCase();
+    const isAdded = contact.added_to_node;
     const isConfirming = this._confirmingRemoveContact === contact.public_key;
     const isActing = this._actionInProgress === contact.public_key;
-    const typeLabel = contact.type === 2 ? 'Repeater' : contact.type === 3
-      ? 'Room Server' : contact.type === 4 ? 'Sensor' : 'Client';
 
     return html`
       <div class="contact-item">
         <div class="contact-avatar">${avatar}</div>
         <div class="contact-info">
-          <div class="contact-name">${contact.adv_name || 'Sem nome'}</div>
+          <div class="contact-name">${contact.adv_name || 'Unknown'}</div>
           <div class="contact-meta">
             <span class="contact-prefix">${contact.pubkey_prefix}</span>
-            <span class="badge added">${typeLabel}</span>
+            <span class="badge ${isAdded ? 'added' : 'discovered'}">
+              ${isAdded ? html`<svg viewBox="0 0 24 24" width="10" height="10" fill="currentColor" style="vertical-align: -1px; margin-right: 2px;"><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg>Added` : 'Discovered'}
+            </span>
           </div>
         </div>
         ${isConfirming
           ? html`
               <div class="confirm-inline">
-                <span class="confirm-text">Apagar?</span>
-                <button class="confirm-btn yes" @click=${() => this._doRemoveContact(contact)}>Sim</button>
-                <button class="confirm-btn no" @click=${() => { this._confirmingRemoveContact = null; }}>Não</button>
+                <span class="confirm-text">Remove?</span>
+                <button class="confirm-btn yes" @click=${() => this._doRemoveContact(contact)}>Yes</button>
+                <button class="confirm-btn no" @click=${() => { this._confirmingRemoveContact = null; }}>No</button>
               </div>
             `
-          : html`
-              <button class="action-btn remove" ?disabled=${isActing}
-                @click=${() => { this._confirmingRemoveContact = contact.public_key; }}>
-                ${isActing ? '...' : 'Apagar'}
-              </button>
-            `}
+          : isAdded
+            ? html`
+                <button
+                  class="action-btn remove"
+                  ?disabled=${isActing}
+                  @click=${() => { this._confirmingRemoveContact = contact.public_key; }}>
+                  ${isActing ? '...' : 'Remove'}
+                </button>
+              `
+            : html`
+                <button
+                  class="action-btn add"
+                  ?disabled=${isActing}
+                  @click=${() => this._doAddContact(contact)}>
+                  ${isActing ? '...' : html`<svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor" style="vertical-align: -1px; margin-right: 4px;"><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg>Add`}
+                </button>
+              `}
       </div>
     `;
   }
@@ -791,6 +822,7 @@ export class ManageDialog extends LitElement {
   private _switchTab(tab: ManageTab) {
     this._activeTab = tab;
     this._searchQuery = '';
+    this._categoryFilter = 'all';
     this._typeFilter = 'all';
     this._confirmingRemoveContact = null;
     this._confirmingRemoveChannel = null;
@@ -800,6 +832,13 @@ export class ManageDialog extends LitElement {
 
   private _filterContacts(): Contact[] {
     let list: Contact[] = this._contacts;
+
+    // Category filter — Added vs Discovered (or All).
+    if (this._categoryFilter === 'added') {
+      list = list.filter((c) => c.added_to_node);
+    } else if (this._categoryFilter === 'discovered') {
+      list = list.filter((c) => !c.added_to_node);
+    }
 
     // Type filter — clients are emitted by firmware as type 0 OR 1
     // (firmware-emitted ambiguity, see ws_api.py _compute_type_counts);
@@ -824,6 +863,29 @@ export class ManageDialog extends LitElement {
     }
 
     return list;
+  }
+
+  private async _doAddContact(contact: Contact) {
+    if (!this.hass) return;
+    this._actionInProgress = contact.public_key;
+    try {
+      const result = await addContact(
+        this.hass,
+        contact.public_key,
+        contact.adv_name,
+        this.entryId,
+      );
+      if (result.success) {
+        // Refresh contacts list
+        const contacts = await getContacts(this.hass, this.entryId);
+        this._contacts = contacts;
+        this.dispatchEvent(
+          new CustomEvent('contacts-changed', { bubbles: true, composed: true }),
+        );
+      }
+    } finally {
+      this._actionInProgress = null;
+    }
   }
 
   private async _doRemoveContact(contact: Contact) {
