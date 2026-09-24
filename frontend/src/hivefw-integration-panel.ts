@@ -811,11 +811,6 @@ export class MeshCorePanel extends LitElement {
             Canais
           </button>
           <button
-            class=${this._activeTab === 'nodes' ? 'active' : ''}
-            @click=${() => (this._activeTab = 'nodes')}>
-            Nós
-          </button>
-          <button
             class=${this._activeTab === 'network' ? 'active' : ''}
             @click=${() => (this._activeTab = 'network')}>
             Rede
