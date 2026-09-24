@@ -1111,7 +1111,12 @@ export class MeshCorePanel extends LitElement {
     const chatPage = this.shadowRoot?.querySelector('hivefw-integration-page') as
       | (HTMLElement & { scrollCurrentConversationToLatest?: () => Promise<void> })
       | null;
-    void chatPage?.scrollCurrentConversationToLatest?.();
+
+    // "Ler todos" is an explicit user action: the active conversation must
+    // immediately abandon any old last-read anchor and land on the newest
+    // received message. Await it so the controller refresh below cannot race
+    // a pending last-read re-anchor.
+    await chatPage?.scrollCurrentConversationToLatest?.();
 
     const entryId = this._selectedEntryId || undefined;
     await Promise.allSettled(
@@ -1121,6 +1126,11 @@ export class MeshCorePanel extends LitElement {
     );
 
     await this._loadUnreadCounts();
+
+    // Re-assert the bottom after backend last-read cursors are reconciled.
+    // This prevents a late unread/lastRead update from restoring the old
+    // anchor after the explicit "Ler todos" action.
+    await chatPage?.scrollCurrentConversationToLatest?.();
   }
 
   private async _handleNodeAction(e: CustomEvent) {
