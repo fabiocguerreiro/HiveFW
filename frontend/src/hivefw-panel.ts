@@ -2916,12 +2916,12 @@ class HiveFWPanel extends BasePanel {
       "storage":"Utilização do armazenamento persistente do dispositivo.",
       "hardware":"Modelo e build de firmware do dispositivo.",
       "protocol":"Versão do protocolo Companion e tamanho do Path Hash.",
-      "capacity":"Capacidade configurada para contactos e canais no firmware.",
+      "capacity":"Capacidade configurada de contactos e canais do dispositivo.",
       "repeat-frequencies":"Frequência ou frequências permitidas para operação Repeater.",
       "rf-health":"Noise Floor e qualidade RF observada pelo rádio.",
       "airtime-health":"Utilização de airtime RX/TX observada localmente.",
       "traffic-now":"Taxa atual de mensagens recebidas e transmitidas.",
-      "network-activity":"Resumo de atividade recente da rede.",
+      "network-activity":"Resumo de atividade recente dos contactos conhecidos.",
       "health-alerts":"Resumo de alertas operacionais ativos. Eventos históricos recuperados não contam como falha ativa.",
       "reliability":"Relação entre pedidos concluídos e falhados.",
       "integrity":"Indicadores de integridade dos pacotes e erros de receção."
@@ -2929,13 +2929,9 @@ class HiveFWPanel extends BasePanel {
 
     for(const tile of hero.querySelectorAll(":scope > .hero-tile")){
       tile.classList.add("hive-metric-uniform");
-
       const marker=String(tile.dataset.repeaterExtra||"");
-      const title=(tile.querySelector(".hero-tile-head")?.textContent||"Métrica")
-        .replace(/\s+/g," ").trim();
-      const help=helpByMarker[marker] ||
-        `${title}: métrica do dispositivo. Quando existe uma entidade associada, clica no cartão para abrir os detalhes no Home Assistant.`;
-
+      const title=(tile.querySelector(".hero-tile-head")?.textContent||"Métrica").replace(/\s+/g," ").trim();
+      const help=helpByMarker[marker] || `${title}: métrica do dispositivo. Quando existe uma entidade associada, clica no cartão para abrir os detalhes no Home Assistant.`;
       let info=tile.querySelector(":scope > .hive-metric-info");
       if(!info){
         info=document.createElement("span");
@@ -2943,21 +2939,13 @@ class HiveFWPanel extends BasePanel {
         info.textContent="i";
         info.setAttribute("role","img");
         info.setAttribute("aria-label",help);
-        info.addEventListener("click",(event)=>{
-          event.preventDefault();
-          event.stopPropagation();
-        });
+        info.addEventListener("click",(event)=>{event.preventDefault();event.stopPropagation();});
         tile.appendChild(info);
       }
       info.title=help;
       info.setAttribute("aria-label",help);
-
       const dot=tile.querySelector(".status-dot");
-      if(dot){
-        dot.classList.add("hive-metric-status-dot");
-        if(dot.parentElement!==tile)tile.appendChild(dot);
-      }
-
+      if(dot){dot.classList.add("hive-metric-status-dot");if(dot.parentElement!==tile)tile.appendChild(dot);}
       const secondary=tile.querySelector(".hero-tile-value .secondary");
       if(secondary)secondary.title=secondary.textContent||"";
     }
@@ -4163,30 +4151,16 @@ class HiveFWPanel extends BasePanel {
           overflow:hidden;
         }
         .hive-metric-info{
-          position:absolute;
-          top:7px;
-          right:7px;
-          z-index:3;
-          width:16px;
-          height:16px;
-          display:grid;
-          place-items:center;
-          border:1px solid var(--divider-color,#ccc);
-          border-radius:50%;
-          background:var(--card-background-color,#fff);
-          color:var(--secondary-text-color,#777);
-          font:700 10px/1 sans-serif;
-          cursor:help;
-          user-select:none;
+          position:absolute;top:7px;right:7px;z-index:3;width:16px;height:16px;
+          display:grid;place-items:center;border:1px solid var(--divider-color,#ccc);
+          border-radius:50%;background:var(--card-background-color,#fff);
+          color:var(--secondary-text-color,#777);font:700 10px/1 sans-serif;
+          cursor:help;user-select:none;
         }
         .hero-tile > .status-dot,
         .hero-tile .hive-metric-status-dot{
-          position:absolute!important;
-          right:9px!important;
-          bottom:12px!important;
-          top:auto!important;
-          margin:0!important;
-          z-index:2;
+          position:absolute!important;right:9px!important;bottom:12px!important;
+          top:auto!important;margin:0!important;z-index:2;
         }
         .hero-tile-head{
           font-size:10px!important;
