@@ -7714,19 +7714,23 @@ async def ws_remove_contact(hass, connection, msg):
     public_key = msg["public_key"]
     prefix = public_key[:12]
 
-    # Look up contact in coordinator's contacts
-    contact_data = coordinator._contacts.get(prefix)
-    if not contact_data:
-        # Try matching by longer key
-        for pk, c in coordinator._contacts.items():
-            full_pk = c.get("public_key", "")
-            if full_pk.startswith(public_key) or public_key.startswith(full_pk[:12]):
-                contact_data = c
-                prefix = pk
-                break
+    # HiveFW uses one contact list. Resolve against the unified coordinator
+    # view instead of the legacy "added contacts" dictionary so a freshly
+    # heard/persisted node can be deleted immediately from the map.
+    contact_data = None
+    for c in coordinator.get_all_contacts():
+        full_pk = c.get("public_key", "")
+        if (
+            full_pk == public_key
+            or full_pk.startswith(public_key)
+            or public_key.startswith(full_pk[:12])
+        ):
+            contact_data = c
+            prefix = full_pk[:12]
+            break
 
     if not contact_data:
-        connection.send_error(msg["id"], "not_found", f"Contact {public_key[:12]} not found in added contacts")
+        connection.send_error(msg["id"], "not_found", f"Contact {public_key[:12]} not found")
         return
 
     # Execute the SDK remove_contact command
