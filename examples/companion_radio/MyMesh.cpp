@@ -583,16 +583,9 @@ void MyMesh::onAdvertRecv(mesh::Packet* packet, const mesh::Identity& id,
 }
 
 void MyMesh::onDiscoveredContact(ContactInfo &contact, bool is_new, uint8_t path_len, const uint8_t* path) {
-  bool added = false;
-  ContactsIterator added_it = startContactsIterator();
-  ContactInfo added_contact;
-  while (added_it.hasNext(this, added_contact)) {
-    if (memcmp(added_contact.id.pub_key, contact.id.pub_key, PUB_KEY_SIZE) == 0) {
-      added = true;
-      break;
-    }
-  }
-  _store->upsertNode(contact, added, getRTCClock()->getCurrentTime());
+  // A valid advert is already a HiveFW contact. Flash is authoritative;
+  // contacts[] is only a working cache.
+  _store->upsertNode(contact, true, getRTCClock()->getCurrentTime());
 
   if (_serial->isConnected()) {
     if (is_new) {
@@ -957,6 +950,17 @@ void MyMesh::onContactPathUpdated(const ContactInfo &contact) {
   _serial->writeFrame(out_frame, 1 + PUB_KEY_SIZE); // NOTE: app may not be connected
 
   dirty_contacts_expiry = futureMillis(LAZY_CONTACTS_WRITE_DELAY);
+}
+
+bool MyMesh::isContactCachePinned(const ContactInfo* contact) const {
+  if (contact == nullptr) return false;
+  for (int i = 0; i < EXPECTED_ACK_TABLE_SIZE; i++) {
+    if (expected_ack_table[i].ack != 0 &&
+        expected_ack_table[i].contact == contact) {
+      return true;
+    }
+  }
+  return false;
 }
 
 ContactInfo*  MyMesh::processAck(const uint8_t *data) {
@@ -5350,7 +5354,7 @@ void MyMesh::handleCmdFrame(size_t len) {
 
       uint8_t reply[5];
       reply[0] = RESP_CODE_CONTACTS_START;
-      uint32_t count = _store->countNodes(true); // persistent added contacts, not RAM cache size
+      uint32_t count = _store->countNodes(false); // all persistent HiveFW contacts
       memcpy(&reply[1], &count, 4);
       _serial->writeFrame(reply, 5);
 
@@ -5478,7 +5482,6 @@ void MyMesh::handleCmdFrame(size_t len) {
       updateContactFromFrame(*recipient, last_mod, cmd_frame, len);
       recipient->lastmod = last_mod;
       _store->upsertNode(*recipient, true, getRTCClock()->getCurrentTime());
-      _store->setNodeAdded(recipient->id.pub_key, true);
       dirty_contacts_expiry = futureMillis(LAZY_CONTACTS_WRITE_DELAY);
       writeOKFrame();
     } else {
@@ -5487,7 +5490,6 @@ void MyMesh::handleCmdFrame(size_t len) {
       contact.lastmod = last_mod;
       contact.sync_since = 0;
       _store->upsertNode(contact, true, getRTCClock()->getCurrentTime());
-      _store->setNodeAdded(contact.id.pub_key, true);
       addContact(contact); // cache optimisation only; storage is authoritative
       dirty_contacts_expiry = futureMillis(LAZY_CONTACTS_WRITE_DELAY);
       writeOKFrame();
@@ -5495,8 +5497,8 @@ void MyMesh::handleCmdFrame(size_t len) {
   } else if (cmd_frame[0] == CMD_REMOVE_CONTACT) {
     uint8_t *pub_key = &cmd_frame[1];
     ContactInfo stored;
-    if (_store->loadNodeByKey(pub_key, PUB_KEY_SIZE, stored, true) &&
-        _store->setNodeAdded(pub_key, false)) {
+    if (_store->loadNodeByKey(pub_key, PUB_KEY_SIZE, stored, false) &&
+        _store->deleteNode(pub_key)) {
       ContactsIterator it = startContactsIterator();
       ContactInfo cached;
       while (it.hasNext(this, cached)) {
@@ -8780,7 +8782,7 @@ void MyMesh::checkSerialInterface() {
              && !_serial->isWriteBusy() // don't spam the Serial Interface too quickly!
   ) {
     ContactInfo contact;
-    if (_store->getNodeByIndex(_store_iter_index++, contact, true, nullptr)) {
+    if (_store->getNodeByIndex(_store_iter_index++, contact, false, nullptr)) {
       if (contact.lastmod > _iter_filter_since) {
         writeContactRespFrame(RESP_CODE_CONTACT, contact);
         if (contact.lastmod > _most_recent_lastmod) {
