@@ -579,6 +579,41 @@ async def async_get_latest_release(
                     version = tag
                     if version.lower().startswith("hivefw-"):
                         version = version[7:]
+
+                    def _pick_download(prefix: str, suffix: str, *, exclude: tuple[str, ...] = ()):
+                        return next(
+                            (
+                                asset for asset in assets
+                                if str(asset.get("name", "")).startswith(prefix)
+                                and str(asset.get("name", "")).endswith(suffix)
+                                and not any(token in str(asset.get("name", "")).lower() for token in exclude)
+                            ),
+                            None,
+                        )
+
+                    download_specs = [
+                        ("v3-wifi", "Heltec V3 · Wi-Fi", _pick_download(
+                            "Heltec_v3_companion_radio_wifi-", ".bin", exclude=("merged",)
+                        )),
+                        ("v3-ble", "Heltec V3 · BLE", _pick_download(
+                            "Heltec_v3_companion_radio_ble-", ".bin", exclude=("merged",)
+                        )),
+                        ("t114-ble", "Heltec T114 · BLE", _pick_download(
+                            "Heltec_t114_companion_radio_ble-", ".zip", exclude=("sha256",)
+                        )),
+                    ]
+                    downloads = [
+                        {
+                            "target": target,
+                            "label": label,
+                            "name": asset.get("name"),
+                            "url": asset.get("browser_download_url"),
+                            "size": asset.get("size"),
+                        }
+                        for target, label, asset in download_specs
+                        if asset and asset.get("browser_download_url")
+                    ]
+
                     release = {
                         "version": version,
                         "tag": tag,
@@ -593,6 +628,7 @@ async def async_get_latest_release(
                             if checksum_asset
                             else None
                         ),
+                        "downloads": downloads,
                     }
     except HiveFWOtaError:
         raise
@@ -795,6 +831,7 @@ async def async_get_ota_status(
         "latest_version": latest_version or None,
         "release_url": release.get("url") if release else None,
         "release_name": release.get("name") if release else None,
+        "downloads": release.get("downloads", []) if release else [],
         "release_available": bool(release),
         "update_available": update_available,
     }
