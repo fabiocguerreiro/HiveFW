@@ -6723,7 +6723,7 @@ class HiveFWPanel extends BasePanel {
       const marker=L.marker(coords,{title:name,keyboard:true,riseOnHover:true,zIndexOffset:isLocal?1000:0,...(markerIcon?{icon:markerIcon}:{})});
       const meta=this.__nodeMeta(contact);
       const tagText=meta.tags.length?" · "+meta.tags.map((tag)=>"#"+tag).join(" "):"";
-      const tooltipName=(meta.favorite?"★ ":"")+name+(isLocal?" · local":"")+tagText;
+      const tooltipName=(meta.favorite?"★ ":"")+name+tagText;
       marker.bindTooltip?.(tooltipName,{
         direction:"top",
         offset:[0,-12],
@@ -8830,22 +8830,22 @@ class HiveFWPanel extends BasePanel {
   }
 
   __openNetworkContactDetails(contact) {
-    this.shadowRoot?.querySelector(".hive-network-contact-details-overlay")?.remove();
-    const overlay=document.createElement("div");
-    overlay.className="hive-network-contact-details-overlay";
-    overlay.style.cssText="position:fixed;inset:0;z-index:10000;display:grid;place-items:center;padding:20px;background:rgba(0,0,0,.42);";
-    const shell=document.createElement("div");
-    shell.style.cssText="width:min(460px,calc(100vw - 32px));max-height:85vh;overflow:auto;border-radius:12px;background:#eef0f2;box-shadow:0 12px 35px rgba(0,0,0,.35);";
+    const mapHost=this.__networkOverlay?.querySelector(".hive-neighbors-map-host");
+    if(!mapHost)return;
+    mapHost.querySelector(".hive-network-contact-details")?.remove();
+
+    const panel=document.createElement("div");
+    panel.className="hive-network-contact-details";
+    panel.style.cssText="position:absolute;right:10px;top:10px;z-index:60;width:min(420px,calc(100% - 20px));max-height:calc(100% - 20px);overflow:auto;border:1px solid var(--divider-color,#ccc);border-radius:12px;background:#eef0f2;box-shadow:0 4px 18px rgba(0,0,0,.28);";
     const content=this.__nodeMapPopup(contact);
     const closeButtons=[...content.querySelectorAll("button")].filter((button)=>button.textContent==="Fechar");
     for(const button of closeButtons){
-      button.addEventListener("click",()=>overlay.remove(),{once:true});
+      button.addEventListener("click",()=>panel.remove(),{once:true});
     }
-    shell.appendChild(content);
-    overlay.appendChild(shell);
-    overlay.addEventListener("click",(event)=>{if(event.target===overlay)overlay.remove();});
-    this.shadowRoot?.appendChild(overlay);
+    panel.appendChild(content);
+    mapHost.appendChild(panel);
   }
+
 
   __renderNetworkContacts(container) {
     container.replaceChildren();
@@ -8971,12 +8971,11 @@ class HiveFWPanel extends BasePanel {
         side.append(gps,more);
         row.append(info,side);
         row.addEventListener("click",()=>{
-          if(!this.__nodeCoords(contact))return;
           this.__hiveNeighborMapMode="contacts";
           this.__nodesMapFocusId=this.__nodeId(contact);
           const mapHost=this.__networkOverlay?.querySelector(".hive-neighbors-map");
           if(mapHost)void this.__renderHiveNeighborDiscoveryMap(mapHost).then(()=>{
-            this.__focusNodeOnMap(contact,true);
+            if(this.__nodeCoords(contact))this.__focusNodeOnMap(contact,true);
           });
         });
         list.appendChild(row);
@@ -9814,14 +9813,6 @@ class HiveFWPanel extends BasePanel {
       });
       actions.appendChild(button);
     }
-    if(this.__hiveNeighborMapMode==="contacts"){
-      const history=document.createElement("button");
-      history.type="button";
-      history.className="mcr-btn";
-      history.textContent="Histórico Trace";
-      history.addEventListener("click",()=>void this.__toggleTraceHistory());
-      actions.appendChild(history);
-    }
     head.append(title,actions);
     container.appendChild(head);
 
@@ -9879,10 +9870,12 @@ class HiveFWPanel extends BasePanel {
       if("layers" in map && await this.__waitForLegacyLeaflet(map)){
         map.entities=[];
         map.layers=this.__legacyLeafletLayers(map,mapContacts,null);
-        const coords=mapContacts.map((contact)=>this.__nodeCoords(contact)).filter(Boolean);
-        if(coords.length===1)map.leafletMap?.setView?.(coords[0],11,{animate:false});
-        else if(coords.length>1&&map.Leaflet?.latLngBounds){
-          map.leafletMap?.fitBounds?.(map.Leaflet.latLngBounds(coords),{padding:[28,28],maxZoom:12,animate:false});
+        const localCoords=local?this.__nodeCoords(local):null;
+        if(localCoords){
+          map.leafletMap?.setView?.(localCoords,11,{animate:false});
+        }else{
+          const firstCoords=mapContacts.map((contact)=>this.__nodeCoords(contact)).find(Boolean);
+          if(firstCoords)map.leafletMap?.setView?.(firstCoords,11,{animate:false});
         }
         map.leafletMap?.invalidateSize?.(false);
       }else{
