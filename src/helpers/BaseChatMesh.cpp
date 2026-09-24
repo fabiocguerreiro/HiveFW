@@ -71,15 +71,22 @@ ContactInfo* BaseChatMesh::allocateContactSlot(bool transient_only) {
   int oldest_idx = -1;
   uint32_t oldest_lastmod = 0xFFFFFFFF;
   if (transient_only) {
-    // only allocate from first N
+    // The first N entries are a reusable cache backed by flash. Prefer a free
+    // slot; otherwise evict the oldest entry that is not pinned by an
+    // outstanding operation such as a direct-message ACK.
     for (int i = 0; i < MAX_ANON_CONTACTS; i++) {
-      if (contacts[i].type == ADV_TYPE_NONE && contacts[i].lastmod < oldest_lastmod) {
+      if (contacts[i].type == ADV_TYPE_NONE) {
+        return &contacts[i];
+      }
+    }
+    for (int i = 0; i < MAX_ANON_CONTACTS; i++) {
+      if (!isContactCachePinned(&contacts[i]) &&
+          contacts[i].lastmod < oldest_lastmod) {
         oldest_lastmod = contacts[i].lastmod;
         oldest_idx = i;
       }
     }
     if (oldest_idx >= 0) {
-      // NOTE: do NOT call onContactOverwrite()
       return &contacts[oldest_idx];
     }
   } else {
