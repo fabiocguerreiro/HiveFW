@@ -8098,6 +8098,10 @@ class HiveFWPanel extends BasePanel {
   __rerenderRepeater() {
     if (this._activeTab === "state") this.__enhanceStatePage();
     if (this._activeTab === "settings") this.__enhanceSettingsPage();
+    if (this._activeTab === "network") {
+      const analytics=this.__networkOverlay?.querySelector(".hive-network-analytics");
+      if(analytics)this.__renderHiveNetworkAnalytics(analytics);
+    }
   }
 
   __renderRepeater(container) {
@@ -9496,6 +9500,8 @@ class HiveFWPanel extends BasePanel {
     const scrollTop = left.scrollTop;
     this.__renderHiveNeighborsLeft(left);
     left.scrollTop = scrollTop;
+    const analytics=overlay?.querySelector(".hive-network-analytics");
+    if(analytics)this.__renderHiveNetworkAnalytics(analytics);
     if(this.__hiveNeighborMapMode==="neighbors"){
       const right=overlay?.querySelector(".hive-neighbors-map");
       if(right)void this.__renderHiveNeighborDiscoveryMap(right);
