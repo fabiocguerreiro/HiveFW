@@ -233,25 +233,75 @@ void MyMesh::writeDisabledFrame() {
   _serial->writeFrame(buf, 1);
 }
 
+static void hivefwTranslateContactForOfficial(const ContactInfo& source, ContactInfo& compat) {
+  compat = source;
+
+  // The HiveFW Node Store is authoritative, but the Companion protocol must
+  // expose only values understood by stock MeshCore clients.
+  switch (compat.type) {
+    case ADV_TYPE_CHAT:
+    case ADV_TYPE_REPEATER:
+    case ADV_TYPE_ROOM:
+    case ADV_TYPE_SENSOR:
+      break;
+    default:
+      compat.type = ADV_TYPE_CHAT;
+      break;
+  }
+
+  // Stock Companion currently only defines bit 0 (favourite) for contact
+  // flags. Never leak HiveFW/private metadata bits over the official wire.
+  compat.flags &= 0x01;
+
+  // A persisted HiveFW contact can exist without a currently usable route.
+  // Stock MeshCore represents that condition as OUT_PATH_UNKNOWN.
+  if (compat.out_path_len != OUT_PATH_UNKNOWN &&
+      !mesh::Packet::isValidPathLen(compat.out_path_len)) {
+    compat.out_path_len = OUT_PATH_UNKNOWN;
+    memset(compat.out_path, 0, sizeof(compat.out_path));
+  }
+
+  compat.name[sizeof(compat.name) - 1] = '\0';
+
+  // Old/migrated HiveFW records can legitimately have lastmod == 0. Stock
+  // apps use lastmod as their incremental-sync watermark, so export a stable,
+  // non-zero compatibility value without rewriting the Node Store.
+  if (compat.lastmod == 0) {
+    compat.lastmod = compat.last_advert_timestamp != 0
+      ? compat.last_advert_timestamp
+      : 1;
+  }
+
+  // Reject impossible persisted coordinates at the protocol boundary.
+  if (compat.gps_lat < -90000000 || compat.gps_lat > 90000000 ||
+      compat.gps_lon < -180000000 || compat.gps_lon > 180000000) {
+    compat.gps_lat = 0;
+    compat.gps_lon = 0;
+  }
+}
+
 void MyMesh::writeContactRespFrame(uint8_t code, const ContactInfo &contact) {
+  ContactInfo compat;
+  hivefwTranslateContactForOfficial(contact, compat);
+
   int i = 0;
   out_frame[i++] = code;
-  memcpy(&out_frame[i], contact.id.pub_key, PUB_KEY_SIZE);
+  memcpy(&out_frame[i], compat.id.pub_key, PUB_KEY_SIZE);
   i += PUB_KEY_SIZE;
-  out_frame[i++] = contact.type;
-  out_frame[i++] = contact.flags;
-  out_frame[i++] = contact.out_path_len;
-  memcpy(&out_frame[i], contact.out_path, MAX_PATH_SIZE);
+  out_frame[i++] = compat.type;
+  out_frame[i++] = compat.flags;
+  out_frame[i++] = compat.out_path_len;
+  memcpy(&out_frame[i], compat.out_path, MAX_PATH_SIZE);
   i += MAX_PATH_SIZE;
-  StrHelper::strzcpy((char *)&out_frame[i], contact.name, 32);
+  StrHelper::strzcpy((char *)&out_frame[i], compat.name, 32);
   i += 32;
-  memcpy(&out_frame[i], &contact.last_advert_timestamp, 4);
+  memcpy(&out_frame[i], &compat.last_advert_timestamp, 4);
   i += 4;
-  memcpy(&out_frame[i], &contact.gps_lat, 4);
+  memcpy(&out_frame[i], &compat.gps_lat, 4);
   i += 4;
-  memcpy(&out_frame[i], &contact.gps_lon, 4);
+  memcpy(&out_frame[i], &compat.gps_lon, 4);
   i += 4;
-  memcpy(&out_frame[i], &contact.lastmod, 4);
+  memcpy(&out_frame[i], &compat.lastmod, 4);
   i += 4;
   _serial->writeFrame(out_frame, i);
 }
@@ -5180,9 +5230,10 @@ void MyMesh::handleCmdFrame(size_t len) {
     int i = 0;
     out_frame[i++] = RESP_CODE_DEVICE_INFO;
     out_frame[i++] = FIRMWARE_VER_CODE;
-    // Official clients still receive the historical RAM-cache capacity field.
-    // HiveFW's persistent Node Store itself has no fixed record-count limit.
-    out_frame[i++] = MAX_CONTACTS / 2;   // v3+ cache compatibility
+    // HiveFW stores contacts in flash rather than limiting the official view
+    // to the RAM working cache. Advertise the protocol's full one-byte
+    // capacity; RESP_CODE_CONTACTS_START carries the actual flash count.
+    out_frame[i++] = 0xFF;               // v3+ maximum official-client capacity
     out_frame[i++] = MAX_GROUP_CHANNELS; // v3+ (100 on HiveFW targets)
     memcpy(&out_frame[i], &_prefs.ble_pin, 4);
     i += 4;
@@ -5544,7 +5595,15 @@ void MyMesh::handleCmdFrame(size_t len) {
     if (contact) {
       writeContactRespFrame(RESP_CODE_CONTACT, *contact);
     } else {
-      writeErrFrame(ERR_CODE_NOT_FOUND); // not found
+      // The RAM table is only a working cache in HiveFW. Official Companion
+      // clients must still be able to resolve every contact exposed from the
+      // persistent Node Store.
+      ContactInfo stored;
+      if (_store->loadNodeByKey(pub_key, PUB_KEY_SIZE, stored, false)) {
+        writeContactRespFrame(RESP_CODE_CONTACT, stored);
+      } else {
+        writeErrFrame(ERR_CODE_NOT_FOUND);
+      }
     }
   } else if (cmd_frame[0] == CMD_EXPORT_CONTACT) {
     if (len < 1 + PUB_KEY_SIZE) {
