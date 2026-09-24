@@ -2903,11 +2903,72 @@ class HiveFWPanel extends BasePanel {
     this.shadowRoot?.appendChild(overlay);
   }
 
+  __decorateMetricTiles(hero) {
+    const helpByMarker={
+      "state":"Indica se o modo Repeater está ativo. O Companion permanece disponível em ambos os estados.",
+      "uptime":"Tempo decorrido desde o último arranque do rádio.",
+      "clock":"Hora interna do dispositivo e desvio estimado face ao Home Assistant.",
+      "smart-advert":"Estado e próxima execução do Smart Advert automático do Repeater.",
+      "queue":"Número de pacotes atualmente em espera na fila TX.",
+      "temperature":"Temperatura reportada pelo dispositivo.",
+      "request-tokens":"Tokens disponíveis no rate limiter de pedidos da integração.",
+      "contacts":"Número de contactos conhecidos pelo rádio e sincronizados com a lista persistente.",
+      "storage":"Utilização do armazenamento persistente do dispositivo.",
+      "hardware":"Modelo e build de firmware do dispositivo.",
+      "protocol":"Versão do protocolo Companion e tamanho do Path Hash.",
+      "capacity":"Contactos persistem em flash sem limite fixo de slots; mostra também a capacidade de canais.",
+      "repeat-frequencies":"Frequência ou frequências permitidas para operação Repeater.",
+      "rf-health":"Noise Floor e qualidade RF observada pelo rádio.",
+      "airtime-health":"Utilização de airtime RX/TX observada localmente.",
+      "traffic-now":"Taxa atual de mensagens recebidas e transmitidas.",
+      "network-activity":"Resumo de atividade recente dos contactos conhecidos.",
+      "health-alerts":"Resumo de alertas operacionais ativos. Eventos históricos recuperados não contam como falha ativa.",
+      "reliability":"Relação entre pedidos concluídos e falhados.",
+      "integrity":"Indicadores de integridade dos pacotes e erros de receção."
+    };
+
+    for(const tile of hero.querySelectorAll(":scope > .hero-tile")){
+      tile.classList.add("hive-metric-uniform");
+
+      const marker=String(tile.dataset.repeaterExtra||"");
+      const title=(tile.querySelector(".hero-tile-head")?.textContent||"Métrica")
+        .replace(/\s+/g," ").trim();
+      const help=helpByMarker[marker] ||
+        `${title}: métrica do dispositivo. Quando existe uma entidade associada, clica no cartão para abrir os detalhes no Home Assistant.`;
+
+      let info=tile.querySelector(":scope > .hive-metric-info");
+      if(!info){
+        info=document.createElement("span");
+        info.className="hive-metric-info";
+        info.textContent="i";
+        info.setAttribute("role","img");
+        info.setAttribute("aria-label",help);
+        info.addEventListener("click",(event)=>{
+          event.preventDefault();
+          event.stopPropagation();
+        });
+        tile.appendChild(info);
+      }
+      info.title=help;
+      info.setAttribute("aria-label",help);
+
+      const dot=tile.querySelector(".status-dot");
+      if(dot){
+        dot.classList.add("hive-metric-status-dot");
+        if(dot.parentElement!==tile)tile.appendChild(dot);
+      }
+
+      const secondary=tile.querySelector(".hero-tile-value .secondary");
+      if(secondary)secondary.title=secondary.textContent||"";
+    }
+  }
+
   __ensureMetricEditor(summary,nroot,hero) {
     // Layout is always applied here. The editor itself is opened from the
     // existing Companion gear menu via "Editar Menu".
     nroot.querySelector(".hive-metric-toolbar")?.remove();
     nroot.querySelector("#hive-metric-editor-style")?.remove();
+    this.__decorateMetricTiles(hero);
     this.__applyMetricLayout(hero);
   }
 
@@ -4092,12 +4153,40 @@ class HiveFWPanel extends BasePanel {
           grid-column:span 1;
         }
         .hero-tile{
-          min-height:70px!important;
+          position:relative!important;
+          min-height:76px!important;
           height:100%;
           box-sizing:border-box;
-          padding:8px 9px!important;
+          padding:8px 28px 8px 9px!important;
           gap:4px!important;
           border-radius:10px!important;
+          overflow:hidden;
+        }
+        .hive-metric-info{
+          position:absolute;
+          top:7px;
+          right:7px;
+          z-index:3;
+          width:16px;
+          height:16px;
+          display:grid;
+          place-items:center;
+          border:1px solid var(--divider-color,#ccc);
+          border-radius:50%;
+          background:var(--card-background-color,#fff);
+          color:var(--secondary-text-color,#777);
+          font:700 10px/1 sans-serif;
+          cursor:help;
+          user-select:none;
+        }
+        .hero-tile > .status-dot,
+        .hero-tile .hive-metric-status-dot{
+          position:absolute!important;
+          right:9px!important;
+          bottom:12px!important;
+          top:auto!important;
+          margin:0!important;
+          z-index:2;
         }
         .hero-tile-head{
           font-size:10px!important;
@@ -4219,7 +4308,7 @@ class HiveFWPanel extends BasePanel {
     };
 
     const active=!!status.repeat;
-    hero.appendChild(makeTile("Modo Repeater",active?"Active":"Off","· Companion always on",active?100:0,0,100,active?"good":"info","state",clickEntity("repeater_mode")));
+    hero.appendChild(makeTile("Modo Repeater",active?"Ativo":"Desligado","· Companion sempre ativo",active?100:0,0,100,active?"good":"info","state",clickEntity("repeater_mode")));
 
     const uptimeSecs=Number(status.stats?.core?.uptime_secs);
     if(Number.isFinite(uptimeSecs)){
@@ -4232,7 +4321,7 @@ class HiveFWPanel extends BasePanel {
     if(Number.isFinite(clock)&&clock>0){
       const drift=Number(status.clock?.drift_seconds||0), abs=Math.abs(drift);
       const t=new Date(clock*1000).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit",second:"2-digit"});
-      hero.appendChild(makeTile("Relógio do dispositivo",t,abs<=2?"· synchronized":`· drift ${drift>0?"+":""}${drift}s`,Math.min(abs,120),0,120,abs<=2?"good":abs<=30?"warn":"bad","clock",clickEntity("device_clock","clock")));
+      hero.appendChild(makeTile("Relógio do dispositivo",t,abs<=2?"· sincronizado":`· desvio ${drift>0?"+":""}${drift}s`,Math.min(abs,120),0,120,abs<=2?"good":abs<=30?"warn":"bad","clock",clickEntity("device_clock","clock")));
     }
 
     const smartAdvert=status.smart_advert||{};
@@ -4256,7 +4345,7 @@ class HiveFWPanel extends BasePanel {
     }
 
     const queue=Number(status.stats?.core?.queue_len);
-    if(Number.isFinite(queue)) hero.appendChild(makeTile("Fila TX",String(Math.round(queue)),"queued",Math.min(Math.max(queue,0),30),0,30,queue>10?"bad":queue>5?"warn":"good","queue",clickEntity("tx_queue_len"),"compact"));
+    if(Number.isFinite(queue)) hero.appendChild(makeTile("Fila TX",String(Math.round(queue)),"em espera",Math.min(Math.max(queue,0),30),0,30,queue>10?"bad":queue>5?"warn":"good","queue",clickEntity("tx_queue_len"),"compact"));
 
     const tempInfo=findEntity("temperature");
     const temp=num(tempInfo);
@@ -4272,11 +4361,11 @@ class HiveFWPanel extends BasePanel {
       if(key) tokensInfo={entity_id:key,label:"Request Tokens"};
     }
     const tokens=num(tokensInfo);
-    if(Number.isFinite(tokens)) hero.appendChild(makeTile("Tokens de pedidos",tokens.toFixed(1),"available",tokens,0,20,tokens<5?"bad":tokens<10?"warn":"good","request-tokens",()=>summary._fireMoreInfo?.(tokensInfo.entity_id),"compact"));
+    if(Number.isFinite(tokens)) hero.appendChild(makeTile("Tokens de pedidos",tokens.toFixed(1),"disponíveis",tokens,0,20,tokens<5?"bad":tokens<10?"warn":"good","request-tokens",()=>summary._fireMoreInfo?.(tokensInfo.entity_id),"compact"));
 
     const dcInfo=findEntity("discovered_contacts");
     const discovered=num(dcInfo);
-    if(Number.isFinite(discovered)) hero.appendChild(makeTile("Contactos descobertos",String(Math.round(discovered)),"seen",Math.min(discovered,1000),0,1000,"info","contacts",()=>summary._fireMoreInfo?.(dcInfo.entity_id),"compact"));
+    if(Number.isFinite(discovered)) hero.appendChild(makeTile("Contactos",String(Math.round(discovered)),"no rádio",Math.min(discovered,1000),0,1000,"info","contacts",()=>summary._fireMoreInfo?.(dcInfo.entity_id),"compact"));
 
     const used=Number(status.battery?.used_kb), total=Number(status.battery?.total_kb);
     if(Number.isFinite(used)&&Number.isFinite(total)&&total>0){
@@ -4300,7 +4389,7 @@ class HiveFWPanel extends BasePanel {
     if(info.max_contacts!=null || info.max_channels!=null){
       hero.appendChild(makeTile(
         "Node Store / Canais",
-        `Storage / ${info.max_channels??"—"}`,
+        `Flash / ${info.max_channels??"—"} canais`,
         `contactos sem limite fixo · cache ${info.max_contacts??"—"}`,
         100,0,100,"info","capacity",clickEntity("max_contacts","max_channels"),"compact"
       ));
