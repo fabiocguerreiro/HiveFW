@@ -7718,16 +7718,34 @@ async def ws_remove_contact(hass, connection, msg):
     # view instead of the legacy "added contacts" dictionary so a freshly
     # heard/persisted node can be deleted immediately from the map.
     contact_data = None
-    for c in coordinator.get_all_contacts():
-        full_pk = c.get("public_key", "")
-        if (
-            full_pk == public_key
-            or full_pk.startswith(public_key)
-            or public_key.startswith(full_pk[:12])
-        ):
-            contact_data = c
-            prefix = full_pk[:12]
-            break
+    get_all_contacts = getattr(coordinator, "get_all_contacts", None)
+    unified_contacts = get_all_contacts() if callable(get_all_contacts) else []
+    if isinstance(unified_contacts, list):
+        for c in unified_contacts:
+            if not isinstance(c, dict):
+                continue
+            full_pk = c.get("public_key", "")
+            if (
+                full_pk == public_key
+                or full_pk.startswith(public_key)
+                or public_key.startswith(full_pk[:12])
+            ):
+                contact_data = c
+                prefix = full_pk[:12]
+                break
+
+    # Backward-compatible SDK/test fallback. Older coordinator versions expose
+    # only _contacts; keeping this path also makes rolling HA upgrades safe.
+    if not contact_data:
+        legacy_contacts = getattr(coordinator, "_contacts", {}) or {}
+        contact_data = legacy_contacts.get(prefix)
+        if not contact_data:
+            for pk, c in legacy_contacts.items():
+                full_pk = c.get("public_key", "") if isinstance(c, dict) else ""
+                if full_pk.startswith(public_key) or public_key.startswith(full_pk[:12]):
+                    contact_data = c
+                    prefix = pk
+                    break
 
     if not contact_data:
         connection.send_error(msg["id"], "not_found", f"Contact {public_key[:12]} not found")
