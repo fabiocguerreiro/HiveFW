@@ -425,10 +425,12 @@ void MyMesh::onContactOverwrite(const uint8_t* pub_key) {
 }
 
 void MyMesh::onContactsFull() {
-  if (_serial->isConnected()) {
-    out_frame[0] = PUSH_CODE_CONTACTS_FULL;
-    _serial->writeFrame(out_frame, 1);
-  }
+  // In HiveFW this means only that the RAM working cache is saturated.
+  // The persistent Node Store has already accepted the discovered contact,
+  // so reporting CONTACTS_FULL to Companion clients would be a false
+  // capacity error. The contact remains available through CMD_GET_CONTACTS
+  // and is materialised into RAM on demand.
+  MESH_DEBUG_PRINTLN("HiveFW: contact RAM cache full; persistent store remains available");
 }
 
 static bool hivefwIsSharedAdvert(const mesh::Packet* packet) {
