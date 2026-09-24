@@ -1,5 +1,5 @@
 name: Build & Release HiveFW
-# Release pipeline
+# Fast release pipeline: build supported targets in parallel, then publish once.
 
 concurrency:
   group: hivefw-release-${{ github.ref }}
@@ -12,54 +12,25 @@ on:
       - main
     paths:
       - "VERSION"
-      - "build.sh"
-      - "version-from-file.py"
-      - "platformio.ini"
-      - "examples/companion_radio/**"
-      - "variants/heltec_v3/**"
-      - "variants/heltec_t114/**"
-      - "arch/esp32/AsyncElegantOTA/**"
       - ".github/workflows/hivefw-release.yml"
-    tags:
-      - "v*"
 
 permissions:
   contents: write
 
 jobs:
-  build-and-release:
+  build:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - Heltec_v3_companion_radio_wifi
+          - Heltec_v3_companion_radio_ble
+          - Heltec_t114_companion_radio_ble
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
-
-      - name: Create tag for explicit release commit
-        if: github.ref_type == 'branch' && github.ref_name == 'main' && github.event_name == 'push' && startsWith(github.event.head_commit.message, 'Release HiveFW ')
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          VERSION="$(tr -d '[:space:]' < VERSION)"
-          VERSION="${VERSION#V}"
-          VERSION="${VERSION#v}"
-          TAG="v${VERSION}"
-
-          git fetch --tags --force
-
-          if git rev-parse "${TAG}" >/dev/null 2>&1; then
-            CURRENT="$(git rev-list -n 1 "${TAG}")"
-            if [[ "${CURRENT}" != "${GITHUB_SHA}" ]]; then
-              echo "Moving ${TAG} from ${CURRENT} to ${GITHUB_SHA}."
-              git tag -f "${TAG}" "${GITHUB_SHA}"
-              git push --force origin "${TAG}"
-            else
-              echo "Tag ${TAG} already points to this release commit."
-            fi
-          else
-            git tag "${TAG}" "${GITHUB_SHA}"
-            git push origin "${TAG}"
-          fi
 
       - name: Setup build environment
         uses: ./.github/actions/setup-build-environment
@@ -68,14 +39,10 @@ jobs:
         id: version
         shell: bash
         run: |
-          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
-            VERSION="${GITHUB_REF_NAME#v}"
-            VERSION="${VERSION#V}"
-          else
-            VERSION="$(tr -d '[:space:]' < VERSION)"
-            VERSION="${VERSION#V}"
-            VERSION="${VERSION#v}"
-          fi
+          set -euo pipefail
+          VERSION="$(tr -d '[:space:]' < VERSION)"
+          VERSION="${VERSION#V}"
+          VERSION="${VERSION#v}"
 
           MANIFEST_VERSION="$(python - <<'PY'
           import json
@@ -89,65 +56,49 @@ jobs:
             echo "Version mismatch: VERSION=${VERSION}, manifest=${MANIFEST_VERSION}"
             exit 1
           fi
+
           test -n "$VERSION"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
-      - name: Prepare release assets
-        run: mkdir -p release-assets
-
-      - name: Build Heltec V3 Wi-Fi OTA
+      - name: Build ${{ matrix.target }}
         env:
           FIRMWARE_VERSION: V${{ steps.version.outputs.version }}
         shell: bash
+        run: ./build.sh build-firmware "${{ matrix.target }}"
+
+      - name: Prepare target release assets
+        env:
+          TARGET: ${{ matrix.target }}
+        shell: bash
         run: |
-          ./build.sh build-firmware Heltec_v3_companion_radio_wifi
+          set -euo pipefail
+          mkdir -p release-assets
 
-          V3_BIN="$(find out -maxdepth 1 -type f \
-            -name 'Heltec_v3_companion_radio_wifi-*.bin' \
-            ! -name '*-merged.bin' \
-            -print -quit)"
-          V3_MERGED="$(find out -maxdepth 1 -type f \
-            -name 'Heltec_v3_companion_radio_wifi-*-merged.bin' \
-            -print -quit)"
+          case "$TARGET" in
+            Heltec_v3_companion_radio_wifi)
+              V3_BIN="$(find out -maxdepth 1 -type f -name 'Heltec_v3_companion_radio_wifi-*.bin' ! -name '*-merged.bin' -print -quit)"
+              V3_MERGED="$(find out -maxdepth 1 -type f -name 'Heltec_v3_companion_radio_wifi-*-merged.bin' -print -quit)"
+              test -s "$V3_BIN"
+              test -s "$V3_MERGED"
+              cp "$V3_BIN" "$V3_MERGED" release-assets/
 
-          if [[ -z "$V3_BIN" || ! -s "$V3_BIN" ]]; then
-            echo "Heltec V3 OTA application image was not produced"
-            exit 1
-          fi
+              V3_BUILD_DIR=".pio/build/Heltec_v3_companion_radio_wifi"
+              BOOT_APP0="$HOME/.platformio/packages/framework-arduinoespressif32/tools/partitions/boot_app0.bin"
+              RECOVERY_DIR="recovery-v3"
+              RECOVERY_ZIP="release-assets/$(basename "$V3_BIN" .bin)-recovery.zip"
 
-          if [[ -z "$V3_MERGED" || ! -s "$V3_MERGED" ]]; then
-            echo "Heltec V3 Wi-Fi merged image was not produced"
-            exit 1
-          fi
+              test -s "$V3_BUILD_DIR/bootloader.bin"
+              test -s "$V3_BUILD_DIR/partitions.bin"
+              test -s "$V3_BUILD_DIR/firmware.bin"
+              test -s "$BOOT_APP0"
 
-          cp "$V3_BIN" "$V3_MERGED" release-assets/
-          (
-            cd release-assets
-            sha256sum "$(basename "$V3_BIN")" > "$(basename "$V3_BIN").sha256"
-            sha256sum "$(basename "$V3_MERGED")" > "$(basename "$V3_MERGED").sha256"
-          )
+              mkdir -p "$RECOVERY_DIR"
+              cp "$V3_BUILD_DIR/bootloader.bin" "$RECOVERY_DIR/bootloader.bin"
+              cp "$V3_BUILD_DIR/partitions.bin" "$RECOVERY_DIR/partitions.bin"
+              cp "$BOOT_APP0" "$RECOVERY_DIR/boot_app0.bin"
+              cp "$V3_BUILD_DIR/firmware.bin" "$RECOVERY_DIR/firmware.bin"
 
-          # Build a USB recovery package that repairs bootloader/partition
-          # metadata and app0 while deliberately preserving NVS (0x9000),
-          # where HiveFW stores the runtime Wi-Fi credentials.
-          V3_BUILD_DIR=".pio/build/Heltec_v3_companion_radio_wifi"
-          BOOT_APP0="$HOME/.platformio/packages/framework-arduinoespressif32/tools/partitions/boot_app0.bin"
-          RECOVERY_DIR="recovery-v3"
-          RECOVERY_ZIP="release-assets/$(basename "$V3_BIN" .bin)-recovery.zip"
-
-          test -s "$V3_BUILD_DIR/bootloader.bin"
-          test -s "$V3_BUILD_DIR/partitions.bin"
-          test -s "$V3_BUILD_DIR/firmware.bin"
-          test -s "$BOOT_APP0"
-
-          rm -rf "$RECOVERY_DIR"
-          mkdir -p "$RECOVERY_DIR"
-          cp "$V3_BUILD_DIR/bootloader.bin" "$RECOVERY_DIR/bootloader.bin"
-          cp "$V3_BUILD_DIR/partitions.bin" "$RECOVERY_DIR/partitions.bin"
-          cp "$BOOT_APP0" "$RECOVERY_DIR/boot_app0.bin"
-          cp "$V3_BUILD_DIR/firmware.bin" "$RECOVERY_DIR/firmware.bin"
-
-          cat > "$RECOVERY_DIR/FLASH_RECOVERY.txt" <<'EOF'
+              cat > "$RECOVERY_DIR/FLASH_RECOVERY.txt" <<'EOF'
           HiveFW Heltec V3 USB recovery
           ==============================
 
@@ -170,79 +121,78 @@ jobs:
           - boot_app0.bin at 0xE000 resets the OTA selection metadata.
           EOF
 
-          (
-            cd "$RECOVERY_DIR"
-            sha256sum bootloader.bin partitions.bin boot_app0.bin firmware.bin > SHA256SUMS.txt
-            zip -9 "../$RECOVERY_ZIP"               bootloader.bin partitions.bin boot_app0.bin firmware.bin               FLASH_RECOVERY.txt SHA256SUMS.txt
-          )
-          sha256sum "$RECOVERY_ZIP" > "$RECOVERY_ZIP.sha256"
+              (
+                cd "$RECOVERY_DIR"
+                sha256sum bootloader.bin partitions.bin boot_app0.bin firmware.bin > SHA256SUMS.txt
+                zip -9 "../$RECOVERY_ZIP" bootloader.bin partitions.bin boot_app0.bin firmware.bin FLASH_RECOVERY.txt SHA256SUMS.txt
+              )
+              ;;
 
-      - name: Build Heltec V3 BLE
-        env:
-          FIRMWARE_VERSION: V${{ steps.version.outputs.version }}
-        shell: bash
-        run: |
-          ./build.sh build-firmware Heltec_v3_companion_radio_ble
+            Heltec_v3_companion_radio_ble)
+              V3_BLE_BIN="$(find out -maxdepth 1 -type f -name 'Heltec_v3_companion_radio_ble-*.bin' ! -name '*-merged.bin' -print -quit)"
+              V3_BLE_MERGED="$(find out -maxdepth 1 -type f -name 'Heltec_v3_companion_radio_ble-*-merged.bin' -print -quit)"
+              test -s "$V3_BLE_BIN"
+              test -s "$V3_BLE_MERGED"
+              cp "$V3_BLE_BIN" "$V3_BLE_MERGED" release-assets/
+              ;;
 
-          V3_BLE_BIN="$(find out -maxdepth 1 -type f \
-            -name 'Heltec_v3_companion_radio_ble-*.bin' \
-            ! -name '*-merged.bin' \
-            -print -quit)"
-          V3_BLE_MERGED="$(find out -maxdepth 1 -type f \
-            -name 'Heltec_v3_companion_radio_ble-*-merged.bin' \
-            -print -quit)"
+            Heltec_t114_companion_radio_ble)
+              T114_ZIP="$(find out -maxdepth 1 -type f -name 'Heltec_t114_companion_radio_ble-*.zip' -print -quit)"
+              T114_UF2="$(find out -maxdepth 1 -type f -name 'Heltec_t114_companion_radio_ble-*.uf2' -print -quit)"
+              test -s "$T114_ZIP"
+              test -s "$T114_UF2"
+              cp "$T114_ZIP" "$T114_UF2" release-assets/
+              ;;
+          esac
 
-          if [[ -z "$V3_BLE_BIN" || ! -s "$V3_BLE_BIN" ]]; then
-            echo "Heltec V3 BLE application image was not produced"
-            exit 1
-          fi
-
-          if [[ -z "$V3_BLE_MERGED" || ! -s "$V3_BLE_MERGED" ]]; then
-            echo "Heltec V3 BLE merged image was not produced"
-            exit 1
-          fi
-
-          cp "$V3_BLE_BIN" "$V3_BLE_MERGED" release-assets/
           (
             cd release-assets
-            sha256sum "$(basename "$V3_BLE_BIN")" > "$(basename "$V3_BLE_BIN").sha256"
-            sha256sum "$(basename "$V3_BLE_MERGED")" > "$(basename "$V3_BLE_MERGED").sha256"
+            for file in *; do
+              [[ "$file" == *.sha256 ]] && continue
+              sha256sum "$file" > "$file.sha256"
+            done
           )
 
-      - name: Build Heltec T114 BLE DFU
-        env:
-          FIRMWARE_VERSION: V${{ steps.version.outputs.version }}
+      - name: Upload ${{ matrix.target }} assets
+        uses: actions/upload-artifact@v7
+        with:
+          name: firmware-${{ matrix.target }}
+          path: release-assets/*
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    if: github.event_name == 'push' && startsWith(github.event.head_commit.message, 'Release HiveFW ')
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Resolve firmware version
+        id: version
         shell: bash
         run: |
-          ./build.sh build-firmware Heltec_t114_companion_radio_ble
+          set -euo pipefail
+          VERSION="$(tr -d '[:space:]' < VERSION)"
+          VERSION="${VERSION#V}"
+          VERSION="${VERSION#v}"
+          test -n "$VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
-          T114_ZIP="$(find out -maxdepth 1 -type f \
-            -name 'Heltec_t114_companion_radio_ble-*.zip' \
-            -print -quit)"
-          T114_UF2="$(find out -maxdepth 1 -type f \
-            -name 'Heltec_t114_companion_radio_ble-*.uf2' \
-            -print -quit)"
-
-          if [[ -z "$T114_ZIP" || ! -s "$T114_ZIP" ]]; then
-            echo "Heltec T114 BLE DFU ZIP was not produced"
-            exit 1
-          fi
-
-          if [[ -z "$T114_UF2" || ! -s "$T114_UF2" ]]; then
-            echo "Heltec T114 UF2 was not produced"
-            exit 1
-          fi
-
-          cp "$T114_ZIP" "$T114_UF2" release-assets/
-          (
-            cd release-assets
-            sha256sum "$(basename "$T114_ZIP")" > "$(basename "$T114_ZIP").sha256"
-            sha256sum "$(basename "$T114_UF2")" > "$(basename "$T114_UF2").sha256"
-          )
+      - name: Download built firmware assets
+        uses: actions/download-artifact@v7
+        with:
+          pattern: firmware-*
+          path: release-assets
+          merge-multiple: true
 
       - name: Validate device-specific release assets
         shell: bash
         run: |
+          set -euo pipefail
           V3_COUNT="$(find release-assets -maxdepth 1 -type f -name 'Heltec_v3_companion_radio_wifi-*.bin' ! -name '*-merged.bin' ! -name '*.sha256' | wc -l)"
           V3_MERGED_COUNT="$(find release-assets -maxdepth 1 -type f -name 'Heltec_v3_companion_radio_wifi-*-merged.bin' ! -name '*.sha256' | wc -l)"
           V3_RECOVERY_COUNT="$(find release-assets -maxdepth 1 -type f -name 'Heltec_v3_companion_radio_wifi-*-recovery.zip' ! -name '*.sha256' | wc -l)"
@@ -252,26 +202,35 @@ jobs:
           T114_UF2_COUNT="$(find release-assets -maxdepth 1 -type f -name 'Heltec_t114_companion_radio_ble-*.uf2' ! -name '*.sha256' | wc -l)"
 
           if [[ "$V3_COUNT" -lt 1 || "$V3_MERGED_COUNT" -lt 1 || "$V3_RECOVERY_COUNT" -lt 1 || "$V3_BLE_BIN_COUNT" -lt 1 || "$V3_BLE_MERGED_COUNT" -lt 1 || "$T114_ZIP_COUNT" -lt 1 || "$T114_UF2_COUNT" -lt 1 ]]; then
-            echo "Release blocked: V3 Wi-Fi BIN/merged/recovery + V3 BLE BIN/merged + T114 DFU/UF2 assets are required."
+            echo "Release blocked: required V3 Wi-Fi, V3 BLE and T114 assets are missing."
             ls -lh release-assets
             exit 1
           fi
 
-      - name: List release assets
-        run: ls -lh release-assets
+          ls -lh release-assets
 
-      - name: Upload workflow artifact
-        uses: actions/upload-artifact@v7
-        with:
-          name: HiveFW-${{ steps.version.outputs.version }}
-          path: release-assets/*
-          if-no-files-found: error
+      - name: Create release tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="v${{ steps.version.outputs.version }}"
+          git fetch --tags --force
+
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            CURRENT="$(git rev-list -n 1 "$TAG")"
+            if [[ "$CURRENT" != "$GITHUB_SHA" ]]; then
+              git tag -f "$TAG" "$GITHUB_SHA"
+              git push --force origin "$TAG"
+            fi
+          else
+            git tag "$TAG" "$GITHUB_SHA"
+            git push origin "$TAG"
+          fi
 
       - name: Publish GitHub Release
-        if: github.ref_type == 'tag' || (github.ref_type == 'branch' && github.ref_name == 'main' && github.event_name == 'push' && startsWith(github.event.head_commit.message, 'Release HiveFW '))
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || format('v{0}', steps.version.outputs.version) }}
+          tag_name: v${{ steps.version.outputs.version }}
           target_commitish: ${{ github.sha }}
           name: HiveFW ${{ steps.version.outputs.version }}
           draft: false
