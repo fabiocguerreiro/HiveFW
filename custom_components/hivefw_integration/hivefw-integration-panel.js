@@ -4441,6 +4441,49 @@ let e,t,i,a,o,s,r,n,l,d,c,p,h,u,v,g,m,f,_,b,y,x,w,$,k,S,C,M,R,A,I,T,z,D,N,F,E,O,
       .hero-row > .hero-tile[data-repeater-extra="repeat-frequencies"] { grid-column: 1; }
     }
     .hero-tile:hover { border-color: var(--primary-color, #03a9f4); }
+
+    /* HiveFW Status cockpit: one information matrix instead of a wall of cards.
+       The tiles remain individually clickable and keep all existing data. */
+    :host([data-hive-native-cockpit="1"]) .hero-row {
+      gap: 0;
+      border: 1px solid var(--divider-color, #e0e0e0);
+      border-radius: 12px;
+      overflow: hidden;
+      background: var(--card-background-color, #fff);
+    }
+    :host([data-hive-native-cockpit="1"]) .hero-tile {
+      min-height: 66px;
+      padding: 10px 12px;
+      border: 0;
+      border-right: 1px solid var(--divider-color, #e0e0e0);
+      border-bottom: 1px solid var(--divider-color, #e0e0e0);
+      border-radius: 0;
+      background: transparent;
+      box-shadow: none;
+      transition: background-color .15s ease;
+    }
+    :host([data-hive-native-cockpit="1"]) .hero-tile:hover {
+      border-color: var(--divider-color, #e0e0e0);
+      background: color-mix(in srgb, var(--primary-color) 6%, transparent);
+      transform: none;
+    }
+    :host([data-hive-native-cockpit="1"]) .hero-tile-head {
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: .055em;
+    }
+    :host([data-hive-native-cockpit="1"]) .hero-tile-value .primary {
+      font-size: 17px;
+      font-weight: 700;
+      line-height: 1.08;
+    }
+    :host([data-hive-native-cockpit="1"]) .hero-tile-value .compact {
+      font-size: 15px;
+      font-weight: 650;
+    }
+    :host([data-hive-native-cockpit="1"]) .hero-tile-value .secondary {
+      font-size: 9px;
+    }
     .hero-tile-head {
       display: flex;
       align-items: center;
@@ -5088,8 +5131,8 @@ let e,t,i,a,o,s,r,n,l,d,c,p,h,u,v,g,m,f,_,b,y,x,w,$,k,S,C,M,R,A,I,T,z,D,N,F,E,O,
                 </div>
               </div>
               <a
-                class="apply-button firmware-primary-action"
-                style="display:flex;align-items:center;justify-content:center;text-decoration:none;"
+                class="apply-button firmware-primary-action firmware-download-action"
+                style="text-decoration:none;"
                 href=${0}
                 target="_blank"
                 rel="noopener"
@@ -6606,6 +6649,16 @@ let e,t,i,a,o,s,r,n,l,d,c,p,h,u,v,g,m,f,_,b,y,x,w,$,k,S,C,M,R,A,I,T,z,D,N,F,E,O,
       .firmware-primary-action {
         width: 100%;
         margin-top: 10px;
+      }
+
+      .firmware-download-action {
+        display: inline-flex !important;
+        width: fit-content;
+        max-width: 100%;
+        min-width: 0;
+        padding-inline: 14px;
+        align-items: center;
+        justify-content: center;
       }
 
       .firmware-file-picker {
