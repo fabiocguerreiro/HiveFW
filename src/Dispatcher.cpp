@@ -357,6 +357,13 @@ void Dispatcher::checkSend() {
     if (episode_busy_ms > cad_longest_busy_ms) {
       cad_longest_busy_ms = episode_busy_ms;
     }
+
+    // ERR_EVENT_CAD_TIMEOUT represents an active radio fault. The cumulative
+    // counters above retain the diagnostic history, so clear the live bit as
+    // soon as this busy episode has recovered (or the guarded force-TX path
+    // proceeds). This prevents Home Assistant from reporting "Detected"
+    // forever after one recovered CAD episode.
+    _err_flags &= ~ERR_EVENT_CAD_TIMEOUT;
   }
 
   cad_busy_start = 0;
