@@ -116,7 +116,8 @@ public:
   void saveContacts(DataStoreHost* host, bool (*filter)(const ContactInfo& c) = NULL);
 
   bool upsertNode(const ContactInfo& contact, bool added, uint32_t heard_timestamp);
-  bool setNodeAdded(const uint8_t pub_key[PUB_KEY_SIZE], bool added);
+  bool setNodeAdded(const uint8_t pub_key[PUB_KEY_SIZE], bool added); // legacy compatibility flag
+  bool deleteNode(const uint8_t pub_key[PUB_KEY_SIZE]);
   bool loadNodeByKey(const uint8_t* pub_key, int prefix_len, ContactInfo& contact, bool added_only = false);
   int loadNodesByHash(const uint8_t* hash, ContactInfo dest[], int max_matches);
   uint32_t countNodes(bool added_only = false);
