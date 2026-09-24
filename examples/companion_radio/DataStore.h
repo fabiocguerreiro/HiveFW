@@ -39,27 +39,6 @@ struct HiveFWHACommand {
   uint8_t flags;
 };
 
-#define HIVEFW_NODE_STATE_VALID 0x01
-#define HIVEFW_NODE_STATE_ADDED 0x02
-
-#pragma pack(push, 1)
-struct HiveFWNodeRecord {
-  uint8_t pub_key[PUB_KEY_SIZE];
-  char name[32];
-  uint8_t type;
-  uint8_t flags;
-  uint8_t state;
-  uint8_t out_path_len;
-  uint32_t last_advert_timestamp;
-  uint32_t lastmod;
-  uint32_t sync_since;
-  uint32_t heard_timestamp;
-  int32_t gps_lat;
-  int32_t gps_lon;
-  uint8_t out_path[MAX_PATH_SIZE];
-};
-#pragma pack(pop)
-
 
 class DataStoreHost {
 public:
@@ -114,16 +93,6 @@ public:
 
   void loadContacts(DataStoreHost* host);
   void saveContacts(DataStoreHost* host, bool (*filter)(const ContactInfo& c) = NULL);
-
-  bool upsertNode(const ContactInfo& contact, bool added, uint32_t heard_timestamp);
-  bool setNodeAdded(const uint8_t pub_key[PUB_KEY_SIZE], bool added); // legacy compatibility flag
-  bool deleteNode(const uint8_t pub_key[PUB_KEY_SIZE]);
-  bool loadNodeByKey(const uint8_t* pub_key, int prefix_len, ContactInfo& contact, bool added_only = false);
-  int loadNodesByHash(const uint8_t* hash, ContactInfo dest[], int max_matches);
-  uint32_t countNodes(bool added_only = false);
-  bool getNodeByIndex(uint32_t index, ContactInfo& contact, bool added_only = false, uint32_t* heard_timestamp = nullptr);
-  void migrateContactsToNodeStore();
-
   void loadChannels(DataStoreHost* host);
   void saveChannels(DataStoreHost* host);
   void migrateToSecondaryFS();
