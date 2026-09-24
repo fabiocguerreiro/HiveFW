@@ -334,13 +334,8 @@ class HiveFWPanel extends BasePanel {
       }
     }
 
-    if (this._activeTab === "nodes") {
-      this.__enhanceNodesPage();
-      return;
-    }
 
     if (this._activeTab !== "network") {
-      this.__cleanupNodesSplit();
     }
 
     if (this._activeTab === "state") {
@@ -1356,7 +1351,7 @@ class HiveFWPanel extends BasePanel {
 
     // Vizinhos and Nós were promoted into Rede. Normalize stale routes so
     // cached frontend state cannot resurrect either retired tab.
-    if (this._activeTab === "neighbors" || this._activeTab === "nodes") {
+    if (this._activeTab === "neighbors") {
       this._activeTab = "network";
     }
 
@@ -1368,7 +1363,6 @@ class HiveFWPanel extends BasePanel {
     const state = byLabel("Estado");
     const settings = byLabel("Settings", "Dispositivo", "Definições");
     const chat = byLabel("Chat", "Chat & Canais", "Canais");
-    const nodes = byLabel("Nodes", "Nós");
     const devices = byLabel("Devices");
     const legacyNeighbors = byLabel("Vizinhos");
     let network = byLabel("Rede");
@@ -1381,11 +1375,6 @@ class HiveFWPanel extends BasePanel {
     if (chat) {
       chat.textContent = "Canais";
       chat.style.order = "2";
-    }
-    if (nodes) {
-      nodes.textContent = "Nós";
-      nodes.style.order = "3";
-      nodes.hidden = true;
     }
     if (settings) {
       settings.textContent = "Definições";
@@ -1436,7 +1425,6 @@ class HiveFWPanel extends BasePanel {
 
     iconize(state, "mdi:monitor-dashboard");
     iconize(chat, "mdi:message-text-outline");
-    iconize(nodes, "mdi:map-marker-multiple-outline");
     iconize(network, "mdi:chart-timeline-variant");
     iconize(settings, "mdi:cog-outline");
   }
@@ -6037,364 +6025,6 @@ class HiveFWPanel extends BasePanel {
     }
   }
 
-  __ensureNodeExportControls(nroot,page) {
-    const transfer=nroot?.querySelector(".nodes-transfer-pane");
-    if(!transfer)return;
-
-    // Remove controls injected into the historical full-width filter bar.
-    nroot.querySelectorAll(".l1-filters .hive-export-btn,.l1-filters .hive-import-btn")
-      .forEach((el)=>el.remove());
-
-    let style=nroot.querySelector("#hive-node-export-style");
-    if(!style){
-      style=document.createElement("style");
-      style.id="hive-node-export-style";
-      style.textContent=`
-        .nodes-transfer-pane{
-          display:flex;
-          flex-direction:column;
-          justify-content:flex-start;
-          gap:7px;
-        }
-        .hive-transfer-title{
-          font-size:12px;
-          font-weight:700;
-          color:var(--primary-text-color);
-        }
-        .hive-transfer-note{
-          color:var(--secondary-text-color,#727272);
-          font-size:9px;
-          line-height:1.4;
-        }
-        .hive-transfer-actions{
-          display:grid;
-          grid-template-columns:repeat(2,minmax(0,1fr));
-          gap:7px;
-          margin-top:2px;
-        }
-        .hive-transfer-btn{
-          width:100%;
-          min-width:0;
-          padding:7px 9px;
-          border:1px solid #f57c00;
-          border-radius:7px;
-          background:#f57c00;
-          color:#fff;
-          font:inherit;
-          font-size:10px;
-          font-weight:700;
-          cursor:pointer;
-        }
-        .hive-transfer-btn:hover{filter:brightness(.96);}
-        .hive-transfer-btn:disabled{opacity:.55;cursor:wait;}
-        .map-selection{display:none!important;}
-      `;
-      nroot.appendChild(style);
-    }
-
-    if(transfer.querySelector(".hive-transfer-actions"))return;
-    transfer.replaceChildren();
-
-    const title=document.createElement("div");
-    title.className="hive-transfer-title";
-    title.textContent="Contactos Descobertos";
-
-    const note=document.createElement("div");
-    note.className="hive-transfer-note";
-    note.textContent="Importar e exportar discovered_contacts compatível com MeshCore.";
-
-    const actions=document.createElement("div");
-    actions.className="hive-transfer-actions";
-
-    const exportButton=document.createElement("button");
-    exportButton.className="hive-transfer-btn hive-export-btn";
-    exportButton.textContent="Exportar";
-    exportButton.title="Exportar contactos no formato discovered_contacts compatível com MeshCore";
-    exportButton.addEventListener("click",()=>void this.__exportHiveFWContacts(exportButton));
-
-    const importButton=document.createElement("button");
-    importButton.className="hive-transfer-btn hive-import-btn";
-    importButton.textContent="Importar";
-    importButton.title="Importar apenas contactos novos; contactos existentes nunca são alterados";
-
-    const input=document.createElement("input");
-    input.type="file";
-    input.accept=".json,application/json";
-    input.hidden=true;
-    input.addEventListener("change",()=>{
-      const file=input.files?.[0];
-      if(file)void this.__importHiveFWContacts(file,importButton,page);
-      input.value="";
-    });
-    importButton.addEventListener("click",()=>{
-      input.value="";
-      input.click();
-    });
-
-    actions.append(exportButton,importButton,input);
-    transfer.append(title,note,actions);
-  }
-
-  async __refreshNodeMapAfterMutation(pubkey,page) {
-    const openId=this.__nodesPopupId;
-    this.__nodesMapContacts=null;
-    this.__nodesMapLoadedEntry=null;
-    this.__nodesMapSignature="";
-
-    await this.__loadNodesMapContacts();
-    if(this.__nodesMapPane?.isConnected){
-      await this.__ensureSplitMap(page,this.__nodesMapPane);
-    }
-
-    if(openId){
-      const source=Array.isArray(this.__nodesMapContacts)?this.__nodesMapContacts:[];
-      const fresh=source.find((contact)=>{
-        if(pubkey && contact?.public_key===pubkey)return true;
-        return this.__nodeId(contact)===openId;
-      });
-      if(fresh && this.__nodeCoords(fresh)){
-        this.__openPersistentNodePopup(fresh);
-      }
-    }
-  }
-
-  __enhanceNodesPage() {
-    const root=this.shadowRoot;
-    const page=root?.querySelector("meshcore-nodes-page");
-    const nroot=page?.shadowRoot;
-    const content=nroot?.querySelector(".content-area");
-    const pane=nroot?.querySelector(".nodes-map-pane");
-    const transferPane=nroot?.querySelector(".nodes-transfer-pane");
-    const activityPane=nroot?.querySelector(".nodes-activity-pane");
-    if(!root||!page||!nroot||!content||!pane||!transferPane||!activityPane)return;
-
-    // The Nodes component owns the final layout from first paint. The wrapper
-    // only fills the native map and activity panes.
-    nroot.querySelector(".hive-view-switch")?.remove();
-    nroot.querySelector(".hive-map-overlay")?.remove();
-    this.__ensureNodeExportControls(nroot,page);
-
-    if(!page.__hiveMapMutationRefreshBound&&typeof page.refreshAfterMutation==="function"){
-      page.__hiveMapMutationRefreshBound=true;
-      const originalRefreshAfterMutation=page.refreshAfterMutation.bind(page);
-      page.refreshAfterMutation=async(pubkey)=>{
-        await originalRefreshAfterMutation(pubkey);
-        await this.__refreshNodeMapAfterMutation(pubkey,page);
-      };
-    }
-
-    let style=nroot.querySelector("#hive-node-runtime-style");
-    if(!style){
-      style=document.createElement("style");
-      style.id="hive-node-runtime-style";
-      style.textContent=`
-        .nodes-map-pane ha-map{
-          display:block;
-          width:100%;
-          height:100%;
-          min-height:420px;
-        }
-        .hive-map-note{
-          display:grid;
-          place-items:center;
-          height:100%;
-          padding:24px;
-          box-sizing:border-box;
-          color:var(--secondary-text-color);
-          text-align:center;
-        }
-        .hive-map-count{
-          position:absolute;
-          top:10px;
-          right:10px;
-          z-index:30;
-          padding:6px 9px;
-          border-radius:14px;
-          background:color-mix(in srgb,var(--card-background-color) 90%,transparent);
-          color:var(--primary-text-color);
-          border:1px solid var(--divider-color);
-          font-size:11px;
-          font-weight:600;
-          box-shadow:0 1px 4px rgba(0,0,0,.18);
-          pointer-events:auto;
-        }
-        .hive-map-count button{
-          border:0;
-          padding:0;
-          background:transparent;
-          color:var(--primary-color,#03a9f4);
-          font:inherit;
-          font-weight:700;
-          cursor:pointer;
-          text-decoration:underline;
-          text-underline-offset:2px;
-        }
-        .nodes-activity-pane{
-          overflow:hidden;
-        }
-        .hive-activity-pane-inner{
-          display:flex;
-          flex-direction:column;
-          width:100%;
-          height:100%;
-          min-height:0;
-          background:var(--card-background-color,#fff);
-          color:var(--primary-text-color,#222);
-        }
-        .hive-activity-pane-header{
-          display:flex;
-          align-items:center;
-          gap:8px;
-          padding:10px 11px;
-          border-bottom:1px solid var(--divider-color,#ddd);
-          flex:0 0 auto;
-        }
-        .hive-activity-pane-header strong{
-          flex:1;
-          font-size:12px;
-        }
-        .hive-activity-pane-header button{
-          border:1px solid var(--divider-color,#ccc);
-          border-radius:7px;
-          background:transparent;
-          color:var(--primary-color,#03a9f4);
-          padding:4px 7px;
-          font:inherit;
-          font-size:10px;
-          cursor:pointer;
-        }
-        .hive-activity-pane-summary{
-          display:grid;
-          grid-template-columns:repeat(2,minmax(0,1fr));
-          gap:6px;
-          padding:8px 9px;
-          border-bottom:1px solid var(--divider-color,#eee);
-          flex:0 0 auto;
-        }
-        .hive-activity-stat{
-          min-width:0;
-          padding:7px;
-          border:1px solid var(--divider-color,#eee);
-          border-radius:8px;
-          background:var(--secondary-background-color,#f7f7f7);
-        }
-        .hive-activity-stat span{
-          display:block;
-          color:var(--secondary-text-color,#666);
-          font-size:9px;
-          margin-bottom:2px;
-        }
-        .hive-activity-stat strong{
-          display:block;
-          overflow:hidden;
-          text-overflow:ellipsis;
-          white-space:nowrap;
-          font-size:12px;
-        }
-        .hive-activity-list{
-          flex:1;
-          min-height:0;
-          overflow:auto;
-          padding:4px 8px 8px;
-        }
-        .hive-activity-row{
-          width:100%;
-          display:grid;
-          grid-template-columns:minmax(0,1fr) auto;
-          gap:8px;
-          align-items:center;
-          padding:8px 4px;
-          border:0;
-          border-bottom:1px solid var(--divider-color,#eee);
-          background:transparent;
-          color:inherit;
-          text-align:left;
-          cursor:pointer;
-        }
-        .hive-activity-row:hover{
-          background:var(--secondary-background-color,#f7f7f7);
-        }
-        .hive-activity-name{
-          overflow:hidden;
-          text-overflow:ellipsis;
-          white-space:nowrap;
-          font-size:11px;
-          font-weight:600;
-        }
-        .hive-activity-detail{
-          color:var(--secondary-text-color,#666);
-          font-size:9px;
-          margin-top:2px;
-        }
-        .hive-activity-score{
-          font:700 11px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
-          color:var(--primary-color,#03a9f4);
-        }
-        .hive-activity-empty{
-          padding:18px 10px;
-          color:var(--secondary-text-color,#666);
-          text-align:center;
-          font-size:10px;
-        }
-      `;
-      nroot.appendChild(style);
-    }
-
-    this.__nodesMapPane=pane;
-    this.__nodesActivityPane=activityPane;
-    pane.querySelector(".hive-map-selection")?.remove();
-    nroot.querySelectorAll(".map-selection").forEach((el)=>el.remove());
-
-    // Cheap first-stage decoration only. Peer activity is intentionally not
-    // requested here; the map gets the first render budget.
-    this.__decorateNodeCards(nroot);
-
-    if(!content.dataset.hiveMapFocusBound){
-      content.dataset.hiveMapFocusBound="1";
-      content.addEventListener("click",(event)=>{
-        const path=event.composedPath?.()||[];
-        const card=path.find((el)=>el?.tagName==="MESHCORE-CONTACT-CARD");
-        const contact=card?.contact;
-        if(contact){
-          event.preventDefault?.();
-          event.stopPropagation();
-          event.stopImmediatePropagation?.();
-          this.__focusNodeOnMap(contact);
-        }
-      },true);
-    }
-
-    // Do not rebuild Activity on every Home Assistant update cycle.
-    // Replacing its children resets scrollTop, so only seed an empty pane;
-    // __loadPeerActivity() owns real data/loading rerenders.
-    if(!activityPane.firstElementChild)this.__renderActivityPane();
-    if(this.__peerActivityLoadedEntry!==this.__entryId()&&!this.__peerActivityLoading){
-      void this.__loadPeerActivity();
-    }
-    void this.__ensureSplitMap(page,pane);
-  }
-
-  __cleanupNodesSplit() {
-    this.__closeTraceMonitor();
-    this.__removeTraceRouteLayer();
-    this.__traceHistoryPanel?.remove();
-    this.__traceHistoryPanel=null;
-    this.__closePersistentNodePopup();
-
-    // Map/activity panes are part of the native Nodes component. Never remove
-    // them; clear runtime children only so the correct layout exists on the
-    // next first paint as well.
-    if(this.__nodesMapPane?.isConnected)this.__nodesMapPane.replaceChildren();
-    if(this.__nodesActivityPane?.isConnected)this.__nodesActivityPane.replaceChildren();
-
-    this.__nodesMapPane=null;
-    this.__nodesActivityPane=null;
-    this.__nodesMapElement=null;
-    this.__nodesMapSignature="";
-    this.__nodesPopupId="";
-    this.__nodesInitialViewport=null;
-  }
-
   __firstSeenStorageKey() {
     const entry=String(this.__entryId()||"default").replace(/[^a-zA-Z0-9_.-]/g,"_");
     return "hivefw.first_seen.v1."+entry;
@@ -6504,13 +6134,14 @@ class HiveFWPanel extends BasePanel {
       console.warn("HiveFW node metadata save failed",error);
     }
 
-    const page=this.shadowRoot?.querySelector("meshcore-nodes-page");
-    if(page?._loadPage)void page._loadPage(true);
-    const nroot=page?.shadowRoot;
-    if(nroot)this.__decorateNodeCards(nroot);
     if(this.__nodesMapPane?.isConnected){
       this.__nodesMapLoadedEntry=null;
-      void this.__loadNodesMapContacts().then(()=>this.__ensureSplitMap(page,this.__nodesMapPane));
+      void this.__loadNodesMapContacts().then(()=>{
+        const host=this.__networkOverlay?.querySelector(".hive-neighbors-map");
+        if(host&&this.__hiveNeighborMapMode==="contacts")void this.__renderHiveNeighborDiscoveryMap(host);
+        const contacts=this.__networkOverlay?.querySelector(".hive-network-contacts");
+        if(contacts)this.__renderNetworkContacts(contacts);
+      });
     }
     if(this.__nodesPersistentPopup){
       this.__openPersistentNodePopup(contact);
