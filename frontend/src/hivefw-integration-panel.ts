@@ -1108,6 +1108,11 @@ export class MeshCorePanel extends LitElement {
       this._unread.clearEntity(entityId);
     }
 
+    const chatPage = this.shadowRoot?.querySelector('hivefw-integration-page') as
+      | (HTMLElement & { scrollCurrentConversationToLatest?: () => Promise<void> })
+      | null;
+    void chatPage?.scrollCurrentConversationToLatest?.();
+
     const entryId = this._selectedEntryId || undefined;
     await Promise.allSettled(
       unreadEntries.map(([entityId]) =>
