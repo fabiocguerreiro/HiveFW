@@ -378,15 +378,29 @@ export class SettingsPage extends LitElement {
       }
 
       .backup-restore-card {
-        grid-column: 1 / -1;
         width: 100%;
       }
 
       .backup-restore-grid {
         display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 12px;
+        grid-template-columns: 1fr;
+        gap: 10px;
         width: 100%;
+      }
+
+      .settings-column {
+        min-width:0;
+        display:flex;
+        flex-direction:column;
+        gap:16px;
+      }
+
+      #hive-observability-settings-card {
+        padding:12px;
+      }
+
+      #hive-observability-settings-card .card-title {
+        margin-bottom:8px;
       }
 
       .backup-restore-panel {
@@ -1418,43 +1432,42 @@ export class SettingsPage extends LitElement {
           <!-- Firmware manager is the third full-width card. -->
           ${this.selectedDevice ? this._renderFirmwareOta() : nothing}
 
-          ${this.selectedDevice ? this._renderBackupRestore() : nothing}
-
-          <!-- Two-column grid for the remaining device settings cards -->
+          <!-- Two independent columns avoid vertical holes between cards of
+               different heights. -->
           <div class="settings-grid">
-            <!-- Device identity belongs to Definições, not Estado. -->
-            <div class="device-section">
-              <div class="card-title">Identidade</div>
-              ${this._renderIdentityManagement()}
-            </div>
-
-            <!-- Local observability/RX hosts are part of the native layout so
-                 HiveFW can populate them without inserting cards after first paint. -->
-            <div id="hive-rxlog-card" class="device-section" data-hive-native-host="rx-log">
-              <div class="card-title">RX Log</div>
-            </div>
-
-            <div id="hive-observability-settings-card" class="device-section" data-hive-native-host="observability">
-              <div class="card-title">Alertas &amp; automações</div>
-            </div>
-
-            <!-- Console belongs to Definições as a normal grid card. -->
-            <div id="hive-console-settings-card"
-                 class="device-section"
-                 data-hive-native-host="console">
-              <div class="card-title">Consola</div>
-              <div style="font-size:12px;line-height:1.45;color:var(--secondary-text-color);margin-bottom:14px;">
-                Executa comandos diretamente no rádio ligado ao Home Assistant. Os comandos locais não geram tráfego LoRa, exceto quando o próprio comando envia dados para a mesh.
+            <div class="settings-column">
+              <div class="device-section">
+                <div class="card-title">Identidade</div>
+                ${this._renderIdentityManagement()}
               </div>
-              <div class="hive-console-settings-host"></div>
+
+              ${this.selectedDevice ? this._renderBackupRestore() : nothing}
+
+              <div id="hive-console-settings-card"
+                   class="device-section"
+                   data-hive-native-host="console">
+                <div class="card-title">Consola</div>
+                <div style="font-size:12px;line-height:1.45;color:var(--secondary-text-color);margin-bottom:14px;">
+                  Executa comandos diretamente no rádio ligado ao Home Assistant. Os comandos locais não geram tráfego LoRa, exceto quando o próprio comando envia dados para a mesh.
+                </div>
+                <div class="hive-console-settings-host"></div>
+              </div>
             </div>
 
-            <!-- Location -->
-            <div class="device-section">
-              <div class="card-title">Location</div>
-              ${this._renderLocation()}
-            </div>
+            <div class="settings-column">
+              <div id="hive-rxlog-card" class="device-section" data-hive-native-host="rx-log">
+                <div class="card-title">RX Log</div>
+              </div>
 
+              <div id="hive-observability-settings-card" class="device-section" data-hive-native-host="observability">
+                <div class="card-title">Alertas &amp; automações</div>
+              </div>
+
+              <div class="device-section">
+                <div class="card-title">Location</div>
+                ${this._renderLocation()}
+              </div>
+            </div>
           </div>
 
         </div>
@@ -2075,7 +2088,7 @@ export class SettingsPage extends LitElement {
       <div class="device-section backup-restore-card" style="margin-bottom:16px;">
         <div class="card-title">Backup &amp; Restore</div>
         <div style="font-size:12px;line-height:1.45;color:var(--secondary-text-color);margin-bottom:12px;">
-          Companion e Repeater são guardados separadamente para distinguir os dados de identidade/app da configuração específica do serviço Repeater.
+          Backups separados do Companion e do Repeater.
         </div>
 
         <div class="backup-restore-grid">
