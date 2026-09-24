@@ -61,6 +61,7 @@ void DataStore::begin() {
   // init 'blob store' support
   _fs->mkdir("/bl");
 #endif
+  migrateContactsToNodeStore();
 }
 
 #if defined(ESP32)
@@ -785,7 +786,212 @@ bool DataStore::saveHACommands(
 }
 
 
+
+static const char* HIVEFW_NODE_STORE_FILE = "/hivefw_nodes4";
+
+static void hivefwNodeToContact(const HiveFWNodeRecord& rec, ContactInfo& c) {
+  memset(&c, 0, sizeof(c));
+  c.id = mesh::Identity(rec.pub_key);
+  memcpy(c.name, rec.name, sizeof(c.name));
+  c.name[sizeof(c.name) - 1] = '\0';
+  c.type = rec.type;
+  c.flags = rec.flags;
+  c.out_path_len = rec.out_path_len;
+  c.last_advert_timestamp = rec.last_advert_timestamp;
+  c.lastmod = rec.lastmod;
+  c.sync_since = rec.sync_since;
+  c.gps_lat = rec.gps_lat;
+  c.gps_lon = rec.gps_lon;
+  memcpy(c.out_path, rec.out_path, sizeof(c.out_path));
+  c.shared_secret_valid = false;
+}
+
+static void hivefwContactToNode(const ContactInfo& c, HiveFWNodeRecord& rec, bool added, uint32_t heard) {
+  memset(&rec, 0, sizeof(rec));
+  memcpy(rec.pub_key, c.id.pub_key, PUB_KEY_SIZE);
+  memcpy(rec.name, c.name, sizeof(rec.name));
+  rec.type = c.type;
+  rec.flags = c.flags;
+  rec.state = HIVEFW_NODE_STATE_VALID | (added ? HIVEFW_NODE_STATE_ADDED : 0);
+  rec.out_path_len = c.out_path_len;
+  rec.last_advert_timestamp = c.last_advert_timestamp;
+  rec.lastmod = c.lastmod;
+  rec.sync_since = c.sync_since;
+  rec.heard_timestamp = heard;
+  rec.gps_lat = c.gps_lat;
+  rec.gps_lon = c.gps_lon;
+  memcpy(rec.out_path, c.out_path, sizeof(rec.out_path));
+}
+
+static File hivefwOpenNodeStoreUpdate(FILESYSTEM* fs) {
+#if defined(NRF52_PLATFORM) || defined(STM32_PLATFORM)
+  File f = fs->open(HIVEFW_NODE_STORE_FILE, FILE_O_RDWR);
+  if (!f) f = fs->open(HIVEFW_NODE_STORE_FILE, FILE_O_WRITE);
+  return f;
+#elif defined(RP2040_PLATFORM)
+  File f = fs->open(HIVEFW_NODE_STORE_FILE, "r+");
+  if (!f) f = fs->open(HIVEFW_NODE_STORE_FILE, "w+");
+  return f;
+#else
+  File f = fs->open(HIVEFW_NODE_STORE_FILE, "r+");
+  if (!f) f = fs->open(HIVEFW_NODE_STORE_FILE, "w+");
+  return f;
+#endif
+}
+
+bool DataStore::upsertNode(const ContactInfo& contact, bool added, uint32_t heard_timestamp) {
+  File file = hivefwOpenNodeStoreUpdate(_getContactsChannelsFS());
+  if (!file) return false;
+  HiveFWNodeRecord rec;
+  uint32_t offset = 0;
+  bool found = false;
+  while (file.read((uint8_t*)&rec, sizeof(rec)) == sizeof(rec)) {
+    if ((rec.state & HIVEFW_NODE_STATE_VALID) &&
+        memcmp(rec.pub_key, contact.id.pub_key, PUB_KEY_SIZE) == 0) {
+      found = true;
+      break;
+    }
+    offset += sizeof(rec);
+  }
+  HiveFWNodeRecord updated;
+  hivefwContactToNode(contact, updated, added, heard_timestamp);
+  if (found) {
+    if (rec.state & HIVEFW_NODE_STATE_ADDED) updated.state |= HIVEFW_NODE_STATE_ADDED;
+    if (heard_timestamp == 0) updated.heard_timestamp = rec.heard_timestamp;
+    file.seek(offset);
+  } else {
+    file.seek(file.size());
+  }
+  bool ok = file.write((const uint8_t*)&updated, sizeof(updated)) == sizeof(updated);
+  file.close();
+  return ok;
+}
+
+bool DataStore::setNodeAdded(const uint8_t pub_key[PUB_KEY_SIZE], bool added) {
+  File file = hivefwOpenNodeStoreUpdate(_getContactsChannelsFS());
+  if (!file) return false;
+  HiveFWNodeRecord rec;
+  uint32_t offset = 0;
+  while (file.read((uint8_t*)&rec, sizeof(rec)) == sizeof(rec)) {
+    if ((rec.state & HIVEFW_NODE_STATE_VALID) &&
+        memcmp(rec.pub_key, pub_key, PUB_KEY_SIZE) == 0) {
+      if (added) rec.state |= HIVEFW_NODE_STATE_ADDED;
+      else rec.state &= ~HIVEFW_NODE_STATE_ADDED;
+      file.seek(offset);
+      bool ok = file.write((const uint8_t*)&rec, sizeof(rec)) == sizeof(rec);
+      file.close();
+      return ok;
+    }
+    offset += sizeof(rec);
+  }
+  file.close();
+  return false;
+}
+
+bool DataStore::loadNodeByKey(const uint8_t* pub_key, int prefix_len, ContactInfo& contact, bool added_only) {
+  if (!pub_key || prefix_len <= 0 || prefix_len > PUB_KEY_SIZE) return false;
+  File file = openRead(_getContactsChannelsFS(), HIVEFW_NODE_STORE_FILE);
+  if (!file) return false;
+  HiveFWNodeRecord rec;
+  while (file.read((uint8_t*)&rec, sizeof(rec)) == sizeof(rec)) {
+    if (!(rec.state & HIVEFW_NODE_STATE_VALID)) continue;
+    if (added_only && !(rec.state & HIVEFW_NODE_STATE_ADDED)) continue;
+    if (memcmp(rec.pub_key, pub_key, prefix_len) == 0) {
+      hivefwNodeToContact(rec, contact);
+      file.close();
+      return true;
+    }
+  }
+  file.close();
+  return false;
+}
+
+int DataStore::loadNodesByHash(const uint8_t* hash, ContactInfo dest[], int max_matches) {
+  if (!hash || !dest || max_matches <= 0) return 0;
+  File file = openRead(_getContactsChannelsFS(), HIVEFW_NODE_STORE_FILE);
+  if (!file) return 0;
+  int count = 0;
+  HiveFWNodeRecord rec;
+  while (count < max_matches && file.read((uint8_t*)&rec, sizeof(rec)) == sizeof(rec)) {
+    if (!(rec.state & HIVEFW_NODE_STATE_VALID)) continue;
+    mesh::Identity id(rec.pub_key);
+    if (id.isHashMatch(hash)) hivefwNodeToContact(rec, dest[count++]);
+  }
+  file.close();
+  return count;
+}
+
+uint32_t DataStore::countNodes(bool added_only) {
+  File file = openRead(_getContactsChannelsFS(), HIVEFW_NODE_STORE_FILE);
+  if (!file) return 0;
+  uint32_t count = 0;
+  HiveFWNodeRecord rec;
+  while (file.read((uint8_t*)&rec, sizeof(rec)) == sizeof(rec)) {
+    if (!(rec.state & HIVEFW_NODE_STATE_VALID)) continue;
+    if (added_only && !(rec.state & HIVEFW_NODE_STATE_ADDED)) continue;
+    count++;
+  }
+  file.close();
+  return count;
+}
+
+bool DataStore::getNodeByIndex(uint32_t index, ContactInfo& contact, bool added_only, uint32_t* heard_timestamp) {
+  File file = openRead(_getContactsChannelsFS(), HIVEFW_NODE_STORE_FILE);
+  if (!file) return false;
+  uint32_t logical = 0;
+  HiveFWNodeRecord rec;
+  while (file.read((uint8_t*)&rec, sizeof(rec)) == sizeof(rec)) {
+    if (!(rec.state & HIVEFW_NODE_STATE_VALID)) continue;
+    if (added_only && !(rec.state & HIVEFW_NODE_STATE_ADDED)) continue;
+    if (logical++ == index) {
+      hivefwNodeToContact(rec, contact);
+      if (heard_timestamp) *heard_timestamp = rec.heard_timestamp;
+      file.close();
+      return true;
+    }
+  }
+  file.close();
+  return false;
+}
+
+void DataStore::migrateContactsToNodeStore() {
+  if (_getContactsChannelsFS()->exists(HIVEFW_NODE_STORE_FILE)) return;
+  File file = openRead(_getContactsChannelsFS(), "/contacts3");
+  if (!file) return;
+  while (true) {
+    ContactInfo c;
+    memset(&c, 0, sizeof(c));
+    uint8_t pub_key[32];
+    uint8_t unused;
+    bool success = (file.read(pub_key, 32) == 32);
+    success = success && (file.read((uint8_t *)&c.name, 32) == 32);
+    success = success && (file.read(&c.type, 1) == 1);
+    success = success && (file.read(&c.flags, 1) == 1);
+    success = success && (file.read(&unused, 1) == 1);
+    success = success && (file.read((uint8_t *)&c.sync_since, 4) == 4);
+    success = success && (file.read((uint8_t *)&c.out_path_len, 1) == 1);
+    success = success && (file.read((uint8_t *)&c.last_advert_timestamp, 4) == 4);
+    success = success && (file.read(c.out_path, 64) == 64);
+    success = success && (file.read((uint8_t *)&c.lastmod, 4) == 4);
+    success = success && (file.read((uint8_t *)&c.gps_lat, 4) == 4);
+    success = success && (file.read((uint8_t *)&c.gps_lon, 4) == 4);
+    if (!success) break;
+    c.id = mesh::Identity(pub_key);
+    upsertNode(c, true, c.lastmod);
+  }
+  file.close();
+}
+
 void DataStore::loadContacts(DataStoreHost* host) {
+  if (_getContactsChannelsFS()->exists(HIVEFW_NODE_STORE_FILE)) {
+    uint32_t idx = 0;
+    ContactInfo c;
+    while (getNodeByIndex(idx++, c, true, nullptr)) {
+      if (!host->onContactLoaded(c)) break;
+    }
+    return;
+  }
+
 File file = openRead(_getContactsChannelsFS(), "/contacts3");
     if (file) {
       bool full = false;
@@ -842,6 +1048,7 @@ void DataStore::saveContacts(DataStoreHost* host, bool (*filter)(const ContactIn
       success = success && (file.write((uint8_t *)&c.gps_lon, 4) == 4);
 
       if (!success) break; // write failed
+      upsertNode(c, true, c.lastmod);
 
       idx++;  // advance to next contact
     }
