@@ -823,11 +823,9 @@ static void hivefwContactToNode(const ContactInfo& c, HiveFWNodeRecord& rec, boo
   memcpy(rec.out_path, c.out_path, sizeof(rec.out_path));
 }
 
-static File hivefwOpenNodeStoreUpdate(FILESYSTEM* fs) {
+static File hivefwOpenNodeStoreWrite(FILESYSTEM* fs) {
 #if defined(NRF52_PLATFORM) || defined(STM32_PLATFORM)
-  File f = fs->open(HIVEFW_NODE_STORE_FILE, FILE_O_RDWR);
-  if (!f) f = fs->open(HIVEFW_NODE_STORE_FILE, FILE_O_WRITE);
-  return f;
+  return fs->open(HIVEFW_NODE_STORE_FILE, FILE_O_WRITE);
 #elif defined(RP2040_PLATFORM)
   File f = fs->open(HIVEFW_NODE_STORE_FILE, "r+");
   if (!f) f = fs->open(HIVEFW_NODE_STORE_FILE, "w+");
@@ -839,53 +837,59 @@ static File hivefwOpenNodeStoreUpdate(FILESYSTEM* fs) {
 #endif
 }
 
-bool DataStore::upsertNode(const ContactInfo& contact, bool added, uint32_t heard_timestamp) {
-  File file = hivefwOpenNodeStoreUpdate(_getContactsChannelsFS());
+static bool hivefwFindNodeRecord(DataStore* store, const uint8_t pub_key[PUB_KEY_SIZE],
+                                 HiveFWNodeRecord& rec, uint32_t& offset) {
+  File file = store->openRead(store->getSecondaryFS() ? store->getSecondaryFS() : store->getPrimaryFS(),
+                              HIVEFW_NODE_STORE_FILE);
   if (!file) return false;
-  HiveFWNodeRecord rec;
-  uint32_t offset = 0;
-  bool found = false;
+  offset = 0;
   while (file.read((uint8_t*)&rec, sizeof(rec)) == sizeof(rec)) {
     if ((rec.state & HIVEFW_NODE_STATE_VALID) &&
-        memcmp(rec.pub_key, contact.id.pub_key, PUB_KEY_SIZE) == 0) {
-      found = true;
-      break;
+        memcmp(rec.pub_key, pub_key, PUB_KEY_SIZE) == 0) {
+      file.close();
+      return true;
     }
     offset += sizeof(rec);
   }
+  file.close();
+  return false;
+}
+
+bool DataStore::upsertNode(const ContactInfo& contact, bool added, uint32_t heard_timestamp) {
+  HiveFWNodeRecord previous;
+  uint32_t offset = 0;
+  bool found = hivefwFindNodeRecord(this, contact.id.pub_key, previous, offset);
+
   HiveFWNodeRecord updated;
   hivefwContactToNode(contact, updated, added, heard_timestamp);
   if (found) {
-    if (rec.state & HIVEFW_NODE_STATE_ADDED) updated.state |= HIVEFW_NODE_STATE_ADDED;
-    if (heard_timestamp == 0) updated.heard_timestamp = rec.heard_timestamp;
-    file.seek(offset);
-  } else {
-    file.seek(file.size());
+    if (previous.state & HIVEFW_NODE_STATE_ADDED) updated.state |= HIVEFW_NODE_STATE_ADDED;
+    if (heard_timestamp == 0) updated.heard_timestamp = previous.heard_timestamp;
   }
+
+  File file = hivefwOpenNodeStoreWrite(_getContactsChannelsFS());
+  if (!file) return false;
+  if (found) file.seek(offset);
+  else file.seek(file.size());
   bool ok = file.write((const uint8_t*)&updated, sizeof(updated)) == sizeof(updated);
   file.close();
   return ok;
 }
 
 bool DataStore::setNodeAdded(const uint8_t pub_key[PUB_KEY_SIZE], bool added) {
-  File file = hivefwOpenNodeStoreUpdate(_getContactsChannelsFS());
-  if (!file) return false;
   HiveFWNodeRecord rec;
   uint32_t offset = 0;
-  while (file.read((uint8_t*)&rec, sizeof(rec)) == sizeof(rec)) {
-    if ((rec.state & HIVEFW_NODE_STATE_VALID) &&
-        memcmp(rec.pub_key, pub_key, PUB_KEY_SIZE) == 0) {
-      if (added) rec.state |= HIVEFW_NODE_STATE_ADDED;
-      else rec.state &= ~HIVEFW_NODE_STATE_ADDED;
-      file.seek(offset);
-      bool ok = file.write((const uint8_t*)&rec, sizeof(rec)) == sizeof(rec);
-      file.close();
-      return ok;
-    }
-    offset += sizeof(rec);
-  }
+  if (!hivefwFindNodeRecord(this, pub_key, rec, offset)) return false;
+
+  if (added) rec.state |= HIVEFW_NODE_STATE_ADDED;
+  else rec.state &= ~HIVEFW_NODE_STATE_ADDED;
+
+  File file = hivefwOpenNodeStoreWrite(_getContactsChannelsFS());
+  if (!file) return false;
+  file.seek(offset);
+  bool ok = file.write((const uint8_t*)&rec, sizeof(rec)) == sizeof(rec);
   file.close();
-  return false;
+  return ok;
 }
 
 bool DataStore::loadNodeByKey(const uint8_t* pub_key, int prefix_len, ContactInfo& contact, bool added_only) {
