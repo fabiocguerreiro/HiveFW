@@ -227,6 +227,11 @@ class HiveFWPanel extends BasePanel {
         || this._config?.name
         || "HiveFW";
       title.replaceChildren();
+      const product = document.createElement("span");
+      product.className = "hivefw-header-product";
+      product.textContent = radioName;
+      title.appendChild(product);
+
       const pathHash=this.__headerPathHash();
       if(pathHash){
         const hash=document.createElement("span");
@@ -236,11 +241,6 @@ class HiveFWPanel extends BasePanel {
         hash.title="Path Hash · "+bytes+" byte"+(bytes===1?"":"s");
         title.appendChild(hash);
       }
-
-      const product = document.createElement("span");
-      product.className = "hivefw-header-product";
-      product.textContent = radioName;
-      title.appendChild(product);
 
       title.setAttribute("aria-label", radioName);
     }
@@ -4949,7 +4949,7 @@ class HiveFWPanel extends BasePanel {
       const matches=source.filter((contact)=>String(contact?.pubkey_prefix||"")===String(device.pubkey_prefix||""));
       if(matches.length===1){
         this.__closeRemoteAdmin();
-        this._activeTab="nodes";
+        this._activeTab="network";this.__hiveNeighborMapMode="contacts";
         this.requestUpdate();
         window.setTimeout(()=>this.__openTraceMonitor(matches[0]),180);
       }else{
@@ -5657,7 +5657,7 @@ class HiveFWPanel extends BasePanel {
       },
     };
     this.__lastTraceLoadedEntry=String(this.__entryId()||"default");
-    this._activeTab="nodes";
+    this._activeTab="network";this.__hiveNeighborMapMode="contacts";
     this.requestUpdate?.();
     try{await this.updateComplete;}catch{}
     this.__enhanceRepeaterUi();
@@ -6097,7 +6097,7 @@ class HiveFWPanel extends BasePanel {
 
     const title=document.createElement("div");
     title.className="hive-transfer-title";
-    title.textContent="Contactos";
+    title.textContent="Contactos Descobertos";
 
     const note=document.createElement("div");
     note.className="hive-transfer-note";
@@ -7011,12 +7011,7 @@ class HiveFWPanel extends BasePanel {
         contactAction.disabled=true;
         contactAction.style.opacity=".65";
         contactAction.textContent=added?"A remover…":"A adicionar…";
-        const page=this.shadowRoot?.querySelector("meshcore-nodes-page");
-        page?.dispatchEvent(new CustomEvent("node-action",{
-          detail:{action:added?"remove-contact":"add-contact",node:contact},
-          bubbles:true,
-          composed:true,
-        }));
+        this.__networkContactAction(contact,added?"remove-contact":"add-contact");
       });
       header.appendChild(contactAction);
     }
@@ -7184,12 +7179,7 @@ class HiveFWPanel extends BasePanel {
       trace.addEventListener("click",(event)=>{
         event.preventDefault();
         event.stopPropagation();
-        const page=this.shadowRoot?.querySelector("meshcore-nodes-page");
-        page?.dispatchEvent(new CustomEvent("node-action",{
-          detail:{action:"trace",node:contact},
-          bubbles:true,
-          composed:true,
-        }));
+        this.__networkContactAction(contact,"trace");
       });
       actions.appendChild(trace);
 
@@ -9516,7 +9506,7 @@ class HiveFWPanel extends BasePanel {
           row.style.cursor="pointer";
           row.title="Abrir este nó no mapa";
           row.addEventListener("click",()=>{
-            this._activeTab="nodes";
+            this._activeTab="network";this.__hiveNeighborMapMode="contacts";
             this.requestUpdate?.();
             window.setTimeout(()=>this.__focusNodeOnMap(item.contact,true),180);
           });
@@ -9552,6 +9542,34 @@ class HiveFWPanel extends BasePanel {
     container.append(panels,events);
   }
 
+  __networkContactAction(contact, action) {
+    const handler=this._handleNodeAction;
+    if(typeof handler!=="function")return;
+    handler.call(this,new CustomEvent("node-action",{
+      detail:{action,node:contact},
+      bubbles:false,
+      composed:false,
+    }));
+  }
+
+  __openNetworkContactDetails(contact) {
+    this.shadowRoot?.querySelector(".hive-network-contact-details-overlay")?.remove();
+    const overlay=document.createElement("div");
+    overlay.className="hive-network-contact-details-overlay";
+    overlay.style.cssText="position:fixed;inset:0;z-index:10000;display:grid;place-items:center;padding:20px;background:rgba(0,0,0,.42);";
+    const shell=document.createElement("div");
+    shell.style.cssText="width:min(460px,calc(100vw - 32px));max-height:85vh;overflow:auto;border-radius:12px;background:#eef0f2;box-shadow:0 12px 35px rgba(0,0,0,.35);";
+    const content=this.__nodeMapPopup(contact);
+    const closeButtons=[...content.querySelectorAll("button")].filter((button)=>button.textContent==="Fechar");
+    for(const button of closeButtons){
+      button.addEventListener("click",()=>overlay.remove(),{once:true});
+    }
+    shell.appendChild(content);
+    overlay.appendChild(shell);
+    overlay.addEventListener("click",(event)=>{if(event.target===overlay)overlay.remove();});
+    this.shadowRoot?.appendChild(overlay);
+  }
+
   __renderNetworkContacts(container) {
     container.replaceChildren();
     const source=Array.isArray(this.__nodesMapContacts)?[...this.__nodesMapContacts]:[];
@@ -9565,13 +9583,13 @@ class HiveFWPanel extends BasePanel {
     const intro=document.createElement("div");
     const eyebrow=document.createElement("div");
     eyebrow.className="mcr-eyebrow";
-    eyebrow.textContent="CONTACTOS";
+    eyebrow.textContent="CONTACTOS DESCOBERTOS";
     const title=document.createElement("h1");
     title.style.cssText="margin:2px 0 3px;font-size:20px;line-height:1.2;";
     title.textContent="Contactos";
     const subtitle=document.createElement("p");
     subtitle.style.cssText="margin:0;color:var(--secondary-text-color);font-size:11px;line-height:1.45;";
-    subtitle.textContent="Contactos conhecidos pelo Companion, integrados na vista Rede.";
+    subtitle.textContent="Contactos descobertos pelo Companion, incluindo os que já foram adicionados à lista local.";
     intro.append(eyebrow,title,subtitle);
 
     const tools=document.createElement("div");
@@ -9659,9 +9677,21 @@ class HiveFWPanel extends BasePanel {
         const status=contact?.added_to_node?"Adicionado":"Descoberto";
         meta.textContent=prefix+(prefix?" · ":"")+status;
         info.append(name,meta);
-        const side=document.createElement("span");
-        side.style.cssText="color:var(--secondary-text-color);font-size:9px;white-space:nowrap;";
-        side.textContent=this.__nodeCoords(contact)?"GPS":"";
+        const side=document.createElement("div");
+        side.style.cssText="display:flex;align-items:center;gap:6px;color:var(--secondary-text-color);font-size:9px;white-space:nowrap;";
+        const gps=document.createElement("span");
+        gps.textContent=this.__nodeCoords(contact)?"GPS":"";
+        const more=document.createElement("button");
+        more.type="button";
+        more.className="hive-network-contact-gear";
+        more.textContent="⋮";
+        more.title="Detalhes e ações do contacto";
+        more.addEventListener("click",(event)=>{
+          event.preventDefault();
+          event.stopPropagation();
+          this.__openNetworkContactDetails(contact);
+        });
+        side.append(gps,more);
         row.append(info,side);
         row.addEventListener("click",()=>{
           if(!this.__nodeCoords(contact))return;
@@ -10502,7 +10532,7 @@ class HiveFWPanel extends BasePanel {
 
     const actions=document.createElement("div");
     actions.style.cssText="display:flex;align-items:center;gap:6px;";
-    for(const [mode,label] of [["neighbors","Vizinhos"],["discovery","Descobertas"],["contacts","Contactos"]]){
+    for(const [mode,label] of [["neighbors","Vizinhos"],["discovery","Descobertas"],["contacts","Contactos Descobertos"]]){
       const button=document.createElement("button");
       button.type="button";
       button.className="mcr-btn";
