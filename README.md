@@ -21,6 +21,8 @@ O projeto unificado inclui:
 - integração standalone para Home Assistant — não requer `meshcore-ha` separado;
 - painel HiveFW no Home Assistant;
 - chats, canais, contactos, nós, mapas e atividade;
+- **Node Store unificado** em flash: contactos adicionados e nós descobertos partilham a mesma base persistente, ficando a RAM como cache operacional;
+- até **100 canais** configurados nos alvos HiveFW;
 - tabela real de **vizinhos Repeater zero-hop**;
 - Regions / Flood Scopes;
 - Smart Advert com cadência mínima de 24 horas e persistência;
@@ -90,6 +92,8 @@ HiveFW/
 | Versão HiveFW | **Comum** | **Comum** |
 
 Política e matriz de suporte: [docs/supported_hardware.md](docs/supported_hardware.md).
+
+Compatibilidade detalhada com a aplicação oficial MeshCore Companion: [docs/official-app-compatibility.md](docs/official-app-compatibility.md).
 
 Ambientes principais:
 
