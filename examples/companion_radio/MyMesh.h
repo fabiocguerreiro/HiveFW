@@ -465,13 +465,6 @@ private:
   bool putBlobByKey(const uint8_t key[], int key_len, const uint8_t src_buf[], int len) override {
     return _store->putBlobByKey(key, key_len, src_buf, len);
   }
-  bool loadContactFromStore(const uint8_t* pub_key, int prefix_len, ContactInfo& dest) override {
-    return _store->loadNodeByKey(pub_key, prefix_len, dest, false);
-  }
-  int loadContactsByHashFromStore(const uint8_t* hash, ContactInfo dest[], int max_matches) override {
-    return _store->loadNodesByHash(hash, dest, max_matches);
-  }
-  bool isContactCachePinned(const ContactInfo* contact) const override;
 
   bool handleCLIRegionCommand(
     char* command
@@ -518,13 +511,8 @@ private:
   AbstractUITask* _ui;
 
   ContactsIterator _iter;
-  uint32_t _store_iter_index = 0;
   uint32_t _iter_filter_since;
   uint32_t _most_recent_lastmod;
-  // First contact sync after each Companion APP_START is deliberately full.
-  // This migrates clients that already hold a 'since' watermark from before
-  // HiveFW unified discovered contacts into the persistent contact list.
-  bool _force_full_contact_sync_once = true;
   uint32_t _active_ble_pin;
 
   // Última hora enviada pela app através de
