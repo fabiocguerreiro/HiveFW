@@ -509,8 +509,10 @@ class HiveFWPanel extends BasePanel {
       box = document.createElement("div");
       box.className = "hivefw-ota-live-progress";
       box.style.cssText =
-        "margin-top:14px;padding:12px;border:1px solid var(--divider-color);border-radius:12px;background:var(--secondary-background-color);";
-      manager.appendChild(box);
+        "margin:12px 0 14px;padding:12px;border:1px solid var(--divider-color);border-radius:12px;background:var(--secondary-background-color);";
+      const grid=manager.querySelector(".firmware-actions-grid");
+      if(grid)manager.insertBefore(box,grid);
+      else manager.appendChild(box);
     }
 
     const percent = Math.max(0, Math.min(100, Number(state.percent) || 0));
