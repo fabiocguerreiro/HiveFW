@@ -4299,9 +4299,9 @@ class HiveFWPanel extends BasePanel {
 
     if(info.max_contacts!=null || info.max_channels!=null){
       hero.appendChild(makeTile(
-        "Capacidade",
-        `${info.max_contacts??"—"} / ${info.max_channels??"—"}`,
-        "contacts / channels",
+        "Node Store / Canais",
+        `Storage / ${info.max_channels??"—"}`,
+        `contactos sem limite fixo · cache ${info.max_contacts??"—"}`,
         100,0,100,"info","capacity",clickEntity("max_contacts","max_channels"),"compact"
       ));
     }
