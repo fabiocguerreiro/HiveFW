@@ -71,22 +71,15 @@ ContactInfo* BaseChatMesh::allocateContactSlot(bool transient_only) {
   int oldest_idx = -1;
   uint32_t oldest_lastmod = 0xFFFFFFFF;
   if (transient_only) {
-    // The first N entries are a reusable cache backed by flash. Prefer a free
-    // slot; otherwise evict the oldest entry that is not pinned by an
-    // outstanding operation such as a direct-message ACK.
+    // only allocate from first N
     for (int i = 0; i < MAX_ANON_CONTACTS; i++) {
-      if (contacts[i].type == ADV_TYPE_NONE) {
-        return &contacts[i];
-      }
-    }
-    for (int i = 0; i < MAX_ANON_CONTACTS; i++) {
-      if (!isContactCachePinned(&contacts[i]) &&
-          contacts[i].lastmod < oldest_lastmod) {
+      if (contacts[i].type == ADV_TYPE_NONE && contacts[i].lastmod < oldest_lastmod) {
         oldest_lastmod = contacts[i].lastmod;
         oldest_idx = i;
       }
     }
     if (oldest_idx >= 0) {
+      // NOTE: do NOT call onContactOverwrite()
       return &contacts[oldest_idx];
     }
   } else {
@@ -132,11 +125,9 @@ void BaseChatMesh::onAdvertRecv(mesh::Packet* packet, const mesh::Identity& id, 
   }
 
   ContactInfo* from = NULL;
-  int from_idx = -1;
   for (int i = 0; i < num_contacts; i++) {
-    if (id.matches(contacts[i].id)) {
+    if (id.matches(contacts[i].id)) {  // is from one of our contacts
       from = &contacts[i];
-      from_idx = i;
       if (timestamp <= from->last_advert_timestamp) {  // check for replay attacks!!
         MESH_DEBUG_PRINTLN("onAdvertRecv: Possible replay attack, name: %s", from->name);
         return;
@@ -155,10 +146,9 @@ void BaseChatMesh::onAdvertRecv(mesh::Packet* packet, const mesh::Identity& id, 
     packet->header = save;
   }
 
-  if (from && (from_idx < MAX_ANON_CONTACTS || from->type == ADV_TYPE_NONE)) {
-    memset(from, 0, sizeof(*from));
-    from = NULL;
-    from_idx = -1;
+  if (from && from->type == ADV_TYPE_NONE) {   // already in contacts, but from a temporary ANON_REQ ?
+    memset(from, 0, sizeof(*from));  // clear the anon/temp slot
+    from = NULL;  // do normal 'add' flow
   }
 
   bool is_new = false; // true = not in contacts[], false = exists in contacts[]
@@ -211,17 +201,8 @@ void BaseChatMesh::onAdvertRecv(mesh::Packet* packet, const mesh::Identity& id, 
 int BaseChatMesh::searchPeersByHash(const uint8_t* hash) {
   int n = 0;
   for (int i = 0; i < num_contacts && n < MAX_SEARCH_RESULTS; i++) {
-    if (contacts[i].id.isHashMatch(hash)) matching_peer_indexes[n++] = i;
-  }
-  if (n == 0) {
-    ContactInfo stored[MAX_SEARCH_RESULTS];
-    int loaded = loadContactsByHashFromStore(hash, stored, MAX_SEARCH_RESULTS);
-    for (int j = 0; j < loaded && n < MAX_SEARCH_RESULTS; j++) {
-      ContactInfo* slot = allocateContactSlot(true);
-      if (!slot) break;
-      *slot = stored[j];
-      slot->shared_secret_valid = false;
-      matching_peer_indexes[n++] = (int)(slot - contacts);
+    if (contacts[i].id.isHashMatch(hash)) {
+      matching_peer_indexes[n++] = i;  // store the INDEXES of matching contacts (for subsequent 'peer' methods)
     }
   }
   return n;
@@ -864,17 +845,7 @@ ContactInfo* BaseChatMesh::lookupContactByPubKey(const uint8_t* pub_key, int pre
     auto c = &contacts[i];
     if (memcmp(c->id.pub_key, pub_key, prefix_len) == 0) return c;
   }
-  ContactInfo stored;
-  memset(&stored, 0, sizeof(stored));
-  if (loadContactFromStore(pub_key, prefix_len, stored)) {
-    ContactInfo* slot = allocateContactSlot(true);
-    if (slot) {
-      *slot = stored;
-      slot->shared_secret_valid = false;
-      return slot;
-    }
-  }
-  return NULL;
+  return NULL;  // not found
 }
 
 bool BaseChatMesh::addContact(const ContactInfo& contact) {
