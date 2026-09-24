@@ -8827,14 +8827,26 @@ class HiveFWPanel extends BasePanel {
     container.append(panels,events);
   }
 
-  __networkContactAction(contact, action) {
+  async __networkContactAction(contact, action) {
     const handler=this._handleNodeAction;
     if(typeof handler!=="function")return;
-    handler.call(this,new CustomEvent("node-action",{
+    await handler.call(this,new CustomEvent("node-action",{
       detail:{action,node:contact},
       bubbles:false,
       composed:false,
     }));
+
+    if(action==="add-contact" || action==="remove-contact"){
+      this.__nodesMapContacts=null;
+      this.__nodesMapLoadedEntry=null;
+      await this.__loadNodesMapContacts();
+      const contactHost=this.__networkOverlay?.querySelector(".hive-network-contacts");
+      if(contactHost)this.__renderNetworkContacts(contactHost);
+      const mapHost=this.__networkOverlay?.querySelector(".hive-neighbors-map");
+      if(mapHost&&this.__hiveNeighborMapMode==="contacts"){
+        void this.__renderHiveNeighborDiscoveryMap(mapHost);
+      }
+    }
   }
 
   __openNetworkContactDetails(contact) {
@@ -9832,6 +9844,14 @@ class HiveFWPanel extends BasePanel {
       });
       actions.appendChild(button);
     }
+    if(this.__hiveNeighborMapMode==="contacts"){
+      const history=document.createElement("button");
+      history.type="button";
+      history.className="mcr-btn";
+      history.textContent="Histórico Trace";
+      history.addEventListener("click",()=>void this.__toggleTraceHistory());
+      actions.appendChild(history);
+    }
     head.append(title,actions);
     container.appendChild(head);
 
@@ -9899,6 +9919,7 @@ class HiveFWPanel extends BasePanel {
         map.entities=this.__mapEntities(mapContacts);
         if("editableLocations" in map)map.editableLocations=this.__mapLocations(mapContacts);
       }
+      this.__drawLastTraceRoute();
       return;
     }
 
