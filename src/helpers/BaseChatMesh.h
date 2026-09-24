@@ -38,9 +38,7 @@ public:
   #define MAX_CONTACTS  32
 #endif
 
-// Reusable RAM working-set cache. Persistent flash, not this cache, defines
-// how many contacts HiveFW can retain.
-#define MAX_ANON_CONTACTS  16
+#define MAX_ANON_CONTACTS  8
 
 #ifndef MAX_CONNECTIONS
   #define MAX_CONNECTIONS  16
@@ -133,12 +131,6 @@ protected:
   // storage concepts, for sub-classes to override/implement
   virtual int  getBlobByKey(const uint8_t key[], int key_len, uint8_t dest_buf[]) { return 0; }  // not implemented
   virtual bool putBlobByKey(const uint8_t key[], int key_len, const uint8_t src_buf[], int len) { return false; }
-
-  // HiveFW persistent-node-store fallbacks. Subclasses that do not implement
-  // them preserve the original MeshCore behaviour.
-  virtual bool loadContactFromStore(const uint8_t* pub_key, int prefix_len, ContactInfo& dest) { return false; }
-  virtual int loadContactsByHashFromStore(const uint8_t* hash, ContactInfo dest[], int max_matches) { return 0; }
-  virtual bool isContactCachePinned(const ContactInfo* contact) const { (void)contact; return false; }
 
   // Mesh overrides
   void onAdvertRecv(mesh::Packet* packet, const mesh::Identity& id, uint32_t timestamp, const uint8_t* app_data, size_t app_data_len) override;
