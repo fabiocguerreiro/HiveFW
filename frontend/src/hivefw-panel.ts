@@ -124,6 +124,7 @@ class HiveFWPanel extends BasePanel {
     this.__hiveNeighborMapSignalLayers = [];
     this.__hiveNeighborLocalMarker = null;
     this.__hiveNeighborMapFocusId = "";
+    this.__hiveNeighborMapMode = "neighbors";
 
     this.__networkOverlay = null;
     this.__networkRangeHours = 48;
@@ -2991,7 +2992,7 @@ class HiveFWPanel extends BasePanel {
         edit = document.createElement("button");
         edit.type = "button";
         edit.className = "minor hivefw-status-edit-metrics";
-        edit.textContent = "Editar métricas";
+        edit.textContent = "Editar";
         edit.addEventListener("click", () => this.__openMetricEditor(summary, nroot, hero));
         const header = sroot.querySelector(".companion-header");
         header?.appendChild(edit);
@@ -3765,12 +3766,14 @@ class HiveFWPanel extends BasePanel {
     const name=String(this._selectedDevice?.name||"").toLowerCase()
       .replace(/[^a-z0-9]+/g,"_").replace(/^_|_$/g,"");
     const ids=Object.keys(this.hass?.states||{});
-    return ids.find((id)=>{
+    const matches=ids.filter((id)=>id.toLowerCase().includes(wanted));
+    const scoped=matches.find((id)=>{
       const lower=id.toLowerCase();
-      if(!lower.includes(wanted))return false;
       if(prefix && lower.includes(prefix))return true;
       return !!name && lower.includes(name);
-    })||null;
+    });
+    if(scoped)return scoped;
+    return matches.length===1?matches[0]:null;
   }
 
   __readMetricState(summary, needle) {
@@ -3964,12 +3967,15 @@ class HiveFWPanel extends BasePanel {
       style.id = "hivefw-cockpit-style";
       style.textContent = `
         .hero-row{
-          grid-template-columns:repeat(6,minmax(0,1fr))!important;
+          grid-template-columns:repeat(8,minmax(0,1fr))!important;
           grid-auto-flow:dense;
           gap:7px!important;
           align-items:stretch;
         }
-        .hero-row > .hero-tile,
+        .hero-row > .hero-tile{
+          grid-column:span 2;
+          min-width:0;
+        }
         .hero-row > .hero-tile.hive-metric-compact{
           grid-column:span 1;
           min-width:0;
@@ -4024,9 +4030,13 @@ class HiveFWPanel extends BasePanel {
         }
         @container(max-width:1050px){
           .hero-row{grid-template-columns:repeat(4,minmax(0,1fr))!important}
+          .hero-row > .hero-tile{grid-column:span 2}
+          .hero-row > .hero-tile.hive-metric-compact{grid-column:span 1}
         }
         @container(max-width:650px){
           .hero-row{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+          .hero-row > .hero-tile{grid-column:span 2}
+          .hero-row > .hero-tile.hive-metric-compact,
           .hero-row > .hero-tile[data-repeater-extra="repeat-frequencies"]{grid-column:span 1}
         }
         @container(max-width:390px){
@@ -9148,8 +9158,8 @@ class HiveFWPanel extends BasePanel {
       return (id&&candidate===id)||(prefix&&cp===prefix);
     });
     const contact=this.__networkContactForNeighbor(neighbor);
-    const rssi=Number(discovery?.rssi ?? contact?.last_rssi ?? contact?.rssi);
-    const snr=Number(discovery?.snr ?? contact?.last_snr ?? contact?.snr);
+    const rssi=Number(neighbor?.rssi ?? discovery?.rssi ?? contact?.last_rssi ?? contact?.rssi);
+    const snr=Number(neighbor?.snr ?? discovery?.snr ?? contact?.last_snr ?? contact?.snr);
     return {
       rssi:Number.isFinite(rssi)?rssi:null,
       snr:Number.isFinite(snr)?snr:null,
@@ -9556,10 +9566,10 @@ class HiveFWPanel extends BasePanel {
     eyebrow.textContent="PASSIVO · 48H";
     const title=document.createElement("div");
     title.className="hive-discovery-title";
-    title.textContent="Vizinhos 48H";
+    title.textContent="Vizinhos";
     const subtitle=document.createElement("div");
     subtitle.className="hive-discovery-subtitle";
-    subtitle.textContent="Repeaters ouvidos diretamente (zero-hop)";
+    subtitle.textContent="Repeaters ouvidos diretamente nas últimas 48H (Zero-Hop)";
     heading.append(eyebrow,title,subtitle);
 
     const refresh=document.createElement("button");
@@ -9599,9 +9609,6 @@ class HiveFWPanel extends BasePanel {
     }
 
     const neighbors=Array.isArray(data.neighbors)?[...data.neighbors]:[];
-    const latest=neighbors.length
-      ? Math.min(...neighbors.map((n)=>Number(n.secs_ago||0)))
-      : null;
 
     const listHead=document.createElement("div");
     listHead.className="hive-discovery-list-head";
@@ -9614,26 +9621,8 @@ class HiveFWPanel extends BasePanel {
     count.textContent=String(data.count??neighbors.length);
     left.append(label,count);
 
-    const last=document.createElement("span");
-    last.style.cssText="font-size:9px;font-weight:650;letter-spacing:0;text-transform:none;white-space:nowrap;";
-    last.textContent="Último advert · "+(latest==null?"—":this.__age(latest));
-    listHead.append(left,last);
+    listHead.append(left);
     container.appendChild(listHead);
-
-    const sort=document.createElement("div");
-    sort.className="hive-neighbors-sort";
-    sort.style.marginBottom="9px";
-    for(const [value,labelText] of [["recent","Recentes"],["name","Nome"]]){
-      const button=document.createElement("button");
-      button.textContent=labelText;
-      button.classList.toggle("active",this.__hiveNeighborsSort===value);
-      button.addEventListener("click",()=>{
-        this.__hiveNeighborsSort=value;
-        this.__rerenderHivePage();
-      });
-      sort.appendChild(button);
-    }
-    container.appendChild(sort);
 
     if(!neighbors.length){
       const empty=document.createElement("div");
@@ -9643,11 +9632,7 @@ class HiveFWPanel extends BasePanel {
       return;
     }
 
-    neighbors.sort(
-      this.__hiveNeighborsSort==="name"
-        ? (a,b)=>String(a.name||"").localeCompare(String(b.name||""))
-        : (a,b)=>Number(a.secs_ago||0)-Number(b.secs_ago||0)
-    );
+    neighbors.sort((a,b)=>Number(a.secs_ago||0)-Number(b.secs_ago||0));
 
     for(const neighbor of neighbors){
       const row=document.createElement("article");
@@ -9680,12 +9665,17 @@ class HiveFWPanel extends BasePanel {
 
       const signal=document.createElement("div");
       signal.className="hive-discovery-signal";
+      const rssi=Number(neighbor.rssi);
       const snr=Number(neighbor.snr);
-      const signalValue=document.createElement("span");
+      const values=document.createElement("span");
+      values.className="hive-discovery-signal-values";
+      const snrValue=document.createElement("span");
+      const rssiValue=document.createElement("small");
+      snrValue.textContent=Number.isFinite(snr)?"SNR "+snr.toFixed(1)+" dB":"SNR —";
+      rssiValue.textContent=Number.isFinite(rssi)?"RSSI "+Math.round(rssi)+" dBm":"RSSI —";
       const dot=document.createElement("span");
       dot.className="hive-discovery-signal-dot";
       if(Number.isFinite(snr)){
-        signalValue.textContent=snr.toFixed(1)+" dB";
         const quality=snr>=-5
           ? {color:"#2e7d32",label:"Sinal bom"}
           : snr>=-12
@@ -9694,12 +9684,21 @@ class HiveFWPanel extends BasePanel {
         dot.style.background=quality.color;
         dot.title=quality.label;
       }else{
-        signalValue.textContent="—";
         dot.style.background="#757575";
         dot.title="Qualidade do sinal indisponível";
       }
-      signal.append(signalValue,dot);
+      values.append(snrValue,rssiValue);
+      signal.append(values,dot);
       row.append(info,signal);
+      const lat=Number(neighbor.latitude),lon=Number(neighbor.longitude);
+      if(Number.isFinite(lat)&&Number.isFinite(lon)){
+        row.style.cursor="pointer";
+        row.addEventListener("click",()=>{
+          this.__hiveNeighborMapMode="neighbors";
+          this.__hiveNeighborMapFocusId=String(neighbor.pubkey||neighbor.pubkey_prefix||"");
+          this.__rerenderHivePage();
+        });
+      }
       container.appendChild(row);
     }
   }
@@ -9986,8 +9985,9 @@ class HiveFWPanel extends BasePanel {
       signal.append(signalValues, signalDot);
       row.append(info, signal);
       row.addEventListener("click", () => {
+        this.__hiveNeighborMapMode = "discovery";
         this.__hiveNeighborMapFocusId = id;
-        this.__rerenderHiveNeighborDiscoveryOnly(false);
+        this.__rerenderHiveNeighborDiscoveryOnly(true);
 
         const lat = Number(item.latitude);
         const lon = Number(item.longitude);
