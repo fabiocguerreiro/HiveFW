@@ -7,7 +7,6 @@ import { HIVEFW_PRESET, DEFAULT_PANEL_CONFIG } from './constants';
 import { getDevices, getContacts, getChannels, refreshChannels, getUnreadAndLastRead, markConversationRead, removeContact, addContact, traceContact, type TracePathMode } from './api';
 import { UnreadController } from './chat/unread-controller';
 import './pages/chat-page';
-import './pages/nodes-page';
 import './pages/status-page';
 import './pages/settings-page';
 import './components/trace-dialog';
@@ -20,7 +19,7 @@ export class MeshCorePanel extends LitElement {
   @property({ type: Object }) panel?: Record<string, unknown>;
 
   @state() private _config: PanelConfig | null = null;
-  @state() private _activeTab: 'state' | 'chat' | 'nodes' | 'network' | 'settings' = 'state';
+  @state() private _activeTab: 'state' | 'chat' | 'network' | 'settings' = 'state';
   // Device state is separated from configuration so the panel can scale cleanly.
   @state() private _devices: MeshCoreDevice[] = [];
   @state() private _contacts: Contact[] = [];
@@ -869,16 +868,6 @@ export class MeshCorePanel extends LitElement {
             @channels-changed=${() => this._loadDeviceData()}
             @refresh-channels-requested=${() => this._refreshChannelsFromRadio()}
             @mark-all-read-requested=${this._handleMarkAllReadRequested}></hivefw-integration-page>`;
-      case 'nodes':
-        return html`
-          <meshcore-nodes-page
-            .hass=${this.hass}
-            .config=${this._config}
-            .contacts=${this._contacts}
-            .channels=${this._channels}
-            .narrow=${this.narrow}
-            @node-action=${this._handleNodeAction}
-            @contacts-changed=${() => this._loadDeviceData()}></meshcore-nodes-page>`;
       case 'network':
         // HiveFWPanel owns the Rede overlay (analytics + passive neighbours +
         // active discovery + map) so the typed base only supplies the host.
@@ -1155,11 +1144,9 @@ export class MeshCorePanel extends LitElement {
           try {
             await removeContact(this.hass, pubkey, entryId);
             await this._loadDeviceData();
-            await this._refreshNodesPageAfterMutation(pubkey);
           } finally {
             // Always clear pending state, even on API failure, so the
             // Remove Contact button doesn't stay stuck on "Removing…"
-            this._clearNodesPagePending();
           }
         }
         break;
@@ -1169,9 +1156,7 @@ export class MeshCorePanel extends LitElement {
           try {
             await addContact(this.hass, pubkey, node.adv_name || undefined, entryId);
             await this._loadDeviceData();
-            await this._refreshNodesPageAfterMutation(pubkey);
           } finally {
-            this._clearNodesPagePending();
           }
         }
         break;
@@ -1211,36 +1196,6 @@ export class MeshCorePanel extends LitElement {
 
       default:
         console.warn('Unhandled node action:', action);
-    }
-  }
-
-  // ─── Nodes-page refresh helpers (post-mutation) ─────────────────────
-  //
-  // After an Add/Remove Contact mutation, the nodes-page's own state
-  // (_displayedContacts, _l1Counts, _selectedNode) is stale. The panel-
-  // level _loadDeviceData() only refreshes this._contacts, which the
-  // nodes-page does not consume for rendering. These helpers reach into
-  // the child component to trigger its own refetch + re-resolve.
-
-  private async _refreshNodesPageAfterMutation(pubkey: string) {
-    const nodesPage = this.shadowRoot?.querySelector('meshcore-nodes-page') as
-      | (HTMLElement & { refreshAfterMutation: (pubkey: string) => Promise<void> })
-      | null;
-    if (nodesPage && typeof nodesPage.refreshAfterMutation === 'function') {
-      try {
-        await nodesPage.refreshAfterMutation(pubkey);
-      } catch (err) {
-        console.error('Failed to refresh nodes-page after mutation:', err);
-      }
-    }
-  }
-
-  private _clearNodesPagePending() {
-    const nodesPage = this.shadowRoot?.querySelector('meshcore-nodes-page') as
-      | (HTMLElement & { clearPendingAction: () => void })
-      | null;
-    if (nodesPage && typeof nodesPage.clearPendingAction === 'function') {
-      nodesPage.clearPendingAction();
     }
   }
 
