@@ -3250,6 +3250,8 @@ export class SettingsPage extends LitElement {
               }}></textarea>
           </div>
 
+        </div>
+
           <div
             id="hive-companion-settings-card"
             data-hive-native="companion"
@@ -3260,7 +3262,6 @@ export class SettingsPage extends LitElement {
             </div>
             ${this._renderRadioSettings()}
           </div>
-        </div>
       </div>
 
       <div class="repeater-setup-grid">
