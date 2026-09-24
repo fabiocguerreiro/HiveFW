@@ -6144,6 +6144,45 @@ async def ws_get_hive_neighbors(hass, connection, msg):
                 contact = contact_by_prefix.get(prefix, {})
                 name = str(contact.get("adv_name") or "").strip()
 
+                # The radio-side neighbour table owns direct/zero-hop and SNR.
+                # Enrich it with the latest locally known RX/GPS metadata from
+                # the matching contact so the UI can render the same signal
+                # detail and map markers without changing neighbour semantics.
+                rssi = None
+                for key in ("last_rssi", "rssi"):
+                    try:
+                        value = float(contact.get(key))
+                    except (TypeError, ValueError):
+                        continue
+                    if math.isfinite(value):
+                        rssi = value
+                        break
+
+                latitude = None
+                longitude = None
+                location = contact.get("location")
+                if not isinstance(location, dict):
+                    location = {}
+                for key in ("adv_lat", "latitude", "lat"):
+                    try:
+                        value = float(contact.get(key, location.get(key)))
+                    except (TypeError, ValueError):
+                        continue
+                    if math.isfinite(value) and -90 <= value <= 90:
+                        latitude = value
+                        break
+                for key in ("adv_lon", "longitude", "lon", "lng"):
+                    try:
+                        value = float(contact.get(key, location.get(key)))
+                    except (TypeError, ValueError):
+                        continue
+                    if math.isfinite(value) and -180 <= value <= 180:
+                        longitude = value
+                        break
+                if latitude == 0 and longitude == 0:
+                    latitude = None
+                    longitude = None
+
                 neighbors.append(
                     {
                         "name": name or prefix.upper(),
@@ -6159,6 +6198,9 @@ async def ws_get_hive_neighbors(hass, connection, msg):
                         "known_contact": bool(contact.get("added_to_node")),
                         "path_len": 0,
                         "snr": snr,
+                        "rssi": rssi,
+                        "latitude": latitude,
+                        "longitude": longitude,
                         "source": "repeater_neighbor_table",
                     }
                 )
