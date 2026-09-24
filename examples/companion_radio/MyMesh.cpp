@@ -8856,10 +8856,17 @@ void MyMesh::checkSerialInterface() {
   ) {
     ContactInfo contact;
     if (_store->getNodeByIndex(_store_iter_index++, contact, false, nullptr)) {
-      if (contact.lastmod > _iter_filter_since) {
-        writeContactRespFrame(RESP_CODE_CONTACT, contact);
-        if (contact.lastmod > _most_recent_lastmod) {
-          _most_recent_lastmod = contact.lastmod;
+      ContactInfo compat;
+      hivefwTranslateContactForOfficial(contact, compat);
+
+      // IMPORTANT: filter on the same translated lastmod that is sent over
+      // the official Companion wire. Historical HiveFW records may have
+      // lastmod == 0 in flash; the compatibility layer exports those as a
+      // stable non-zero value, so they must not be discarded before export.
+      if (compat.lastmod > _iter_filter_since) {
+        writeContactRespFrame(RESP_CODE_CONTACT, compat);
+        if (compat.lastmod > _most_recent_lastmod) {
+          _most_recent_lastmod = compat.lastmod;
         }
       }
     } else { // EOF
