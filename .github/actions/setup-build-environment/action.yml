@@ -9,7 +9,12 @@ runs:
         path: |
           ~/.cache/pip
           ~/.platformio/.cache
-        key: ${{ runner.os }}-pio
+          ~/.platformio/packages
+          ~/.platformio/platforms
+          .pio/libdeps
+        key: ${{ runner.os }}-pio-${{ hashFiles('platformio.ini', 'variants/**/platformio.ini', '**/library.json', '**/library.properties') }}
+        restore-keys: |
+          ${{ runner.os }}-pio-
 
     - name: Install Python
       uses: actions/setup-python@v6
@@ -19,7 +24,7 @@ runs:
     - name: Install PlatformIO
       shell: bash
       run: |
-        pip install --upgrade platformio
+        pip install "platformio>=6.1,<7"
 
     # A HiveFW tag such as "v1.12.0" is exposed as GIT_TAG_VERSION.
     - name: Extract Version from Git Tag
