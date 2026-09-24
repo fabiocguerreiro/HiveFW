@@ -33,6 +33,7 @@ on:
 
 jobs:
   build:
+    if: ${{ github.event_name != 'push' || !startsWith(github.event.head_commit.message, 'Release HiveFW ') }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
