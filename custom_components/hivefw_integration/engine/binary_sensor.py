@@ -322,9 +322,8 @@ async def async_setup_entry(
         async_add_entities(online_entities)
 
     # Self-diagnostic fault flags (companion main device) — created only when
-    # opted in (default off). The STATS_CORE `errors` field is a latching
-    # bitmask of radio dispatcher faults; each bit is decoded into its own
-    # `problem` binary sensor.
+    # opted in (default off). Each STATS_CORE errors bit is decoded into its
+    # own problem binary sensor; recoverable CAD clears in current HiveFW.
     if entry.data.get(CONF_SELF_DIAGNOSTICS_ENABLED, False):
         async_add_entities([
             MeshCoreSelfDiagnosticBinarySensor(coordinator, "err_pool_full", SELF_DIAG_ERR_POOL_FULL),
@@ -839,10 +838,9 @@ class MeshCoreSelfDiagnosticBinarySensor(CoordinatorEntity, BinarySensorEntity):
     """A single decoded radio fault flag from the companion's STATS_CORE
     ``errors`` bitmask.
 
-    The firmware OR-accumulates each fault bit and clears it only on a radio
-    reboot (or an internal stats reset the integration never triggers), so
-    ``on`` means "this fault has occurred at least once since the radio last
-    booted" rather than "is occurring right now". Created only when Self
+    HiveFW clears recoverable CAD faults after the radio exits the busy episode;
+    cumulative CAD counters remain available through cad_diag. Other low-level
+    flags keep their native dispatcher semantics. Created only when Self
     Diagnostics is enabled (default off).
     """
 
