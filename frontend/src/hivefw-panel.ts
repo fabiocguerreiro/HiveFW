@@ -129,6 +129,8 @@ class HiveFWPanel extends BasePanel {
     this.__networkOverlay = null;
     this.__networkRangeHours = 48;
     this.__networkHistory = null;
+    this.__networkContactsFilter = "all";
+    this.__networkContactsMenuOpen = false;
 
     this.__consoleHistory = [];
     this.__consoleCommandHistory = [];
@@ -225,11 +227,6 @@ class HiveFWPanel extends BasePanel {
         || this._config?.name
         || "HiveFW";
       title.replaceChildren();
-      const product = document.createElement("span");
-      product.className = "hivefw-header-product";
-      product.textContent = radioName;
-      title.appendChild(product);
-
       const pathHash=this.__headerPathHash();
       if(pathHash){
         const hash=document.createElement("span");
@@ -239,6 +236,11 @@ class HiveFWPanel extends BasePanel {
         hash.title="Path Hash · "+bytes+" byte"+(bytes===1?"":"s");
         title.appendChild(hash);
       }
+
+      const product = document.createElement("span");
+      product.className = "hivefw-header-product";
+      product.textContent = radioName;
+      title.appendChild(product);
 
       title.setAttribute("aria-label", radioName);
     }
@@ -337,7 +339,9 @@ class HiveFWPanel extends BasePanel {
       return;
     }
 
-    this.__cleanupNodesSplit();
+    if (this._activeTab !== "network") {
+      this.__cleanupNodesSplit();
+    }
 
     if (this._activeTab === "state") {
       if (entryId !== this.__repeaterLoadedEntry) {
@@ -1350,9 +1354,9 @@ class HiveFWPanel extends BasePanel {
     const tabBar = root.querySelector(".tab-bar");
     if (!tabBar) return;
 
-    // Vizinhos was promoted into Rede. Any stale route is normalized here so
-    // old frontend state cannot resurrect the retired tab.
-    if (this._activeTab === "neighbors") {
+    // Vizinhos and Nós were promoted into Rede. Normalize stale routes so
+    // cached frontend state cannot resurrect either retired tab.
+    if (this._activeTab === "neighbors" || this._activeTab === "nodes") {
       this._activeTab = "network";
     }
 
@@ -1381,6 +1385,7 @@ class HiveFWPanel extends BasePanel {
     if (nodes) {
       nodes.textContent = "Nós";
       nodes.style.order = "3";
+      nodes.hidden = true;
     }
     if (settings) {
       settings.textContent = "Definições";
@@ -1526,8 +1531,19 @@ class HiveFWPanel extends BasePanel {
         content:none;
       }
       :host([narrow]) .hivefw-header-brand-white {
-        width:132px;
-        height:33px;
+        width:152px;
+        height:38px;
+      }
+      @media (max-width: 640px) {
+        .hivefw-header-path-hash { display:none !important; }
+        .hivefw-connection-label { display:none !important; }
+        .header-right { gap:6px !important; }
+        .hivefw-header-product {
+          min-width:0;
+          overflow:hidden;
+          text-overflow:ellipsis;
+          white-space:nowrap;
+        }
       }
 
       .hivefw-console-page {
@@ -2220,12 +2236,125 @@ class HiveFWPanel extends BasePanel {
         padding:0 0 18px;
         box-sizing:border-box;
       }
-      .hive-network-analytics {
+      .hive-network-lower {
+        display:grid;
+        grid-template-columns:minmax(0,1fr) minmax(0,1fr);
+        gap:12px;
         margin-top:12px;
+        align-items:stretch;
+      }
+      .hive-network-analytics,
+      .hive-network-contacts {
+        min-width:0;
         padding:16px;
         border:1px solid var(--divider-color);
         border-radius:16px;
         background:var(--card-background-color);
+      }
+      .hive-network-contacts {
+        display:flex;
+        flex-direction:column;
+        max-height:680px;
+      }
+      .hive-network-contacts-head {
+        display:flex;
+        align-items:flex-start;
+        justify-content:space-between;
+        gap:10px;
+        margin-bottom:12px;
+      }
+      .hive-network-contact-tools {
+        position:relative;
+        display:flex;
+        align-items:center;
+        gap:6px;
+      }
+      .hive-network-contact-filter {
+        display:flex;
+        gap:4px;
+        padding:3px;
+        border:1px solid var(--divider-color);
+        border-radius:10px;
+        background:var(--secondary-background-color);
+      }
+      .hive-network-contact-filter button,
+      .hive-network-contact-gear {
+        border:0;
+        border-radius:7px;
+        padding:6px 9px;
+        background:transparent;
+        color:var(--secondary-text-color);
+        font:inherit;
+        font-size:10px;
+        font-weight:700;
+        cursor:pointer;
+      }
+      .hive-network-contact-filter button.active {
+        background:var(--primary-color);
+        color:#fff;
+      }
+      .hive-network-contact-gear {
+        border:1px solid var(--divider-color);
+        background:var(--secondary-background-color);
+        font-size:14px;
+        line-height:1;
+      }
+      .hive-network-contact-menu {
+        position:absolute;
+        top:36px;
+        right:0;
+        z-index:40;
+        min-width:170px;
+        padding:6px;
+        border:1px solid var(--divider-color);
+        border-radius:10px;
+        background:var(--card-background-color);
+        box-shadow:0 8px 24px rgba(0,0,0,.18);
+      }
+      .hive-network-contact-menu button {
+        display:block;
+        width:100%;
+        border:0;
+        border-radius:7px;
+        padding:8px 9px;
+        background:transparent;
+        color:var(--primary-text-color);
+        text-align:left;
+        font:inherit;
+        font-size:10px;
+        cursor:pointer;
+      }
+      .hive-network-contact-menu button:hover { background:var(--secondary-background-color); }
+      .hive-network-contact-list {
+        min-height:0;
+        overflow:auto;
+        display:flex;
+        flex-direction:column;
+        gap:6px;
+      }
+      .hive-network-contact-row {
+        display:grid;
+        grid-template-columns:minmax(0,1fr) auto;
+        gap:8px;
+        align-items:center;
+        padding:9px 10px;
+        border:1px solid var(--divider-color);
+        border-radius:10px;
+        background:var(--primary-background-color);
+        cursor:pointer;
+      }
+      .hive-network-contact-row:hover { border-color:var(--primary-color); }
+      .hive-network-contact-name {
+        overflow:hidden;
+        text-overflow:ellipsis;
+        white-space:nowrap;
+        font-size:11px;
+        font-weight:700;
+      }
+      .hive-network-contact-meta {
+        margin-top:3px;
+        color:var(--secondary-text-color);
+        font-size:9px;
       }
       .hive-network-head {
         display:flex;
@@ -2376,6 +2505,7 @@ class HiveFWPanel extends BasePanel {
       @media (max-width:1050px) {
         .hive-neighbors-overlay { overflow:auto; }
         .hive-neighbors-overlay > .mcr-page { height:auto; min-height:100%; }
+        .hive-network-lower { grid-template-columns:1fr; }
         .hive-network-metrics { grid-template-columns:repeat(2,minmax(0,1fr)); }
         .hive-network-panels { grid-template-columns:1fr; }
         .hive-network-head { flex-direction:column; }
@@ -7766,11 +7896,41 @@ class HiveFWPanel extends BasePanel {
     presetTitle.className = embedded ? "hivefw-console-section-title" : "mcr-card-title";
     presetTitle.textContent = "Comandos pré-definidos";
 
-    const commandElement = document.createElement("meshcore-command-dialog");
-    commandElement.isLocal = true;
-    const definitions = typeof commandElement._getCommands === "function"
-      ? commandElement._getCommands()
-      : [];
+    const definitions = [
+      {name:"ver",description:"Mostrar a versão do firmware",category:"Informação"},
+      {name:"board",description:"Mostrar o modelo de hardware",category:"Informação"},
+      {name:"clock",description:"Mostrar a hora UTC atual do rádio",category:"Informação"},
+      {name:"get public.key",description:"Mostrar a chave pública completa",category:"Informação"},
+      {name:"get role",description:"Mostrar o papel configurado do equipamento",category:"Informação"},
+      {name:"get owner.info",description:"Mostrar a informação do proprietário",category:"Informação"},
+      {name:"neighbors",description:"Listar os vizinhos/repeaters ouvidos recentemente",category:"Rede"},
+      {name:"discover.neighbors",description:"Executar descoberta de vizinhos zero-hop",category:"Rede"},
+      {name:"advert",description:"Enviar um advert flood",category:"Rede"},
+      {name:"advert.zerohop",description:"Enviar um advert apenas zero-hop",category:"Rede"},
+      {name:"get repeat",description:"Consultar se o encaminhamento/repeater está ativo",category:"Rede"},
+      {name:"get path.hash.mode",description:"Consultar o tamanho do Path Hash",category:"Rede"},
+      {name:"get loop.detect",description:"Consultar o nível de deteção de loops",category:"Rede"},
+      {name:"get advert.interval",description:"Consultar o intervalo de advert local",category:"Rede"},
+      {name:"get flood.advert.interval",description:"Consultar o intervalo de advert flood",category:"Rede"},
+      {name:"get radio",description:"Mostrar frequência, BW, SF e CR",category:"Rádio"},
+      {name:"get tx",description:"Mostrar a potência TX configurada",category:"Rádio"},
+      {name:"get radio.rxgain",description:"Consultar RX Boosted Gain",category:"Rádio"},
+      {name:"get radio.fem.rxgain",description:"Consultar ganho RX do FEM, quando suportado",category:"Rádio"},
+      {name:"get radio.fem.txgain",description:"Consultar ganho TX do FEM, quando suportado",category:"Rádio"},
+      {name:"get adc.multiplier",description:"Consultar o multiplicador ADC da bateria",category:"Sistema"},
+      {name:"powersaving",description:"Consultar o estado de poupança de energia",category:"Sistema"},
+      {name:"clock sync",description:"Sincronizar o relógio com o dispositivo remoto",category:"Sistema"},
+      {name:"clear stats",description:"Limpar os contadores de estatísticas",category:"Sistema",dangerous:true,dangerMessage:"Os contadores de estatísticas serão limpos."},
+      {name:"reboot",description:"Reiniciar o equipamento",category:"Sistema",dangerous:true,dangerMessage:"O rádio será reiniciado e ficará temporariamente indisponível."},
+      {name:"poweroff",description:"Desligar o equipamento",category:"Sistema",dangerous:true,dangerMessage:"O equipamento será desligado sem resposta ao comando."},
+      {name:"set repeat",description:"Ativar ou desativar encaminhamento/repeater",category:"Configuração",params:[{name:"state",type:"select",description:"Estado do repeater",required:true,options:["on","off"]}]},
+      {name:"set tx",description:"Definir potência TX em dBm",category:"Configuração",params:[{name:"dbm",type:"number",description:"Potência TX em dBm",required:true,min:1,max:22}]},
+      {name:"set radio.rxgain",description:"Ativar ou desativar RX Boosted Gain",category:"Configuração",params:[{name:"state",type:"select",description:"Estado do RX Boosted Gain",required:true,options:["on","off"]}]},
+      {name:"set path.hash.mode",description:"Definir Path Hash: 0=1 byte, 1=2 bytes, 2=3 bytes",category:"Configuração",params:[{name:"value",type:"select",description:"Largura do Path Hash",required:true,options:["0","1","2"]}]},
+      {name:"set loop.detect",description:"Definir deteção de loops",category:"Configuração",params:[{name:"state",type:"select",description:"Nível de deteção",required:true,options:["off","minimal","moderate","strict"]}]},
+      {name:"set name",description:"Alterar o nome anunciado pelo nó",category:"Configuração",params:[{name:"name",type:"string",description:"Novo nome",required:true}]},
+      {name:"set owner.info",description:"Alterar a informação do proprietário",category:"Configuração",params:[{name:"text",type:"string",description:"Texto; usa | para quebras de linha",required:true}]}
+    ];
 
     const presetSelect = document.createElement("select");
     presetSelect.className = "hivefw-console-input";
@@ -9392,6 +9552,132 @@ class HiveFWPanel extends BasePanel {
     container.append(panels,events);
   }
 
+  __renderNetworkContacts(container) {
+    container.replaceChildren();
+    const source=Array.isArray(this.__nodesMapContacts)?[...this.__nodesMapContacts]:[];
+    const discoveredOnly=this.__networkContactsFilter==="discovered";
+    const contacts=source
+      .filter((contact)=>!discoveredOnly || !contact?.added_to_node)
+      .sort((a,b)=>Number(b?.lastmod||b?.last_advert||0)-Number(a?.lastmod||a?.last_advert||0));
+
+    const head=document.createElement("div");
+    head.className="hive-network-contacts-head";
+    const intro=document.createElement("div");
+    const eyebrow=document.createElement("div");
+    eyebrow.className="mcr-eyebrow";
+    eyebrow.textContent="CONTACTOS";
+    const title=document.createElement("h1");
+    title.style.cssText="margin:2px 0 3px;font-size:20px;line-height:1.2;";
+    title.textContent="Contactos";
+    const subtitle=document.createElement("p");
+    subtitle.style.cssText="margin:0;color:var(--secondary-text-color);font-size:11px;line-height:1.45;";
+    subtitle.textContent="Contactos conhecidos pelo Companion, integrados na vista Rede.";
+    intro.append(eyebrow,title,subtitle);
+
+    const tools=document.createElement("div");
+    tools.className="hive-network-contact-tools";
+    const filter=document.createElement("div");
+    filter.className="hive-network-contact-filter";
+    for(const [value,label] of [["all","All"],["discovered","Discovered"]]){
+      const button=document.createElement("button");
+      button.type="button";
+      button.textContent=label;
+      button.classList.toggle("active",this.__networkContactsFilter===value);
+      button.addEventListener("click",()=>{
+        this.__networkContactsFilter=value;
+        this.__renderNetworkContacts(container);
+      });
+      filter.appendChild(button);
+    }
+    const gear=document.createElement("button");
+    gear.type="button";
+    gear.className="hive-network-contact-gear";
+    gear.textContent="⚙";
+    gear.title="Importar / exportar contactos";
+    gear.addEventListener("click",()=>{
+      this.__networkContactsMenuOpen=!this.__networkContactsMenuOpen;
+      this.__renderNetworkContacts(container);
+    });
+    tools.append(filter,gear);
+
+    if(this.__networkContactsMenuOpen){
+      const menu=document.createElement("div");
+      menu.className="hive-network-contact-menu";
+      const exportButton=document.createElement("button");
+      exportButton.type="button";
+      exportButton.textContent="Exportar contactos";
+      exportButton.addEventListener("click",()=>void this.__exportHiveFWContacts(exportButton));
+
+      const importButton=document.createElement("button");
+      importButton.type="button";
+      importButton.textContent="Importar contactos";
+      const input=document.createElement("input");
+      input.type="file";
+      input.accept=".json,application/json";
+      input.hidden=true;
+      input.addEventListener("change",async()=>{
+        const file=input.files?.[0];
+        if(!file)return;
+        await this.__importHiveFWContacts(file,importButton,null);
+        this.__nodesMapContacts=null;
+        this.__nodesMapLoadedEntry=null;
+        await this.__loadNodesMapContacts();
+        this.__networkContactsMenuOpen=false;
+        this.__rerenderHivePage();
+      });
+      importButton.addEventListener("click",()=>input.click());
+      menu.append(exportButton,importButton,input);
+      tools.appendChild(menu);
+    }
+
+    head.append(intro,tools);
+    container.appendChild(head);
+
+    const list=document.createElement("div");
+    list.className="hive-network-contact-list";
+    if(!source.length){
+      const empty=document.createElement("div");
+      empty.className="hive-discovery-empty";
+      empty.textContent=this.__nodesMapLoading?"A carregar contactos…":"Ainda não existem contactos disponíveis.";
+      list.appendChild(empty);
+    }else if(!contacts.length){
+      const empty=document.createElement("div");
+      empty.className="hive-discovery-empty";
+      empty.textContent="Nenhum contacto corresponde ao filtro selecionado.";
+      list.appendChild(empty);
+    }else{
+      for(const contact of contacts){
+        const row=document.createElement("div");
+        row.className="hive-network-contact-row";
+        const info=document.createElement("div");
+        const name=document.createElement("div");
+        name.className="hive-network-contact-name";
+        name.textContent=String(contact?.adv_name||contact?.name||contact?.pubkey_prefix||"Contacto");
+        const meta=document.createElement("div");
+        meta.className="hive-network-contact-meta";
+        const prefix=String(contact?.pubkey_prefix||String(contact?.public_key||"").slice(0,12)).toUpperCase();
+        const status=contact?.added_to_node?"Adicionado":"Descoberto";
+        meta.textContent=prefix+(prefix?" · ":"")+status;
+        info.append(name,meta);
+        const side=document.createElement("span");
+        side.style.cssText="color:var(--secondary-text-color);font-size:9px;white-space:nowrap;";
+        side.textContent=this.__nodeCoords(contact)?"GPS":"";
+        row.append(info,side);
+        row.addEventListener("click",()=>{
+          if(!this.__nodeCoords(contact))return;
+          this.__hiveNeighborMapMode="contacts";
+          this.__nodesMapFocusId=this.__nodeId(contact);
+          const mapHost=this.__networkOverlay?.querySelector(".hive-neighbors-map");
+          if(mapHost)void this.__renderHiveNeighborDiscoveryMap(mapHost).then(()=>{
+            this.__focusNodeOnMap(contact,true);
+          });
+        });
+        list.appendChild(row);
+      }
+    }
+    container.appendChild(list);
+  }
+
   __ensureNetworkOverlay(container) {
     if(this.__networkOverlay?.isConnected)return this.__networkOverlay;
     const overlay=document.createElement("div");
@@ -9415,7 +9701,13 @@ class HiveFWPanel extends BasePanel {
 
     const analytics=document.createElement("section");
     analytics.className="hive-network-analytics";
-    this.__renderHiveNetworkAnalytics(analytics);
+
+    const contacts=document.createElement("section");
+    contacts.className="hive-network-contacts";
+
+    const lower=document.createElement("div");
+    lower.className="hive-network-lower";
+    lower.append(analytics,contacts);
 
     const copy=document.createElement("div");
     copy.className="hive-network-copy";
@@ -9433,13 +9725,16 @@ class HiveFWPanel extends BasePanel {
     right.className="hive-neighbors-column hive-neighbors-map";
     layout.append(left,middle,right);
     copy.appendChild(layout);
-    page.append(copy,analytics);
+    page.append(copy,lower);
     container.appendChild(page);
 
-    // Final Vizinhos content now lives inside Rede beside discovery and map.
+    // Keep the existing three-column top row unchanged. The merged Nodes
+    // content lives below it, beside Rede, at half width.
     this.__renderHiveNeighborsLeft(leftScroll);
     this.__renderHiveNeighborDiscovery(middle);
     void this.__renderHiveNeighborDiscoveryMap(right);
+    this.__renderHiveNetworkAnalytics(analytics);
+    this.__renderNetworkContacts(contacts);
   }
 
   __ensureNeighborsOverlay(container) {
@@ -10207,7 +10502,7 @@ class HiveFWPanel extends BasePanel {
 
     const actions=document.createElement("div");
     actions.style.cssText="display:flex;align-items:center;gap:6px;";
-    for(const [mode,label] of [["neighbors","Vizinhos"],["discovery","Descobertas"]]){
+    for(const [mode,label] of [["neighbors","Vizinhos"],["discovery","Descobertas"],["contacts","Contactos"]]){
       const button=document.createElement("button");
       button.type="button";
       button.className="mcr-btn";
@@ -10228,6 +10523,76 @@ class HiveFWPanel extends BasePanel {
     const host = document.createElement("div");
     host.className = "hive-neighbors-map-host";
     container.appendChild(host);
+
+    const contactsMode=this.__hiveNeighborMapMode==="contacts";
+    if(contactsMode){
+      const ready=await this.__ensureMapLoaded();
+      if(!container.isConnected)return;
+      const source=Array.isArray(this.__nodesMapContacts)?this.__nodesMapContacts:[];
+      const contacts=this.__validMapContacts();
+      const local=this.__localRepeaterMapContact();
+      const localId=local?this.__nodeId(local):"";
+      const mapContacts=local
+        ? [local,...contacts.filter((contact)=>this.__nodeId(contact)!==localId)]
+        : contacts;
+
+      if(!ready){
+        const note=document.createElement("div");
+        note.className="hive-neighbors-map-note";
+        note.textContent="Não foi possível carregar o mapa do Home Assistant.";
+        host.appendChild(note);
+        return;
+      }
+      if(!contacts.length){
+        const note=document.createElement("div");
+        note.className="hive-neighbors-map-note";
+        note.textContent=source.length
+          ? "Os contactos existem, mas ainda não têm localização GPS anunciada."
+          : "Ainda não existem contactos para mostrar no mapa.";
+        host.appendChild(note);
+        return;
+      }
+
+      const count=document.createElement("div");
+      count.className="hive-neighbors-map-count";
+      count.textContent=String(contacts.length)+"/"+String(source.length)+" com localização";
+      host.appendChild(count);
+
+      const map=document.createElement("ha-map");
+      map.autoFit=true;
+      map.clusterMarkers=true;
+      map.scaleRuler=true;
+      map.themeMode="light";
+      host.appendChild(map);
+      this.__nodesMapPane=container;
+      this.__nodesMapElement=map;
+      this.__nodesMapSignature="";
+
+      await new Promise((resolve)=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+      if(!map.isConnected)return;
+
+      if("layers" in map && await this.__waitForLegacyLeaflet(map)){
+        map.entities=[];
+        map.layers=this.__legacyLeafletLayers(map,mapContacts,null);
+        const coords=mapContacts.map((contact)=>this.__nodeCoords(contact)).filter(Boolean);
+        if(coords.length===1)map.leafletMap?.setView?.(coords[0],11,{animate:false});
+        else if(coords.length>1&&map.Leaflet?.latLngBounds){
+          map.leafletMap?.fitBounds?.(map.Leaflet.latLngBounds(coords),{padding:[28,28],maxZoom:12,animate:false});
+        }
+        map.leafletMap?.invalidateSize?.(false);
+      }else{
+        map.entities=this.__mapEntities(mapContacts);
+        if("editableLocations" in map)map.editableLocations=this.__mapLocations(mapContacts);
+      }
+      return;
+    }
+
+    // A non-contact map uses the dedicated neighbour/discovery map state.
+    if(this.__nodesMapPane===container){
+      this.__nodesMapPane=null;
+      this.__nodesMapElement=null;
+      this.__nodesMapSignature="";
+    }
 
     const discoveryMode=this.__hiveNeighborMapMode==="discovery";
     const located = discoveryMode
