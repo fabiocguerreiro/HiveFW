@@ -257,6 +257,125 @@ bool DataStore::savePrefs(NodePrefs& _prefs) {
 }
 
 
+static const char* HIVEFW_REPEATER_NEIGHBOURS_FILE =
+  "/hivefw_repeater_neighbours";
+static const uint8_t HIVEFW_REPEATER_NEIGHBOURS_MAGIC[4] = {
+  'H', 'N', 'B', '1'
+};
+
+int DataStore::loadRepeaterNeighbours(
+  HiveFWRepeaterNeighbourRecord dest[],
+  int max_count
+) {
+  if (dest == nullptr || max_count <= 0) return 0;
+
+  memset(
+    dest,
+    0,
+    sizeof(HiveFWRepeaterNeighbourRecord) * max_count
+  );
+
+  if (!_fs->exists(HIVEFW_REPEATER_NEIGHBOURS_FILE)) return 0;
+
+  File file = openRead(_fs, HIVEFW_REPEATER_NEIGHBOURS_FILE);
+  if (!file) return 0;
+
+  uint8_t magic[4];
+  if (
+    file.read(magic, sizeof(magic)) != (int)sizeof(magic) ||
+    memcmp(
+      magic,
+      HIVEFW_REPEATER_NEIGHBOURS_MAGIC,
+      sizeof(magic)
+    ) != 0
+  ) {
+    file.close();
+    return 0;
+  }
+
+  uint8_t stored_count = 0;
+  if (file.read(&stored_count, 1) != 1) {
+    file.close();
+    return 0;
+  }
+
+  int loaded = 0;
+  for (
+    int i = 0;
+    i < stored_count && loaded < max_count;
+    i++
+  ) {
+    HiveFWRepeaterNeighbourRecord record;
+    if (
+      file.read(
+        (uint8_t*)&record,
+        sizeof(record)
+      ) != (int)sizeof(record)
+    ) {
+      break;
+    }
+
+    bool has_key = false;
+    for (size_t j = 0; j < sizeof(record.pub_key); j++) {
+      if (record.pub_key[j] != 0) {
+        has_key = true;
+        break;
+      }
+    }
+
+    if (!has_key || record.heard_timestamp == 0) continue;
+    dest[loaded++] = record;
+  }
+
+  file.close();
+  return loaded;
+}
+
+bool DataStore::saveRepeaterNeighbours(
+  const HiveFWRepeaterNeighbourRecord src[],
+  int count
+) {
+  if (count < 0 || count > 50) return false;
+
+  if (count == 0) {
+    if (_fs->exists(HIVEFW_REPEATER_NEIGHBOURS_FILE)) {
+      _fs->remove(HIVEFW_REPEATER_NEIGHBOURS_FILE);
+    }
+    return true;
+  }
+
+  if (src == nullptr) return false;
+
+  File file = openWrite(_fs, HIVEFW_REPEATER_NEIGHBOURS_FILE);
+  if (!file) return false;
+
+  bool success =
+    file.write(
+      HIVEFW_REPEATER_NEIGHBOURS_MAGIC,
+      sizeof(HIVEFW_REPEATER_NEIGHBOURS_MAGIC)
+    ) == sizeof(HIVEFW_REPEATER_NEIGHBOURS_MAGIC);
+
+  const uint8_t stored_count = (uint8_t)count;
+  success =
+    success &&
+    file.write(&stored_count, 1) == 1;
+
+  for (int i = 0; success && i < count; i++) {
+    success =
+      file.write(
+        (const uint8_t*)&src[i],
+        sizeof(src[i])
+      ) == sizeof(src[i]);
+  }
+
+  file.close();
+  if (!success) {
+    _fs->remove(HIVEFW_REPEATER_NEIGHBOURS_FILE);
+  }
+  return success;
+}
+
+
 // ============================================================================
 // HIVEFW — HOME ASSISTANT COMMAND STORE
 //
