@@ -376,16 +376,17 @@ class MeshCoreDataUpdateCoordinator(DataUpdateCoordinator):
             self._dirty_contacts.discard(normalized)
 
     def get_all_contacts(self) -> list:
-        """Get the unified HiveFW contact list.
+        """Get deduplicated list of all contacts (added + discovered).
 
-        HiveFW firmware persists every valid advert as a contact. The legacy
-        discovered/added dictionaries may still both contain entries while an
-        older SDK cache converges, but they are only transport caches now.
+        For each public_key, uses the contact with the latest lastmod.
+        Marks as added_to_node=True if contact exists in added list.
         """
         contacts_dict = {}
 
-        # Merge both SDK caches. Every node surfaced by HiveFW is a persistent
-        # radio contact, so expose one semantic state to HA and the panel.
+        # Build set of public keys that are in added contacts
+        added_pubkeys = set(c.get("public_key") for c in self._contacts.values() if c.get("public_key"))
+
+        # Process all contacts (discovered + added)
         all_contacts = list(self._discovered_contacts.values()) + list(self._contacts.values())
 
         for contact in all_contacts:
@@ -395,7 +396,7 @@ class MeshCoreDataUpdateCoordinator(DataUpdateCoordinator):
 
             contact_copy = dict(contact)
             contact_copy["pubkey_prefix"] = public_key[:12]
-            contact_copy["added_to_node"] = True
+            contact_copy["added_to_node"] = public_key in added_pubkeys
 
             # If we already have this contact, keep the one with latest lastmod
             if public_key in contacts_dict:
