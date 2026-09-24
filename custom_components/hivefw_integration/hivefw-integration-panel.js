@@ -6704,6 +6704,8 @@ let e,t,i,s,a,r,n,o,l,c,d,h,p,u,g,A,f,m,_,v,w,b,y,x,E,C,B,S,k,I,R,M,D,F,T,Q,P,O,
               @change=${0}></textarea>
           </div>
 
+        </div>
+
           <div
             id="hive-companion-settings-card"
             data-hive-native="companion"
@@ -6714,7 +6716,6 @@ let e,t,i,s,a,r,n,o,l,c,d,h,p,u,g,A,f,m,_,v,w,b,y,x,E,C,B,S,k,I,R,M,D,F,T,Q,P,O,
             </div>
             ${0}
           </div>
-        </div>
       </div>
 
       <div class="repeater-setup-grid">
