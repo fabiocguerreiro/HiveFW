@@ -65,6 +65,7 @@ export class ConversationList extends LitElement {
       grid-template-columns:minmax(0,1fr) auto;
       align-items:center;
       gap:6px;
+      padding-right:12px;
     }
 
     .apps-channel-selected .compose-btn {
@@ -441,7 +442,12 @@ export class ConversationList extends LitElement {
       </section>
 
       <div class="sidebar-header main-section-header">
-        <span class="sidebar-title main-section-title">Canais</span>
+        <div style="display:flex;align-items:center;gap:7px;min-width:0;">
+          <span class="sidebar-title main-section-title">Canais</span>
+          ${this._totalChannelUnreadCount() > 0
+            ? html`<div class="unread-badge" aria-label="${this._totalChannelUnreadCount()} mensagens por ler">${this._totalChannelUnreadCount()}</div>`
+            : nothing}
+        </div>
         <div class="apps-header-actions">
           <button
             class="compose-btn"
@@ -613,6 +619,13 @@ export class ConversationList extends LitElement {
         ${label}
       </button>
     `;
+  }
+
+  private _totalChannelUnreadCount(): number {
+    return this._channelConversations().reduce(
+      (total, channel) => total + this._getUnreadCount(String(channel.channel_idx)),
+      0,
+    );
   }
 
   private _hasUnreadMessages(): boolean {
