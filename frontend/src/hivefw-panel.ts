@@ -2912,16 +2912,16 @@ class HiveFWPanel extends BasePanel {
       "queue":"Número de pacotes atualmente em espera na fila TX.",
       "temperature":"Temperatura reportada pelo dispositivo.",
       "request-tokens":"Tokens disponíveis no rate limiter de pedidos da integração.",
-      "contacts":"Número de contactos conhecidos pelo rádio e sincronizados com a lista persistente.",
+      "contacts":"Número de contactos descobertos reportados pelo rádio.",
       "storage":"Utilização do armazenamento persistente do dispositivo.",
       "hardware":"Modelo e build de firmware do dispositivo.",
       "protocol":"Versão do protocolo Companion e tamanho do Path Hash.",
-      "capacity":"Contactos persistem em flash sem limite fixo de slots; mostra também a capacidade de canais.",
+      "capacity":"Capacidade configurada para contactos e canais no firmware.",
       "repeat-frequencies":"Frequência ou frequências permitidas para operação Repeater.",
       "rf-health":"Noise Floor e qualidade RF observada pelo rádio.",
       "airtime-health":"Utilização de airtime RX/TX observada localmente.",
       "traffic-now":"Taxa atual de mensagens recebidas e transmitidas.",
-      "network-activity":"Resumo de atividade recente dos contactos conhecidos.",
+      "network-activity":"Resumo de atividade recente da rede.",
       "health-alerts":"Resumo de alertas operacionais ativos. Eventos históricos recuperados não contam como falha ativa.",
       "reliability":"Relação entre pedidos concluídos e falhados.",
       "integrity":"Indicadores de integridade dos pacotes e erros de receção."
@@ -4365,7 +4365,7 @@ class HiveFWPanel extends BasePanel {
 
     const dcInfo=findEntity("discovered_contacts");
     const discovered=num(dcInfo);
-    if(Number.isFinite(discovered)) hero.appendChild(makeTile("Contactos",String(Math.round(discovered)),"no rádio",Math.min(discovered,1000),0,1000,"info","contacts",()=>summary._fireMoreInfo?.(dcInfo.entity_id),"compact"));
+    if(Number.isFinite(discovered)) hero.appendChild(makeTile("Contactos descobertos",String(Math.round(discovered)),"seen",Math.min(discovered,1000),0,1000,"info","contacts",()=>summary._fireMoreInfo?.(dcInfo.entity_id),"compact"));
 
     const used=Number(status.battery?.used_kb), total=Number(status.battery?.total_kb);
     if(Number.isFinite(used)&&Number.isFinite(total)&&total>0){
@@ -4388,9 +4388,9 @@ class HiveFWPanel extends BasePanel {
 
     if(info.max_contacts!=null || info.max_channels!=null){
       hero.appendChild(makeTile(
-        "Node Store / Canais",
-        `Flash / ${info.max_channels??"—"} canais`,
-        `contactos sem limite fixo · cache ${info.max_contacts??"—"}`,
+        "Capacidade",
+        `${info.max_contacts??"—"} / ${info.max_channels??"—"}`,
+        "contacts / channels",
         100,0,100,"info","capacity",clickEntity("max_contacts","max_channels"),"compact"
       ));
     }
@@ -6444,20 +6444,22 @@ class HiveFWPanel extends BasePanel {
       header.appendChild(favorite);
     }
     if(!contact.__hivefw_local__ && hasRealKey){
+      const added=!!contact.added_to_node;
       const contactAction=document.createElement("button");
       contactAction.type="button";
-      contactAction.textContent="🗑 Apagar";
-      contactAction.title="Apagar contacto do rádio";
-      contactAction.style.cssText="flex:0 0 auto;padding:6px 9px;border:1px solid var(--error-color,#db4437);border-radius:7px;background:var(--card-background-color,#fff);color:var(--error-color,#db4437);font-size:11px;font-weight:650;white-space:nowrap;cursor:pointer;";
+      contactAction.textContent=added?"👤 Remover":"👤 Adicionar";
+      contactAction.title=added?"Remover dos contactos adicionados":"Adicionar aos contactos";
+      contactAction.style.cssText=added
+        ?"flex:0 0 auto;padding:6px 9px;border:1px solid var(--error-color,#db4437);border-radius:7px;background:var(--card-background-color,#fff);color:var(--error-color,#db4437);font-size:11px;font-weight:650;white-space:nowrap;cursor:pointer;"
+        :"flex:0 0 auto;padding:6px 9px;border:1px solid var(--primary-color,#03a9f4);border-radius:7px;background:var(--card-background-color,#fff);color:var(--primary-color,#03a9f4);font-size:11px;font-weight:650;white-space:nowrap;cursor:pointer;";
       contactAction.addEventListener("click",(event)=>{
         event.preventDefault();
         event.stopPropagation();
         if(contactAction.disabled)return;
-        if(!window.confirm("Apagar este contacto do HiveFW?"))return;
         contactAction.disabled=true;
         contactAction.style.opacity=".65";
-        contactAction.textContent="A apagar…";
-        this.__networkContactAction(contact,"remove-contact");
+        contactAction.textContent=added?"A remover…":"A adicionar…";
+        this.__networkContactAction(contact,added?"remove-contact":"add-contact");
       });
       header.appendChild(contactAction);
     }
@@ -6489,6 +6491,7 @@ class HiveFWPanel extends BasePanel {
       rows.push(["Tipo","Repeater local"]);
     }else{
       rows.push(["Tipo",typeLabels[Number(contact.type)]||`Tipo ${Number(contact.type)||0}`]);
+      rows.push(["Estado",contact.added_to_node?"Adicionado":"Descoberto"]);
     }
 
     const publicKey=this.__fullPublicKey(contact);
@@ -8839,7 +8842,9 @@ class HiveFWPanel extends BasePanel {
   __renderNetworkContacts(container) {
     container.replaceChildren();
     const source=Array.isArray(this.__nodesMapContacts)?[...this.__nodesMapContacts]:[];
+    const discoveredOnly=this.__networkContactsFilter==="discovered";
     const contacts=source
+      .filter((contact)=>!discoveredOnly || !contact?.added_to_node)
       .sort((a,b)=>Number(b?.lastmod||b?.last_advert||0)-Number(a?.lastmod||a?.last_advert||0));
 
     const head=document.createElement("div");
@@ -8847,17 +8852,30 @@ class HiveFWPanel extends BasePanel {
     const intro=document.createElement("div");
     const eyebrow=document.createElement("div");
     eyebrow.className="mcr-eyebrow";
-    eyebrow.textContent="CONTACTOS";
+    eyebrow.textContent="CONTACTOS DESCOBERTOS";
     const title=document.createElement("h1");
     title.style.cssText="margin:2px 0 3px;font-size:20px;line-height:1.2;";
-    title.textContent="Contactos";
+    title.textContent="Contactos Descobertos";
     const subtitle=document.createElement("p");
     subtitle.style.cssText="margin:0;color:var(--secondary-text-color);font-size:11px;line-height:1.45;";
-    subtitle.textContent="Todos os contactos conhecidos pelo rádio. Um advert válido cria ou atualiza automaticamente o contacto.";
+    subtitle.textContent="Contactos descobertos pelo Companion, incluindo os que já foram adicionados à lista local.";
     intro.append(eyebrow,title,subtitle);
 
     const tools=document.createElement("div");
     tools.className="hive-network-contact-tools";
+    const filter=document.createElement("div");
+    filter.className="hive-network-contact-filter";
+    for(const [value,label] of [["all","All"],["discovered","Discovered"]]){
+      const button=document.createElement("button");
+      button.type="button";
+      button.textContent=label;
+      button.classList.toggle("active",this.__networkContactsFilter===value);
+      button.addEventListener("click",()=>{
+        this.__networkContactsFilter=value;
+        this.__renderNetworkContacts(container);
+      });
+      filter.appendChild(button);
+    }
     const gear=document.createElement("button");
     gear.type="button";
     gear.className="hive-network-contact-gear";
@@ -8867,7 +8885,7 @@ class HiveFWPanel extends BasePanel {
       this.__networkContactsMenuOpen=!this.__networkContactsMenuOpen;
       this.__renderNetworkContacts(container);
     });
-    tools.append(gear);
+    tools.append(filter,gear);
 
     if(this.__networkContactsMenuOpen){
       const menu=document.createElement("div");
@@ -8912,7 +8930,7 @@ class HiveFWPanel extends BasePanel {
     }else if(!contacts.length){
       const empty=document.createElement("div");
       empty.className="hive-discovery-empty";
-      empty.textContent="Nenhum contacto guardado no rádio.";
+      empty.textContent="Nenhum contacto corresponde ao filtro selecionado.";
       list.appendChild(empty);
     }else{
       for(const contact of contacts){
@@ -8925,8 +8943,8 @@ class HiveFWPanel extends BasePanel {
         const meta=document.createElement("div");
         meta.className="hive-network-contact-meta";
         const prefix=String(contact?.pubkey_prefix||String(contact?.public_key||"").slice(0,12)).toUpperCase();
-        const typeLabel=Number(contact?.type)===2?"Repeater":Number(contact?.type)===3?"Room Server":Number(contact?.type)===4?"Sensor":"Client";
-        meta.textContent=prefix+(prefix?" · ":"")+typeLabel;
+        const status=contact?.added_to_node?"Adicionado":"Descoberto";
+        meta.textContent=prefix+(prefix?" · ":"")+status;
         info.append(name,meta);
         const side=document.createElement("div");
         side.style.cssText="display:flex;align-items:center;gap:6px;color:var(--secondary-text-color);font-size:9px;white-space:nowrap;";
