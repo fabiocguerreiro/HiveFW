@@ -661,6 +661,22 @@ export class SettingsPage extends LitElement {
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 12px;
+        align-items:start;
+      }
+
+      .firmware-release-card {
+        grid-column:1;
+        grid-row:1;
+      }
+
+      .firmware-flash-manual-card {
+        grid-column:1;
+        grid-row:2;
+      }
+
+      .hivefw-manual-ota-card {
+        grid-column:1;
+        grid-row:3;
       }
 
       .firmware-action-card {
@@ -776,7 +792,9 @@ export class SettingsPage extends LitElement {
       }
 
       .firmware-usb-card {
-        margin-top: 14px;
+        grid-column:2;
+        grid-row:1 / span 3;
+        margin-top: 0;
         padding: 14px;
         border: 1px solid var(--divider-color);
         border-radius: 10px;
@@ -858,6 +876,14 @@ export class SettingsPage extends LitElement {
         .firmware-actions-grid,
         .firmware-usb-controls {
           grid-template-columns: minmax(0, 1fr);
+        }
+
+        .firmware-release-card,
+        .firmware-flash-manual-card,
+        .hivefw-manual-ota-card,
+        .firmware-usb-card {
+          grid-column:1;
+          grid-row:auto;
         }
 
         .firmware-action-text {
@@ -1522,8 +1548,32 @@ export class SettingsPage extends LitElement {
                   </div>
                 `}
 
+        ${this._firmwareUploadStage
+          ? html`
+              <div class="firmware-progress-state">
+                <div class="loading-spinner"></div>
+                <div>
+                  <strong>
+                    ${this._firmwareUploadStage === 'uploading'
+                      ? 'A enviar firmware'
+                      : this._firmwareUploadStage === 'rebooting'
+                        ? 'Firmware aceite · a reiniciar'
+                        : 'A aguardar reconexão'}
+                  </strong>
+                  <div>
+                    ${this._firmwareUploadStage === 'uploading'
+                      ? 'O Home Assistant está a enviar e validar a imagem OTA.'
+                      : this._firmwareUploadStage === 'rebooting'
+                        ? 'O rádio recebeu a imagem e está a arrancar novamente.'
+                        : 'A ligação TCP/Wi-Fi será retomada automaticamente.'}
+                  </div>
+                </div>
+              </div>
+            `
+          : nothing}
+
         <div class="firmware-actions-grid">
-          <div class="firmware-action-card">
+          <div class="firmware-action-card firmware-release-card">
             <div class="firmware-action-title">Release oficial</div>
             <div class="firmware-action-text">
               Consulta agora o GitHub e, quando existir uma Release, permite
@@ -1573,7 +1623,7 @@ export class SettingsPage extends LitElement {
                 `}
           </div>
 
-          <div class="firmware-action-card">
+          <div class="firmware-action-card firmware-flash-manual-card">
             <div class="firmware-action-title">Flash manual</div>
             <div class="firmware-action-text">
               Seleciona um <strong>firmware.bin</strong> de aplicação. Imagens
@@ -1600,7 +1650,6 @@ export class SettingsPage extends LitElement {
               ${this._firmwareBusy ? 'A processar firmware…' : 'Flash do ficheiro selecionado'}
             </button>
           </div>
-        </div>
 
         <div class="firmware-usb-card">
           <div class="firmware-action-title">Flasher USB</div>
@@ -1611,7 +1660,7 @@ export class SettingsPage extends LitElement {
 
           ${!usbFlasherSupported() ? html`
             <div class="firmware-notice warning" style="margin:12px 0 0;">
-              Web Serial não está disponível neste browser. Usa Chrome/Edge por HTTPS num computador com o rádio ligado por USB.
+              Web Serial está bloqueado neste contexto. Usa Chrome/Edge em HTTPS (ou localhost) num computador com o rádio ligado por USB. Em HTTP por endereço IP, o bloqueio é imposto pelo browser.
             </div>
           ` : nothing}
 
@@ -1730,30 +1779,8 @@ export class SettingsPage extends LitElement {
 
           ${this._usbFlashLog ? html`<div class="firmware-usb-log">${this._usbFlashLog}</div>` : nothing}
         </div>
+        </div>
 
-        ${this._firmwareUploadStage
-          ? html`
-              <div class="firmware-progress-state">
-                <div class="loading-spinner"></div>
-                <div>
-                  <strong>
-                    ${this._firmwareUploadStage === 'uploading'
-                      ? 'A enviar firmware'
-                      : this._firmwareUploadStage === 'rebooting'
-                        ? 'Firmware aceite · a reiniciar'
-                        : 'A aguardar reconexão'}
-                  </strong>
-                  <div>
-                    ${this._firmwareUploadStage === 'uploading'
-                      ? 'O Home Assistant está a enviar e validar a imagem OTA.'
-                      : this._firmwareUploadStage === 'rebooting'
-                        ? 'O rádio recebeu a imagem e está a arrancar novamente.'
-                        : 'A ligação TCP/Wi-Fi será retomada automaticamente.'}
-                  </div>
-                </div>
-              </div>
-            `
-          : nothing}
       </div>
     `;
   }
