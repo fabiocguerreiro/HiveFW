@@ -5230,10 +5230,10 @@ void MyMesh::handleCmdFrame(size_t len) {
     int i = 0;
     out_frame[i++] = RESP_CODE_DEVICE_INFO;
     out_frame[i++] = FIRMWARE_VER_CODE;
-    // HiveFW stores contacts in flash rather than limiting the official view
-    // to the RAM working cache. Advertise the protocol's full one-byte
-    // capacity; RESP_CODE_CONTACTS_START carries the actual flash count.
-    out_frame[i++] = 0xFF;               // v3+ maximum official-client capacity
+    // Official MeshCore clients interpret this historical byte as half
+    // the displayed contact capacity. Keep the upstream convention so a
+    // HiveFW MAX_CONTACTS of 350 is shown as 350, not 510.
+    out_frame[i++] = MAX_CONTACTS / 2;    // v3+ official compatibility
     out_frame[i++] = MAX_GROUP_CHANNELS; // v3+ (100 on HiveFW targets)
     memcpy(&out_frame[i], &_prefs.ble_pin, 4);
     i += 4;
