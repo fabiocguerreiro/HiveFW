@@ -8,6 +8,7 @@ import {
   setLocalRegion,
   getFirmwareOtaStatus,
   installLatestFirmware,
+  getDutyCycle,
   setDutyCycle,
   getManagedDevices,
   getFloodScopes,
@@ -150,7 +151,7 @@ export class SettingsPage extends LitElement {
   @state() private _usbFlashStage = '';
   @state() private _usbFlashLog = '';
   @state() private _dutyCycleValue = 10;
-  @state() private _dutyCycleBusy: 'apply' | null = null;
+  @state() private _dutyCycleBusy: 'read' | 'apply' | null = null;
   @state() private _adminPasswordDraft = '';
   @state() private _guestPasswordDraft = '';
   @state() private _repeaterAccessBusy: 'admin' | 'guest' | 'acl' | 'acl-entry' | null = null;
@@ -3368,25 +3369,36 @@ export class SettingsPage extends LitElement {
                     void this._applyImmediateSetting('direct_tx_delay', Number((e.target as HTMLInputElement).value), 'Direct TX Delay');
                   }} />
               </div>
-              <div data-hive-duty-cycle-control>
+              <div data-hive-duty-cycle-control style="grid-column:1 / -1;">
                 <label class="form-label">Duty Cycle</label>
-                <select
-                  class="form-select"
-                  .value=${String(this._dutyCycleValue)}
-                  ?disabled=${this._dutyCycleBusy !== null}
-                  @change=${(e: Event) => {
-                    const next = Number((e.target as HTMLSelectElement).value);
-                    this._dutyCycleValue = next;
-                    void this._applyImmediateSetting(
-                      'duty_cycle',
-                      next,
-                      'Duty Cycle',
-                    );
-                  }}>
-                  ${Array.from({ length: 41 }, (_, i) => i + 10).map(
-                    (value) => html`<option value=${String(value)}>${value}%</option>`,
-                  )}
-                </select>
+                <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+                  <select
+                    class="form-select"
+                    style="width:72px;min-width:72px;flex:0 0 72px;"
+                    .value=${String(this._dutyCycleValue)}
+                    ?disabled=${this._dutyCycleBusy !== null}
+                    @change=${(e: Event) => {
+                      this._dutyCycleValue = Number((e.target as HTMLSelectElement).value);
+                    }}>
+                    ${Array.from({ length: 41 }, (_, i) => i + 10).map(
+                      (value) => html`<option value=${String(value)}>${value}%</option>`,
+                    )}
+                  </select>
+                  <button
+                    class="action-btn"
+                    style="min-width:58px;"
+                    ?disabled=${this._dutyCycleBusy !== null}
+                    @click=${this._readDutyCycle}>
+                    ${this._dutyCycleBusy === 'read' ? 'A ler…' : 'Ler'}
+                  </button>
+                  <button
+                    class="apply-button"
+                    style="width:auto;min-width:66px;margin:0;padding:7px 12px;"
+                    ?disabled=${this._dutyCycleBusy !== null}
+                    @click=${() => this._applyDutyCycle()}>
+                    ${this._dutyCycleBusy === 'apply' ? 'A aplicar…' : 'Aplicar'}
+                  </button>
+                </div>
               </div>
             </div>
           ` : html`
@@ -3760,6 +3772,27 @@ export class SettingsPage extends LitElement {
       this._repeaterAccessBusy = null;
     }
   }
+
+  private _readDutyCycle = async () => {
+    if (!this.hass || this._dutyCycleBusy) return;
+    this._dutyCycleBusy = 'read';
+    try {
+      const result = await getDutyCycle(this.hass, this.config?.entry_id);
+      const duty = Number(result.duty_cycle);
+      if (!Number.isFinite(duty)) throw new Error('Valor de Duty Cycle inválido.');
+      this._dutyCycleValue = Math.max(10, Math.min(50, Math.round(duty)));
+      this.requestUpdate();
+      this._showStatusMessage(`Duty Cycle lido do Companion: ${this._dutyCycleValue}%`, 'success');
+    } catch (error) {
+      const e = error as { code?: string; message?: string };
+      const message = e?.message
+        ? (e.code ? `${e.message} (${e.code})` : e.message)
+        : String(error);
+      this._showStatusMessage(`Duty Cycle: ${message}`, 'error');
+    } finally {
+      this._dutyCycleBusy = null;
+    }
+  };
 
   private async _applyDutyCycle(selected?: number) {
     if (!this.hass) return;
