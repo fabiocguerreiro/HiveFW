@@ -844,8 +844,9 @@ static bool hivefwFindNodeRecord(DataStore* store, const uint8_t pub_key[PUB_KEY
   if (!file) return false;
   offset = 0;
   while (file.read((uint8_t*)&rec, sizeof(rec)) == sizeof(rec)) {
-    if ((rec.state & HIVEFW_NODE_STATE_VALID) &&
-        memcmp(rec.pub_key, pub_key, PUB_KEY_SIZE) == 0) {
+    // Match tombstones too so a deleted/re-discovered identity reuses its
+    // record instead of growing the file forever.
+    if (memcmp(rec.pub_key, pub_key, PUB_KEY_SIZE) == 0) {
       file.close();
       return true;
     }
@@ -861,9 +862,11 @@ bool DataStore::upsertNode(const ContactInfo& contact, bool added, uint32_t hear
   bool found = hivefwFindNodeRecord(this, contact.id.pub_key, previous, offset);
 
   HiveFWNodeRecord updated;
-  hivefwContactToNode(contact, updated, added, heard_timestamp);
+  // HiveFW has one persistent contact store: every valid node record is a
+  // contact. Keep ADDED set only as a backward-compatibility marker.
+  hivefwContactToNode(contact, updated, true, heard_timestamp);
+  updated.state |= HIVEFW_NODE_STATE_ADDED;
   if (found) {
-    if (previous.state & HIVEFW_NODE_STATE_ADDED) updated.state |= HIVEFW_NODE_STATE_ADDED;
     if (heard_timestamp == 0) updated.heard_timestamp = previous.heard_timestamp;
   }
 
@@ -892,14 +895,32 @@ bool DataStore::setNodeAdded(const uint8_t pub_key[PUB_KEY_SIZE], bool added) {
   return ok;
 }
 
+bool DataStore::deleteNode(const uint8_t pub_key[PUB_KEY_SIZE]) {
+  HiveFWNodeRecord rec;
+  uint32_t offset = 0;
+  if (!hivefwFindNodeRecord(this, pub_key, rec, offset) ||
+      !(rec.state & HIVEFW_NODE_STATE_VALID)) {
+    return false;
+  }
+
+  rec.state &= ~(HIVEFW_NODE_STATE_VALID | HIVEFW_NODE_STATE_ADDED);
+
+  File file = hivefwOpenNodeStoreWrite(_getContactsChannelsFS());
+  if (!file) return false;
+  file.seek(offset);
+  bool ok = file.write((const uint8_t*)&rec, sizeof(rec)) == sizeof(rec);
+  file.close();
+  return ok;
+}
+
 bool DataStore::loadNodeByKey(const uint8_t* pub_key, int prefix_len, ContactInfo& contact, bool added_only) {
+  (void)added_only; // retained for source/wire compatibility
   if (!pub_key || prefix_len <= 0 || prefix_len > PUB_KEY_SIZE) return false;
   File file = openRead(_getContactsChannelsFS(), HIVEFW_NODE_STORE_FILE);
   if (!file) return false;
   HiveFWNodeRecord rec;
   while (file.read((uint8_t*)&rec, sizeof(rec)) == sizeof(rec)) {
     if (!(rec.state & HIVEFW_NODE_STATE_VALID)) continue;
-    if (added_only && !(rec.state & HIVEFW_NODE_STATE_ADDED)) continue;
     if (memcmp(rec.pub_key, pub_key, prefix_len) == 0) {
       hivefwNodeToContact(rec, contact);
       file.close();
@@ -926,13 +947,13 @@ int DataStore::loadNodesByHash(const uint8_t* hash, ContactInfo dest[], int max_
 }
 
 uint32_t DataStore::countNodes(bool added_only) {
+  (void)added_only; // all valid records are contacts
   File file = openRead(_getContactsChannelsFS(), HIVEFW_NODE_STORE_FILE);
   if (!file) return 0;
   uint32_t count = 0;
   HiveFWNodeRecord rec;
   while (file.read((uint8_t*)&rec, sizeof(rec)) == sizeof(rec)) {
     if (!(rec.state & HIVEFW_NODE_STATE_VALID)) continue;
-    if (added_only && !(rec.state & HIVEFW_NODE_STATE_ADDED)) continue;
     count++;
   }
   file.close();
@@ -940,13 +961,13 @@ uint32_t DataStore::countNodes(bool added_only) {
 }
 
 bool DataStore::getNodeByIndex(uint32_t index, ContactInfo& contact, bool added_only, uint32_t* heard_timestamp) {
+  (void)added_only; // all valid records are contacts
   File file = openRead(_getContactsChannelsFS(), HIVEFW_NODE_STORE_FILE);
   if (!file) return false;
   uint32_t logical = 0;
   HiveFWNodeRecord rec;
   while (file.read((uint8_t*)&rec, sizeof(rec)) == sizeof(rec)) {
     if (!(rec.state & HIVEFW_NODE_STATE_VALID)) continue;
-    if (added_only && !(rec.state & HIVEFW_NODE_STATE_ADDED)) continue;
     if (logical++ == index) {
       hivefwNodeToContact(rec, contact);
       if (heard_timestamp) *heard_timestamp = rec.heard_timestamp;
@@ -990,7 +1011,7 @@ void DataStore::loadContacts(DataStoreHost* host) {
   if (_getContactsChannelsFS()->exists(HIVEFW_NODE_STORE_FILE)) {
     uint32_t idx = 0;
     ContactInfo c;
-    while (getNodeByIndex(idx++, c, true, nullptr)) {
+    while (getNodeByIndex(idx++, c, false, nullptr)) {
       if (!host->onContactLoaded(c)) break;
     }
     return;
