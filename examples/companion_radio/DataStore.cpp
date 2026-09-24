@@ -190,6 +190,47 @@ bool DataStore::saveMainIdentity(const mesh::LocalIdentity &identity) {
   return identity_store.save("_main", identity);
 }
 
+static const char* HIVEFW_MESH_TIME_PREF_FILE = "/hivefw_mesh_time";
+static const uint8_t HIVEFW_MESH_TIME_MAGIC[4] = { 'H', 'M', 'T', '1' };
+
+static bool loadHiveFWMeshTimePref(FILESYSTEM* fs, uint8_t& enabled) {
+  if (!fs || !fs->exists(HIVEFW_MESH_TIME_PREF_FILE)) return false;
+#if defined(NRF52_PLATFORM) || defined(STM32_PLATFORM)
+  File file = fs->open(HIVEFW_MESH_TIME_PREF_FILE, FILE_O_READ);
+#elif defined(RP2040_PLATFORM)
+  File file = fs->open(HIVEFW_MESH_TIME_PREF_FILE, "r");
+#else
+  File file = fs->open(HIVEFW_MESH_TIME_PREF_FILE, "r", false);
+#endif
+  if (!file) return false;
+
+  uint8_t magic[4];
+  uint8_t value = 0;
+  const bool ok =
+    file.read(magic, sizeof(magic)) == (int)sizeof(magic) &&
+    memcmp(magic, HIVEFW_MESH_TIME_MAGIC, sizeof(magic)) == 0 &&
+    file.read(&value, 1) == 1;
+  file.close();
+
+  if (!ok) return false;
+  enabled = value ? 1 : 0;
+  return true;
+}
+
+static bool saveHiveFWMeshTimePref(FILESYSTEM* fs, uint8_t enabled) {
+  if (!fs) return false;
+  File file = openWrite(fs, HIVEFW_MESH_TIME_PREF_FILE);
+  if (!file) return false;
+
+  const uint8_t value = enabled ? 1 : 0;
+  const bool ok =
+    file.write(HIVEFW_MESH_TIME_MAGIC, sizeof(HIVEFW_MESH_TIME_MAGIC)) ==
+      sizeof(HIVEFW_MESH_TIME_MAGIC) &&
+    file.write(&value, 1) == 1;
+  file.close();
+  return ok;
+}
+
 void DataStore::loadPrefs(NodePrefs& prefs) {
   if (_fs->exists("/prefs.json")) {
     File file = openRead(_fs, "/prefs.json");
@@ -202,6 +243,14 @@ void DataStore::loadPrefs(NodePrefs& prefs) {
     if (savePrefs(prefs) ) {                // save to new format
       //_fs->remove("/new_prefs"); // remove old
     }
+  }
+
+  // HiveFW keeps the Mesh RTC toggle in a dedicated one-byte preference too.
+  // This makes the user setting resilient to legacy prefs migration and
+  // firmware updates that rewrite the JSON preference document.
+  uint8_t mesh_time = prefs.mesh_time_sync;
+  if (loadHiveFWMeshTimePref(_fs, mesh_time)) {
+    prefs.mesh_time_sync = mesh_time;
   }
 }
 
@@ -249,12 +298,17 @@ void DataStore::loadPrefsInt(const char *filename, NodePrefs& _prefs) {
 
 bool DataStore::savePrefs(NodePrefs& _prefs) {
   File file = openWrite(_fs, "/prefs.json");
-  if (file) {
-    bool success = _prefs.saveSerial(file);
-    file.close();
-    return success;
-  }
-  return false;
+  if (!file) return false;
+
+  bool success = _prefs.saveSerial(file);
+  file.close();
+
+  // Persist independently from prefs.json so the toggle survives migrations
+  // and firmware updates even if a legacy preference document is restored.
+  const bool mesh_time_saved =
+    saveHiveFWMeshTimePref(_fs, _prefs.mesh_time_sync);
+
+  return success && mesh_time_saved;
 }
 
 
