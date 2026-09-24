@@ -8863,7 +8863,7 @@ class HiveFWPanel extends BasePanel {
     eyebrow.textContent="CONTACTOS DESCOBERTOS";
     const title=document.createElement("h1");
     title.style.cssText="margin:2px 0 3px;font-size:20px;line-height:1.2;";
-    title.textContent="Contactos";
+    title.textContent="Contactos Descobertos";
     const subtitle=document.createElement("p");
     subtitle.style.cssText="margin:0;color:var(--secondary-text-color);font-size:11px;line-height:1.45;";
     subtitle.textContent="Contactos descobertos pelo Companion, incluindo os que já foram adicionados à lista local.";
