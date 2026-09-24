@@ -3402,7 +3402,7 @@ export class SettingsPage extends LitElement {
                 <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
                   <select
                     class="form-select"
-                    style="width:72px;min-width:72px;flex:0 0 72px;"
+                    style="width:100%;min-width:0;max-width:100%;flex:1 1 auto;"
                     .value=${String(this._dutyCycleValue)}
                     ?disabled=${this._dutyCycleBusy !== null}
                     @change=${(e: Event) => {
