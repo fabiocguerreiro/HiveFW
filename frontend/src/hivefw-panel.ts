@@ -1977,7 +1977,7 @@ class HiveFWPanel extends BasePanel {
 
       .hive-neighbors-three {
         display:grid;
-        grid-template-columns:minmax(235px,.82fr) minmax(250px,.88fr) minmax(255px,.9fr) minmax(360px,1.35fr);
+        grid-template-columns:repeat(3,minmax(245px,1fr)) minmax(360px,1.35fr);
         gap:12px;
         width:100%;
         height:100%;
@@ -2235,7 +2235,7 @@ class HiveFWPanel extends BasePanel {
         align-items:flex-start;
         justify-content:space-between;
         gap:10px;
-        margin-bottom:12px;
+        margin:0;
       }
       .hive-network-contact-tools {
         position:relative;
@@ -2309,9 +2309,9 @@ class HiveFWPanel extends BasePanel {
       .hive-network-contact-row {
         display:grid;
         grid-template-columns:minmax(0,1fr) auto;
-        gap:8px;
+        gap:9px;
         align-items:center;
-        padding:9px 10px;
+        padding:10px;
         border:1px solid var(--divider-color);
         border-radius:10px;
         background:var(--primary-background-color);
@@ -2471,8 +2471,8 @@ class HiveFWPanel extends BasePanel {
       .hive-network-event:first-of-type { border-top:0; }
       .hive-network-event time { color:var(--secondary-text-color); }
       .hive-network-copy {
-        height:min(68vh,760px);
-        min-height:600px;
+        height:min(82vh,912px);
+        min-height:720px;
       }
       .hive-network-copy .hive-neighbors-three { height:100%; }
 
@@ -2489,7 +2489,7 @@ class HiveFWPanel extends BasePanel {
           height:auto;
           overflow:visible;
         }
-        .hive-neighbors-column { height:auto; min-height:360px; }
+        .hive-neighbors-column { height:auto; min-height:432px; }
         .hive-neighbors-left-scroll,
         .hive-neighbors-discovery-scroll {
           flex:0 0 auto;
@@ -2499,8 +2499,8 @@ class HiveFWPanel extends BasePanel {
         .hive-neighbors-map { min-height:500px; }
         .hive-neighbors-map-host {
           flex:0 0 auto;
-          height:430px;
-          min-height:430px;
+          height:516px;
+          min-height:516px;
         }
       }
 
@@ -3534,7 +3534,12 @@ class HiveFWPanel extends BasePanel {
     }
 
     this.__consoleOverlay = host;
-    this.__renderConsole(host, true);
+    const consoleEntry = String(this.__entryId() || "");
+    const renderedEntry = String(host.dataset.hiveConsoleEntry || "");
+    if (!host.querySelector(".hivefw-console-page") || renderedEntry !== consoleEntry) {
+      host.dataset.hiveConsoleEntry = consoleEntry;
+      this.__renderConsole(host, true);
+    }
   }
 
   async __loadWifiPortalInfo() {
@@ -8816,40 +8821,25 @@ class HiveFWPanel extends BasePanel {
   __renderNetworkContacts(container) {
     container.replaceChildren();
     const source=Array.isArray(this.__nodesMapContacts)?[...this.__nodesMapContacts]:[];
-    const discoveredOnly=this.__networkContactsFilter==="discovered";
     const contacts=source
-      .filter((contact)=>!discoveredOnly || !contact?.added_to_node)
       .sort((a,b)=>Number(b?.lastmod||b?.last_advert||0)-Number(a?.lastmod||a?.last_advert||0));
 
     const head=document.createElement("div");
-    head.className="hive-network-contacts-head";
+    head.className="hive-discovery-head hive-network-contacts-head";
     const intro=document.createElement("div");
     const eyebrow=document.createElement("div");
-    eyebrow.className="mcr-eyebrow";
-    eyebrow.textContent="CONTACTOS DESCOBERTOS";
-    const title=document.createElement("h1");
-    title.style.cssText="margin:2px 0 3px;font-size:20px;line-height:1.2;";
-    title.textContent="Contactos Descobertos";
-    const subtitle=document.createElement("p");
-    subtitle.style.cssText="margin:0;color:var(--secondary-text-color);font-size:11px;line-height:1.45;";
-    subtitle.textContent="Contactos descobertos pelo Companion, incluindo os que já foram adicionados à lista local.";
+    eyebrow.className="hive-discovery-eyebrow";
+    eyebrow.textContent="PASSIVO · COMPANION";
+    const title=document.createElement("div");
+    title.className="hive-discovery-title";
+    title.textContent="Contactos descobertos";
+    const subtitle=document.createElement("div");
+    subtitle.className="hive-discovery-subtitle";
+    subtitle.textContent="Contactos anunciados ao Companion.";
     intro.append(eyebrow,title,subtitle);
 
     const tools=document.createElement("div");
     tools.className="hive-network-contact-tools";
-    const filter=document.createElement("div");
-    filter.className="hive-network-contact-filter";
-    for(const [value,label] of [["all","All"],["discovered","Discovered"]]){
-      const button=document.createElement("button");
-      button.type="button";
-      button.textContent=label;
-      button.classList.toggle("active",this.__networkContactsFilter===value);
-      button.addEventListener("click",()=>{
-        this.__networkContactsFilter=value;
-        this.__renderNetworkContacts(container);
-      });
-      filter.appendChild(button);
-    }
     const gear=document.createElement("button");
     gear.type="button";
     gear.className="hive-network-contact-gear";
@@ -8859,7 +8849,7 @@ class HiveFWPanel extends BasePanel {
       this.__networkContactsMenuOpen=!this.__networkContactsMenuOpen;
       this.__renderNetworkContacts(container);
     });
-    tools.append(filter,gear);
+    tools.append(gear);
 
     if(this.__networkContactsMenuOpen){
       const menu=document.createElement("div");
@@ -8901,30 +8891,47 @@ class HiveFWPanel extends BasePanel {
       empty.className="hive-discovery-empty";
       empty.textContent=this.__nodesMapLoading?"A carregar contactos…":"Ainda não existem contactos disponíveis.";
       list.appendChild(empty);
-    }else if(!contacts.length){
-      const empty=document.createElement("div");
-      empty.className="hive-discovery-empty";
-      empty.textContent="Nenhum contacto corresponde ao filtro selecionado.";
-      list.appendChild(empty);
     }else{
       for(const contact of contacts){
-        const row=document.createElement("div");
-        row.className="hive-network-contact-row";
+        const row=document.createElement("article");
+        row.className="hive-discovery-item hive-network-contact-row";
         const info=document.createElement("div");
+        info.style.minWidth="0";
         const name=document.createElement("div");
-        name.className="hive-network-contact-name";
+        name.className="hive-neighbor-name";
         name.textContent=String(contact?.adv_name||contact?.name||contact?.pubkey_prefix||"Contacto");
+        const prefix=document.createElement("div");
+        prefix.className="hive-neighbor-prefix";
+        prefix.textContent=String(contact?.pubkey_prefix||String(contact?.public_key||"").slice(0,12)).toUpperCase();
         const meta=document.createElement("div");
-        meta.className="hive-network-contact-meta";
-        const prefix=String(contact?.pubkey_prefix||String(contact?.public_key||"").slice(0,12)).toUpperCase();
-        const status=contact?.added_to_node?"Adicionado":"Descoberto";
-        meta.textContent=prefix+(prefix?" · ":"")+status;
-        info.append(name,meta);
+        meta.className="hive-neighbor-meta";
+        const sourcePill=document.createElement("span");
+        sourcePill.className="hive-neighbor-pill";
+        sourcePill.textContent=contact?.added_to_node?"NO RÁDIO":"LOCAL";
+        meta.appendChild(sourcePill);
+        const ageSeconds=Number(contact?.age_seconds);
+        if(Number.isFinite(ageSeconds)){
+          const age=document.createElement("span");
+          age.textContent="Advert "+this.__age(ageSeconds);
+          meta.appendChild(age);
+        }
+        info.append(name,prefix,meta);
+
         const side=document.createElement("div");
-        side.style.cssText="display:flex;align-items:center;gap:6px;color:var(--secondary-text-color);font-size:9px;white-space:nowrap;";
+        side.className="hive-discovery-signal";
+        const values=document.createElement("span");
+        values.className="hive-discovery-signal-values";
         const gps=document.createElement("span");
-        gps.textContent=this.__nodeCoords(contact)?"GPS":"";
-        side.append(gps);
+        const hasGps=Boolean(this.__nodeCoords(contact));
+        gps.textContent=hasGps?"GPS":"SEM GPS";
+        const sourceLabel=document.createElement("small");
+        sourceLabel.textContent=contact?.added_to_node?"guardado":"anunciado";
+        values.append(gps,sourceLabel);
+        const dot=document.createElement("span");
+        dot.className="hive-discovery-signal-dot";
+        dot.style.background=hasGps?"#2e7d32":"#757575";
+        dot.title=hasGps?"Localização disponível":"Sem localização anunciada";
+        side.append(values,dot);
         row.append(info,side);
         row.addEventListener("click",()=>{
           this.__hiveNeighborMapMode="contacts";
@@ -9504,11 +9511,6 @@ class HiveFWPanel extends BasePanel {
         gps.textContent = "📍 GPS";
         meta.appendChild(gps);
       }
-      if (item.request_snr != null) {
-        const req = document.createElement("span");
-        req.textContent = "REQ " + Number(item.request_snr).toFixed(1) + " dB";
-        meta.appendChild(req);
-      }
       info.append(name, prefix, meta);
 
       const signal = document.createElement("div");
@@ -9517,11 +9519,15 @@ class HiveFWPanel extends BasePanel {
       const snr = Number(item.snr);
       const signalValues = document.createElement("span");
       signalValues.className = "hive-discovery-signal-values";
+      const reqValue = document.createElement("small");
       const snrValue = document.createElement("span");
       const rssiValue = document.createElement("small");
       const signalDot = document.createElement("span");
       signalDot.className = "hive-discovery-signal-dot";
 
+      reqValue.textContent = item.request_snr != null && Number.isFinite(Number(item.request_snr))
+        ? "REQ(" + Number(item.request_snr).toFixed(1) + " dB)"
+        : "REQ(—)";
       snrValue.textContent = Number.isFinite(snr)
         ? "SNR " + snr.toFixed(1) + " dB"
         : "SNR —";
@@ -9550,7 +9556,7 @@ class HiveFWPanel extends BasePanel {
         );
       }
 
-      signalValues.append(snrValue, rssiValue);
+      signalValues.append(reqValue, snrValue, rssiValue);
       signal.append(signalValues, signalDot);
       row.append(info, signal);
       row.addEventListener("click", () => {

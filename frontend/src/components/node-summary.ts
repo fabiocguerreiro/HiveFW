@@ -147,6 +147,49 @@ export class NodeSummary extends LitElement {
       .hero-row > .hero-tile[data-repeater-extra="repeat-frequencies"] { grid-column: 1; }
     }
     .hero-tile:hover { border-color: var(--primary-color, #03a9f4); }
+
+    /* HiveFW Status cockpit: one information matrix instead of a wall of cards.
+       The tiles remain individually clickable and keep all existing data. */
+    :host([data-hive-native-cockpit="1"]) .hero-row {
+      gap: 0;
+      border: 1px solid var(--divider-color, #e0e0e0);
+      border-radius: 12px;
+      overflow: hidden;
+      background: var(--card-background-color, #fff);
+    }
+    :host([data-hive-native-cockpit="1"]) .hero-tile {
+      min-height: 66px;
+      padding: 10px 12px;
+      border: 0;
+      border-right: 1px solid var(--divider-color, #e0e0e0);
+      border-bottom: 1px solid var(--divider-color, #e0e0e0);
+      border-radius: 0;
+      background: transparent;
+      box-shadow: none;
+      transition: background-color .15s ease;
+    }
+    :host([data-hive-native-cockpit="1"]) .hero-tile:hover {
+      border-color: var(--divider-color, #e0e0e0);
+      background: color-mix(in srgb, var(--primary-color) 6%, transparent);
+      transform: none;
+    }
+    :host([data-hive-native-cockpit="1"]) .hero-tile-head {
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: .055em;
+    }
+    :host([data-hive-native-cockpit="1"]) .hero-tile-value .primary {
+      font-size: 17px;
+      font-weight: 700;
+      line-height: 1.08;
+    }
+    :host([data-hive-native-cockpit="1"]) .hero-tile-value .compact {
+      font-size: 15px;
+      font-weight: 650;
+    }
+    :host([data-hive-native-cockpit="1"]) .hero-tile-value .secondary {
+      font-size: 9px;
+    }
     .hero-tile-head {
       display: flex;
       align-items: center;

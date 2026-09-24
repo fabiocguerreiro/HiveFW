@@ -739,6 +739,16 @@ export class SettingsPage extends LitElement {
         margin-top: 10px;
       }
 
+      .firmware-download-action {
+        display: inline-flex !important;
+        width: fit-content;
+        max-width: 100%;
+        min-width: 0;
+        padding-inline: 14px;
+        align-items: center;
+        justify-content: center;
+      }
+
       .firmware-file-picker {
         min-height: 38px;
         display: flex;
@@ -1682,8 +1692,8 @@ export class SettingsPage extends LitElement {
                 </div>
               </div>
               <a
-                class="apply-button firmware-primary-action"
-                style="display:flex;align-items:center;justify-content:center;text-decoration:none;"
+                class="apply-button firmware-primary-action firmware-download-action"
+                style="text-decoration:none;"
                 href=${asset.url}
                 target="_blank"
                 rel="noopener"
