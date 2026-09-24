@@ -3409,7 +3409,10 @@ export class SettingsPage extends LitElement {
                       this._dutyCycleValue = Number((e.target as HTMLSelectElement).value);
                     }}>
                     ${Array.from({ length: 41 }, (_, i) => i + 10).map(
-                      (value) => html`<option value=${String(value)}>${value}%</option>`,
+                      (value) => html`<option
+                        value=${String(value)}
+                        ?selected=${value === this._dutyCycleValue}
+                      >${value}%</option>`,
                     )}
                   </select>
                   <button
