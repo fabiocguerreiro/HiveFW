@@ -31,14 +31,6 @@ import type {
 import '../components/confirm-dialog';
 import { attachDialogA11y } from '../utils/dialog-a11y';
 import { panelStyles } from '../styles';
-import {
-  flashUsbFirmware,
-  forceT114DfuMode,
-  usbFlasherSupported,
-  type UsbFlashHardware,
-  type UsbFlashSource,
-  type UsbFlashVariant,
-} from '../usb-flasher';
 
 interface ConfirmAction {
   title: string;
@@ -142,15 +134,6 @@ export class SettingsPage extends LitElement {
   @state() private _firmwareChecking = false;
   @state() private _firmwareUploadStage: 'uploading' | 'rebooting' | 'reconnecting' | null = null;
   @state() private _firmwareDownloadTarget: 'v3-wifi' | 'v3-ble' | 't114-ble' = 'v3-wifi';
-  @state() private _usbFlashHardware: UsbFlashHardware = 'heltec-v3';
-  @state() private _usbFlashVariant: UsbFlashVariant = 'wifi';
-  @state() private _usbFlashSource: UsbFlashSource = 'latest';
-  @state() private _usbFlashErase = false;
-  @state() private _usbFlashFile: File | null = null;
-  @state() private _usbFlashBusy = false;
-  @state() private _usbFlashProgress = 0;
-  @state() private _usbFlashStage = '';
-  @state() private _usbFlashLog = '';
   @state() private _dutyCycleValue = 10;
   @state() private _dutyCycleBusy: 'read' | 'apply' | null = null;
   @state() private _adminPasswordDraft = '';
@@ -1716,74 +1699,6 @@ export class SettingsPage extends LitElement {
       </div>
     `;
   }
-
-  private _appendUsbFlashLog(line: string) {
-    const next = [this._usbFlashLog, line].filter(Boolean).join('\n');
-    this._usbFlashLog = next.split('\n').slice(-60).join('\n');
-  }
-
-  private _enterT114Dfu = async () => {
-    if (this._usbFlashBusy) return;
-    this._usbFlashBusy = true;
-    this._usbFlashStage = 'A colocar o T114 em DFU…';
-    this._usbFlashProgress = 0;
-    this._usbFlashLog = '';
-    try {
-      await forceT114DfuMode();
-      this._usbFlashStage = 'DFU solicitado. Aguarda a porta USB reaparecer.';
-      this._appendUsbFlashLog('DFU: touch 1200 baud enviado.');
-      this._showStatusMessage('T114 colocado em modo DFU.', 'success');
-    } catch (error) {
-      this._usbFlashStage = 'Falha ao entrar em DFU.';
-      this._appendUsbFlashLog(String(error));
-      this._showStatusMessage(`Falha ao entrar em DFU: ${String(error)}`, 'error');
-    } finally {
-      this._usbFlashBusy = false;
-    }
-  };
-
-  private _startUsbFlash = async () => {
-    if (this._usbFlashBusy) return;
-
-    if (this._usbFlashErase) {
-      const accepted = window.confirm(
-        'Apagar flash antes de instalar remove configurações, identidade e outros dados guardados no equipamento. Continuar?',
-      );
-      if (!accepted) return;
-    }
-
-    this._usbFlashBusy = true;
-    this._usbFlashProgress = 0;
-    this._usbFlashStage = 'A preparar flasher USB…';
-    this._usbFlashLog = '';
-
-    try {
-      const result = await flashUsbFirmware({
-        hardware: this._usbFlashHardware,
-        variant: this._usbFlashVariant,
-        source: this._usbFlashSource,
-        erase: this._usbFlashErase,
-        file: this._usbFlashFile,
-        onProgress: (percent, stage) => {
-          this._usbFlashProgress = percent;
-          this._usbFlashStage = stage;
-        },
-        onLog: (line) => this._appendUsbFlashLog(line),
-      });
-      this._usbFlashProgress = 100;
-      this._usbFlashStage = 'Instalação USB concluída.';
-      this._appendUsbFlashLog(`Concluído: ${result.filename}${result.release ? ` · ${result.release}` : ''}`);
-      this._showStatusMessage('Firmware instalado por USB com sucesso.', 'success');
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      this._usbFlashStage = 'Falha no flash USB.';
-      this._appendUsbFlashLog(message);
-      this._showStatusMessage(`Flash USB falhou: ${message}`, 'error');
-    } finally {
-      this._usbFlashBusy = false;
-    }
-  };
-
 
   private async _checkFirmwareUpdates() {
     if (!this.hass) return;
