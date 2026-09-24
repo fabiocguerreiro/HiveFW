@@ -128,6 +128,8 @@ export class ContactCard extends LitElement {
 
     const c = this.contact;
     const avatarClass = this._getTypeClass(c.type);
+    const { label: catLabel, cls: catCls } = this._getCategoryBadge(c);
+
     const ageClass = c.age_bucket ? `age-${c.age_bucket}` : 'age-stale';
     const cardClass = `contact-card ${ageClass}${this.selected ? ' selected' : ''}`;
     const tags = Array.isArray(c.tags) ? c.tags : [];
@@ -141,7 +143,7 @@ export class ContactCard extends LitElement {
           <div class="contact-name">${c.favorite ? '★ ' : ''}${c.adv_name}</div>
           <div class="contact-prefix">${c.pubkey_prefix}</div>
           <div class="contact-meta">
-            ${c.lastmod ? `Último contacto ${new Date(c.lastmod * 1000).toLocaleString()}` : ''}
+            ${c.lastmod ? `Last heard ${new Date(c.lastmod * 1000).toLocaleString()}` : ''}
           </div>
           ${tags.length
             ? html`<div class="contact-tags">
@@ -149,8 +151,14 @@ export class ContactCard extends LitElement {
               </div>`
             : html``}
         </div>
+        <span class="category-badge ${catCls}">${catLabel}</span>
       </div>
     `;
+  }
+
+  private _getCategoryBadge(c: Contact): { label: string; cls: string } {
+    if (c.added_to_node) return { label: 'Added', cls: 'added' };
+    return { label: 'Discovered', cls: 'discovered' };
   }
 
   private _getTypeClass(type: number): string {
