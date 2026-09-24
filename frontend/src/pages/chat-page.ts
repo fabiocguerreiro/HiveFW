@@ -1570,6 +1570,15 @@ export class ChatPage extends LitElement {
    * — the `&& !store.loadingNewer` check in the loop is belt-and-
    * suspenders.
    */
+  /**
+   * Called by the panel after "Ler todos". Unlike normal conversation open,
+   * this deliberately ignores the previous last-read anchor and moves the
+   * current chat to the newest received message immediately.
+   */
+  public async scrollCurrentConversationToLatest(): Promise<void> {
+    await this._jumpToBottom();
+  }
+
   private async _jumpToBottom(): Promise<void> {
     const store = this._messageStore;
     if (!store) return;
