@@ -583,6 +583,17 @@ void MyMesh::onAdvertRecv(mesh::Packet* packet, const mesh::Identity& id,
 }
 
 void MyMesh::onDiscoveredContact(ContactInfo &contact, bool is_new, uint8_t path_len, const uint8_t* path) {
+  bool added = false;
+  ContactsIterator added_it = startContactsIterator();
+  ContactInfo added_contact;
+  while (added_it.hasNext(this, added_contact)) {
+    if (memcmp(added_contact.id.pub_key, contact.id.pub_key, PUB_KEY_SIZE) == 0) {
+      added = true;
+      break;
+    }
+  }
+  _store->upsertNode(contact, added, getRTCClock()->getCurrentTime());
+
   if (_serial->isConnected()) {
     if (is_new) {
       writeContactRespFrame(PUSH_CODE_NEW_ADVERT, contact);
@@ -5163,8 +5174,10 @@ void MyMesh::handleCmdFrame(size_t len) {
     int i = 0;
     out_frame[i++] = RESP_CODE_DEVICE_INFO;
     out_frame[i++] = FIRMWARE_VER_CODE;
-    out_frame[i++] = MAX_CONTACTS / 2;   // v3+
-    out_frame[i++] = MAX_GROUP_CHANNELS; // v3+
+    // Official clients still receive the historical RAM-cache capacity field.
+    // HiveFW's persistent Node Store itself has no fixed record-count limit.
+    out_frame[i++] = MAX_CONTACTS / 2;   // v3+ cache compatibility
+    out_frame[i++] = MAX_GROUP_CHANNELS; // v3+ (100 on HiveFW targets)
     memcpy(&out_frame[i], &_prefs.ble_pin, 4);
     i += 4;
     memset(&out_frame[i], 0, 12);
@@ -5337,12 +5350,12 @@ void MyMesh::handleCmdFrame(size_t len) {
 
       uint8_t reply[5];
       reply[0] = RESP_CODE_CONTACTS_START;
-      uint32_t count = getNumContacts(); // total, NOT filtered count
+      uint32_t count = _store->countNodes(true); // persistent added contacts, not RAM cache size
       memcpy(&reply[1], &count, 4);
       _serial->writeFrame(reply, 5);
 
-      // start iterator
-      _iter = startContactsIterator();
+      // Stream the persistent store using the unchanged official wire format.
+      _store_iter_index = 0;
       _iter_started = true;
       _most_recent_lastmod = 0;
     }
@@ -5464,6 +5477,8 @@ void MyMesh::handleCmdFrame(size_t len) {
     if (recipient) {
       updateContactFromFrame(*recipient, last_mod, cmd_frame, len);
       recipient->lastmod = last_mod;
+      _store->upsertNode(*recipient, true, getRTCClock()->getCurrentTime());
+      _store->setNodeAdded(recipient->id.pub_key, true);
       dirty_contacts_expiry = futureMillis(LAZY_CONTACTS_WRITE_DELAY);
       writeOKFrame();
     } else {
@@ -5471,22 +5486,29 @@ void MyMesh::handleCmdFrame(size_t len) {
       updateContactFromFrame(contact, last_mod, cmd_frame, len);
       contact.lastmod = last_mod;
       contact.sync_since = 0;
-      if (addContact(contact)) {
-        dirty_contacts_expiry = futureMillis(LAZY_CONTACTS_WRITE_DELAY);
-        writeOKFrame();
-      } else {
-        writeErrFrame(ERR_CODE_TABLE_FULL);
-      }
+      _store->upsertNode(contact, true, getRTCClock()->getCurrentTime());
+      _store->setNodeAdded(contact.id.pub_key, true);
+      addContact(contact); // cache optimisation only; storage is authoritative
+      dirty_contacts_expiry = futureMillis(LAZY_CONTACTS_WRITE_DELAY);
+      writeOKFrame();
     }
   } else if (cmd_frame[0] == CMD_REMOVE_CONTACT) {
     uint8_t *pub_key = &cmd_frame[1];
-    ContactInfo *recipient = lookupContactByPubKey(pub_key, PUB_KEY_SIZE);
-    if (recipient && removeContact(*recipient)) {
-      _store->deleteBlobByKey(pub_key, PUB_KEY_SIZE);
+    ContactInfo stored;
+    if (_store->loadNodeByKey(pub_key, PUB_KEY_SIZE, stored, true) &&
+        _store->setNodeAdded(pub_key, false)) {
+      ContactsIterator it = startContactsIterator();
+      ContactInfo cached;
+      while (it.hasNext(this, cached)) {
+        if (memcmp(cached.id.pub_key, pub_key, PUB_KEY_SIZE) == 0) {
+          removeContact(cached);
+          break;
+        }
+      }
       dirty_contacts_expiry = futureMillis(LAZY_CONTACTS_WRITE_DELAY);
       writeOKFrame();
     } else {
-      writeErrFrame(ERR_CODE_NOT_FOUND); // not found, or unable to remove
+      writeErrFrame(ERR_CODE_NOT_FOUND);
     }
   } else if (cmd_frame[0] == CMD_SHARE_CONTACT) {
     uint8_t *pub_key = &cmd_frame[1];
@@ -8758,11 +8780,11 @@ void MyMesh::checkSerialInterface() {
              && !_serial->isWriteBusy() // don't spam the Serial Interface too quickly!
   ) {
     ContactInfo contact;
-    if (_iter.hasNext(this, contact)) {
-      if (contact.lastmod > _iter_filter_since) { // apply the 'since' filter
+    if (_store->getNodeByIndex(_store_iter_index++, contact, true, nullptr)) {
+      if (contact.lastmod > _iter_filter_since) {
         writeContactRespFrame(RESP_CODE_CONTACT, contact);
         if (contact.lastmod > _most_recent_lastmod) {
-          _most_recent_lastmod = contact.lastmod; // save for the RESP_CODE_END_OF_CONTACTS frame
+          _most_recent_lastmod = contact.lastmod;
         }
       }
     } else { // EOF
