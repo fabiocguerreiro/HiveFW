@@ -5207,7 +5207,11 @@ void MyMesh::handleCmdFrame(size_t len) {
     _force_full_contact_sync_once = true; // first sync in this app session must expose the unified store
     int i = 0;
     out_frame[i++] = RESP_CODE_SELF_INFO;
-    out_frame[i++] = _prefs.isRepeatEn() ? ADV_TYPE_REPEATER : ADV_TYPE_CHAT; // what this node Advert identifies as (maybe node's pronouns too?? :-)
+    // The connected interface is always a Companion endpoint. Keep this
+    // byte identical to official MeshCore so mobile/desktop Companion apps
+    // enter the normal contacts/channels flow. Repeater identity belongs to
+    // RF adverts (createSelfAdvert), not to RESP_CODE_SELF_INFO.
+    out_frame[i++] = ADV_TYPE_CHAT;
     out_frame[i++] = _prefs.tx_power_dbm;
     out_frame[i++] = MAX_LORA_TX_POWER;
     memcpy(&out_frame[i], self_id.pub_key, PUB_KEY_SIZE);
