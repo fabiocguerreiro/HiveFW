@@ -610,6 +610,11 @@ private:
   // Match the normal MeshCore repeater capacity on Heltec-class hardware.
   #define MAX_REPEATER_NEIGHBOURS 50
   RepeaterNeighbour repeater_neighbours[MAX_REPEATER_NEIGHBOURS];
+  bool repeater_neighbours_dirty = false;
+  unsigned long repeater_neighbours_save_at = 0;
+  void loadRepeaterNeighbours();
+  void persistRepeaterNeighbours();
+  void markRepeaterNeighboursDirty();
 
   struct ObservedChannel {
     uint8_t hash;
