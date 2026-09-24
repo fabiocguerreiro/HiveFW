@@ -1977,7 +1977,7 @@ class HiveFWPanel extends BasePanel {
 
       .hive-neighbors-three {
         display:grid;
-        grid-template-columns:minmax(300px,.95fr) minmax(320px,1fr) minmax(380px,1.35fr);
+        grid-template-columns:minmax(235px,.82fr) minmax(250px,.88fr) minmax(255px,.9fr) minmax(360px,1.35fr);
         gap:12px;
         width:100%;
         height:100%;
@@ -2214,11 +2214,8 @@ class HiveFWPanel extends BasePanel {
         box-sizing:border-box;
       }
       .hive-network-lower {
-        display:grid;
-        grid-template-columns:minmax(0,1fr) minmax(0,1fr);
-        gap:12px;
+        display:block;
         margin-top:12px;
-        align-items:stretch;
       }
       .hive-network-analytics,
       .hive-network-contacts {
@@ -6325,8 +6322,8 @@ class HiveFWPanel extends BasePanel {
 
   __nodeMapPopup(contact) {
     const root=document.createElement("div");
-    root.style.minWidth="300px";
-    root.style.maxWidth="410px";
+    root.style.minWidth="220px";
+    root.style.maxWidth="300px";
     root.style.fontFamily="var(--paper-font-body1_-_font-family, sans-serif)";
     root.style.color="#202124";
     root.style.background="#eef0f2";
@@ -6633,7 +6630,7 @@ class HiveFWPanel extends BasePanel {
       marker.bindTooltip?.(tooltipName,{
         direction:"top",
         offset:[0,-12],
-        permanent:isLocal,
+        permanent:false,
         className:"hivefw-map-tooltip",
       });
       marker.on?.("click",()=>{
@@ -6642,6 +6639,24 @@ class HiveFWPanel extends BasePanel {
       if(id)this.__nodesLeafletMarkers.set(id,marker);
       return marker;
     }).filter(Boolean);
+  }
+
+  __focusNodeOnMap(contact, openPopup = false) {
+    const coords=this.__nodeCoords(contact);
+    if(!coords)return;
+    const mapEl=this.__nodesMapElement;
+    const map=mapEl?.leafletMap;
+    const zoom=this.__hiveNeighborMapMode==="contacts"?16:14;
+    if(map?.setView){
+      map.setView(coords,zoom,{animate:true});
+    }else{
+      mapEl?.setView?.(coords,zoom);
+    }
+    const id=this.__nodeId(contact);
+    this.__nodesMapFocusId=id;
+    if(openPopup){
+      requestAnimationFrame(()=>this.__openPersistentNodePopup(contact));
+    }
   }
 
   __closePersistentNodePopup() {
@@ -6669,8 +6684,8 @@ class HiveFWPanel extends BasePanel {
       autoClose:false,
       closeOnClick:false,
       closeButton:false,
-      minWidth:320,
-      maxWidth:440,
+      minWidth:245,
+      maxWidth:320,
       className:"hivefw-node-popup",
       offset:[0,-10],
     })
@@ -8735,24 +8750,6 @@ class HiveFWPanel extends BasePanel {
     }
   }
 
-  __openNetworkContactDetails(contact) {
-    const mapHost=this.__networkOverlay?.querySelector(".hive-neighbors-map-host");
-    if(!mapHost)return;
-    mapHost.querySelector(".hive-network-contact-details")?.remove();
-
-    const panel=document.createElement("div");
-    panel.className="hive-network-contact-details";
-    panel.style.cssText="position:absolute;right:10px;top:10px;z-index:60;width:min(420px,calc(100% - 20px));max-height:calc(100% - 20px);overflow:auto;border:1px solid var(--divider-color,#ccc);border-radius:12px;background:#eef0f2;box-shadow:0 4px 18px rgba(0,0,0,.28);";
-    const content=this.__nodeMapPopup(contact);
-    const closeButtons=[...content.querySelectorAll("button")].filter((button)=>button.textContent==="Fechar");
-    for(const button of closeButtons){
-      button.addEventListener("click",()=>panel.remove(),{once:true});
-    }
-    panel.appendChild(content);
-    mapHost.appendChild(panel);
-  }
-
-
   __renderNetworkContacts(container) {
     container.replaceChildren();
     const source=Array.isArray(this.__nodesMapContacts)?[...this.__nodesMapContacts]:[];
@@ -8864,17 +8861,7 @@ class HiveFWPanel extends BasePanel {
         side.style.cssText="display:flex;align-items:center;gap:6px;color:var(--secondary-text-color);font-size:9px;white-space:nowrap;";
         const gps=document.createElement("span");
         gps.textContent=this.__nodeCoords(contact)?"GPS":"";
-        const more=document.createElement("button");
-        more.type="button";
-        more.className="hive-network-contact-gear";
-        more.textContent="⋮";
-        more.title="Detalhes e ações do contacto";
-        more.addEventListener("click",(event)=>{
-          event.preventDefault();
-          event.stopPropagation();
-          this.__openNetworkContactDetails(contact);
-        });
-        side.append(gps,more);
+        side.append(gps);
         row.append(info,side);
         row.addEventListener("click",()=>{
           this.__hiveNeighborMapMode="contacts";
@@ -8919,7 +8906,7 @@ class HiveFWPanel extends BasePanel {
 
     const lower=document.createElement("div");
     lower.className="hive-network-lower";
-    lower.append(analytics,contacts);
+    lower.append(analytics);
 
     const copy=document.createElement("div");
     copy.className="hive-network-copy";
@@ -8933,9 +8920,11 @@ class HiveFWPanel extends BasePanel {
     left.appendChild(leftScroll);
     const middle=document.createElement("section");
     middle.className="hive-neighbors-column hive-neighbors-discovery";
+    const contactsColumn=document.createElement("section");
+    contactsColumn.className="hive-neighbors-column hive-network-contacts";
     const right=document.createElement("section");
     right.className="hive-neighbors-column hive-neighbors-map";
-    layout.append(left,middle,right);
+    layout.append(left,middle,contactsColumn,right);
     copy.appendChild(layout);
     page.append(copy,lower);
     container.appendChild(page);
@@ -8944,9 +8933,9 @@ class HiveFWPanel extends BasePanel {
     // content lives below it, beside Rede, at half width.
     this.__renderHiveNeighborsLeft(leftScroll);
     this.__renderHiveNeighborDiscovery(middle);
+    this.__renderNetworkContacts(contactsColumn);
     void this.__renderHiveNeighborDiscoveryMap(right);
     this.__renderHiveNetworkAnalytics(analytics);
-    this.__renderNetworkContacts(contacts);
   }
 
   __removeNeighborsOverlay() {
@@ -9369,7 +9358,13 @@ class HiveFWPanel extends BasePanel {
     // O botão fica sempre disponível. Um novo clique substitui a sessão atual.
     discover.disabled = this.__hiveNeighborDiscoveryStarting;
     discover.textContent = this.__hiveNeighborDiscoveryStarting ? "A iniciar…" : "Descobrir";
-    discover.addEventListener("click", () => void this.__startHiveNeighborDiscovery());
+    discover.addEventListener("click", () => {
+      this.__hiveNeighborMapMode = "discovery";
+      this.__hiveNeighborMapFocusId = "";
+      const mapHost=this.__networkOverlay?.querySelector(".hive-neighbors-map");
+      if(mapHost)void this.__renderHiveNeighborDiscoveryMap(mapHost);
+      void this.__startHiveNeighborDiscovery();
+    });
     head.append(heading, discover);
     container.appendChild(head);
 
@@ -9704,7 +9699,7 @@ class HiveFWPanel extends BasePanel {
 
     const actions=document.createElement("div");
     actions.style.cssText="display:flex;align-items:center;gap:6px;";
-    for(const [mode,label] of [["neighbors","Vizinhos"],["discovery","Descobertas"],["contacts","Contactos Descobertos"]]){
+    for(const [mode,label] of [["neighbors","Vizinhos"],["discovery","Repetidores Descobertos"],["contacts","Contactos Descobertos"]]){
       const button=document.createElement("button");
       button.type="button";
       button.className="mcr-btn";
@@ -9780,10 +9775,10 @@ class HiveFWPanel extends BasePanel {
         map.layers=this.__legacyLeafletLayers(map,mapContacts,null);
         const localCoords=local?this.__nodeCoords(local):null;
         if(localCoords){
-          map.leafletMap?.setView?.(localCoords,11,{animate:false});
+          map.leafletMap?.setView?.(localCoords,16,{animate:false});
         }else{
           const firstCoords=mapContacts.map((contact)=>this.__nodeCoords(contact)).find(Boolean);
-          if(firstCoords)map.leafletMap?.setView?.(firstCoords,11,{animate:false});
+          if(firstCoords)map.leafletMap?.setView?.(firstCoords,16,{animate:false});
         }
         map.leafletMap?.invalidateSize?.(false);
       }else{
@@ -9791,10 +9786,10 @@ class HiveFWPanel extends BasePanel {
         if("editableLocations" in map)map.editableLocations=this.__mapLocations(mapContacts);
         const localCoords=local?this.__nodeCoords(local):null;
         if(localCoords){
-          map.setView?.(localCoords,11);
+          map.setView?.(localCoords,16);
         }else{
           const firstCoords=mapContacts.map((contact)=>this.__nodeCoords(contact)).find(Boolean);
-          if(firstCoords)map.setView?.(firstCoords,11);
+          if(firstCoords)map.setView?.(firstCoords,16);
         }
       }
       this.__drawLastTraceRoute();
