@@ -3406,7 +3406,9 @@ export class SettingsPage extends LitElement {
                     .value=${String(this._dutyCycleValue)}
                     ?disabled=${this._dutyCycleBusy !== null}
                     @change=${(e: Event) => {
-                      this._dutyCycleValue = Number((e.target as HTMLSelectElement).value);
+                      const duty = Number((e.target as HTMLSelectElement).value);
+                      this._dutyCycleValue = duty;
+                      void this._applyDutyCycle(duty);
                     }}>
                     ${Array.from({ length: 41 }, (_, i) => i + 10).map(
                       (value) => html`<option
@@ -3415,20 +3417,6 @@ export class SettingsPage extends LitElement {
                       >${value}%</option>`,
                     )}
                   </select>
-                  <button
-                    class="action-btn"
-                    style="min-width:58px;"
-                    ?disabled=${this._dutyCycleBusy !== null}
-                    @click=${this._readDutyCycle}>
-                    ${this._dutyCycleBusy === 'read' ? 'A ler…' : 'Ler'}
-                  </button>
-                  <button
-                    class="apply-button"
-                    style="width:auto;min-width:66px;margin:0;padding:7px 12px;"
-                    ?disabled=${this._dutyCycleBusy !== null}
-                    @click=${() => this._applyDutyCycle()}>
-                    ${this._dutyCycleBusy === 'apply' ? 'A aplicar…' : 'Aplicar'}
-                  </button>
                 </div>
               </div>
             </div>
