@@ -244,9 +244,6 @@ void DataStore::loadPrefs(NodePrefs& prefs) {
     }
   }
 
-  // HiveFW keeps the Mesh RTC toggle in a dedicated one-byte preference too.
-  // This makes the user setting resilient to legacy prefs migration and
-  // firmware updates that rewrite the JSON preference document.
   uint8_t mesh_time = prefs.mesh_time_sync;
   if (loadHiveFWMeshTimePref(_fs, mesh_time)) {
     prefs.mesh_time_sync = mesh_time;
@@ -302,8 +299,6 @@ bool DataStore::savePrefs(NodePrefs& _prefs) {
   bool success = _prefs.saveSerial(file);
   file.close();
 
-  // Persist independently from prefs.json so the toggle survives migrations
-  // and firmware updates even if a legacy preference document is restored.
   const bool mesh_time_saved =
     saveHiveFWMeshTimePref(_fs, _prefs.mesh_time_sync);
 
