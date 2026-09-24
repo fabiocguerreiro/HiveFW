@@ -1403,6 +1403,8 @@ class HiveFWPanel extends BasePanel {
       network.dataset.hiveNetworkBound = "1";
       network.addEventListener("click", () => {
         this._activeTab = "network";
+        this.__hiveNeighborMapMode = "neighbors";
+        this.__hiveNeighborMapFocusId = "";
         this.requestUpdate();
       });
     }
@@ -9492,6 +9494,10 @@ class HiveFWPanel extends BasePanel {
     const scrollTop = left.scrollTop;
     this.__renderHiveNeighborsLeft(left);
     left.scrollTop = scrollTop;
+    if(this.__hiveNeighborMapMode==="neighbors"){
+      const right=overlay?.querySelector(".hive-neighbors-map");
+      if(right)void this.__renderHiveNeighborDiscoveryMap(right);
+    }
   }
 
   __rerenderHiveNeighborDiscoveryOnly(renderMap = false) {
@@ -10005,7 +10011,17 @@ class HiveFWPanel extends BasePanel {
   __hiveNeighborDiscoveryLocated() {
     const results = Array.isArray(this.__hiveNeighborDiscovery?.results)
       ? this.__hiveNeighborDiscovery.results : [];
-    return results.filter((item) => {
+    return this.__hiveNeighborLocated(results);
+  }
+
+  __hiveNeighborHistoryLocated() {
+    const neighbors = Array.isArray(this.__hiveNeighbors?.neighbors)
+      ? this.__hiveNeighbors.neighbors : [];
+    return this.__hiveNeighborLocated(neighbors);
+  }
+
+  __hiveNeighborLocated(items) {
+    return (Array.isArray(items)?items:[]).filter((item) => {
       const lat = Number(item.latitude);
       const lon = Number(item.longitude);
       return Number.isFinite(lat) && Number.isFinite(lon)
@@ -10014,9 +10030,15 @@ class HiveFWPanel extends BasePanel {
     });
   }
 
-  __hiveNeighborMapLocations() {
+  __hiveNeighborMapItems() {
+    return this.__hiveNeighborMapMode==="discovery"
+      ? this.__hiveNeighborDiscoveryLocated()
+      : this.__hiveNeighborHistoryLocated();
+  }
+
+  __hiveNeighborMapLocations(items = this.__hiveNeighborMapItems()) {
     const active = new Set();
-    const locations = this.__hiveNeighborDiscoveryLocated().map((item) => {
+    const locations = items.map((item) => {
       const id = String(item.pubkey || item.pubkey_prefix || "");
       active.add(id);
       let marker = this.__hiveNeighborMapMarkerElements.get(id);
@@ -10140,7 +10162,6 @@ class HiveFWPanel extends BasePanel {
         this.__hiveNeighborMapFocusId = id;
         map?.leafletMap?.setView?.([lat, lon], 14, { animate:true });
         marker.openTooltip?.();
-        this.__rerenderHiveNeighborDiscoveryOnly(false);
       });
 
       if (id) this.__hiveNeighborMapLeafletMarkers.set(id, marker);
@@ -10172,32 +10193,46 @@ class HiveFWPanel extends BasePanel {
 
     const head = document.createElement("div");
     head.className = "hive-discovery-head";
-    const heading = document.createElement("div");
-    const eyebrow = document.createElement("div");
-    eyebrow.className = "hive-discovery-eyebrow";
-    eyebrow.textContent = "DESCOBERTA ATIVA";
     const title = document.createElement("div");
     title.className = "hive-discovery-title";
     title.textContent = "Mapa";
-    const subtitle = document.createElement("div");
-    subtitle.className = "hive-discovery-subtitle";
-    subtitle.textContent = "Localização conhecida dos Repeaters encontrados.";
-    heading.append(eyebrow, title, subtitle);
-    head.appendChild(heading);
+
+    const actions=document.createElement("div");
+    actions.style.cssText="display:flex;align-items:center;gap:6px;";
+    for(const [mode,label] of [["neighbors","Vizinhos"],["discovery","Descobertas"]]){
+      const button=document.createElement("button");
+      button.type="button";
+      button.className="mcr-btn";
+      button.textContent=label;
+      button.classList.toggle("active",this.__hiveNeighborMapMode===mode);
+      button.setAttribute("aria-pressed",this.__hiveNeighborMapMode===mode?"true":"false");
+      button.addEventListener("click",()=>{
+        if(this.__hiveNeighborMapMode===mode)return;
+        this.__hiveNeighborMapMode=mode;
+        this.__hiveNeighborMapFocusId="";
+        void this.__renderHiveNeighborDiscoveryMap(container);
+      });
+      actions.appendChild(button);
+    }
+    head.append(title,actions);
     container.appendChild(head);
 
     const host = document.createElement("div");
     host.className = "hive-neighbors-map-host";
     container.appendChild(host);
 
-    const located = this.__hiveNeighborDiscoveryLocated();
-    const total = Array.isArray(this.__hiveNeighborDiscovery?.results)
-      ? this.__hiveNeighborDiscovery.results.length : 0;
+    const discoveryMode=this.__hiveNeighborMapMode==="discovery";
+    const located = discoveryMode
+      ? this.__hiveNeighborDiscoveryLocated()
+      : this.__hiveNeighborHistoryLocated();
+    const total = discoveryMode
+      ? (Array.isArray(this.__hiveNeighborDiscovery?.results)?this.__hiveNeighborDiscovery.results.length:0)
+      : (Array.isArray(this.__hiveNeighbors?.neighbors)?this.__hiveNeighbors.neighbors.length:0);
 
-    // Durante a janela de descoberta o mapa fica deliberadamente oculto.
-    // Só é criado uma vez quando o timeout termina, evitando reconstruções
-    // contínuas à medida que a lista recebe novos resultados.
-    if (this.__hiveNeighborDiscovery?.active) {
+    // Keep the existing discovery behaviour unchanged: while an active
+    // discovery is collecting replies, its map stays hidden. The passive
+    // Vizinhos map remains immediately available and is the default mode.
+    if (discoveryMode && this.__hiveNeighborDiscovery?.active) {
       const note = document.createElement("div");
       note.className = "hive-neighbors-map-note";
       note.textContent =
@@ -10220,9 +10255,15 @@ class HiveFWPanel extends BasePanel {
     if (!located.length) {
       const note = document.createElement("div");
       note.className = "hive-neighbors-map-note";
-      note.textContent = total
-        ? String(total) + " Repeater(s) encontrado(s), mas ainda sem localização conhecida."
-        : "Os Repeaters encontrados aparecerão aqui quando a descoberta começar.";
+      if(discoveryMode){
+        note.textContent = total
+          ? String(total) + " Repeater(s) encontrado(s), mas ainda sem localização conhecida."
+          : "Os Repeaters encontrados aparecerão aqui quando a descoberta começar.";
+      }else{
+        note.textContent = total
+          ? String(total) + " Vizinho(s) ouvido(s), mas ainda sem localização conhecida."
+          : "A aguardar anúncios de Vizinhos para mostrar no mapa.";
+      }
       host.appendChild(note);
       return;
     }
@@ -10240,12 +10281,9 @@ class HiveFWPanel extends BasePanel {
     host.appendChild(map);
     this.__hiveNeighborMapElement = map;
 
-    // Let the flex/grid layout settle before Leaflet measures the container.
     await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     if (!map.isConnected) return;
 
-    // Home Assistant 2026.9 exposes Leaflet layers rather than
-    // editableLocations. Use the same compatibility path as the Nodes map.
     if ("layers" in map && await this.__waitForLegacyLeaflet(map)) {
       map.entities = [];
       map.layers = this.__hiveNeighborLegacyLeafletLayers(map, located);
@@ -10271,7 +10309,7 @@ class HiveFWPanel extends BasePanel {
         .filter((entityId) => entityId && this.hass?.states?.[entityId]);
       map.entities = entityIds;
       if ("editableLocations" in map) {
-        const locations = this.__hiveNeighborMapLocations();
+        const locations = this.__hiveNeighborMapLocations(located);
         const localPoint = this.__hiveNeighborLocalMapPoint();
         if (localPoint) {
           const localElement = document.createElement("div");
