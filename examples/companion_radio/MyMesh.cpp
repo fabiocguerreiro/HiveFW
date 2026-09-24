@@ -5204,6 +5204,7 @@ void MyMesh::handleCmdFrame(size_t len) {
     MESH_DEBUG_PRINTLN("App %s connected", app_name);
 
     _iter_started = false; // stop any left-over ContactsIterator
+    _force_full_contact_sync_once = true; // first sync in this app session must expose the unified store
     int i = 0;
     out_frame[i++] = RESP_CODE_SELF_INFO;
     out_frame[i++] = _prefs.isRepeatEn() ? ADV_TYPE_REPEATER : ADV_TYPE_CHAT; // what this node Advert identifies as (maybe node's pronouns too?? :-)
@@ -5348,7 +5349,14 @@ void MyMesh::handleCmdFrame(size_t len) {
     if (_iter_started) {
       writeErrFrame(ERR_CODE_BAD_STATE); // iterator is currently busy
     } else {
-      if (len >= 5) { // has optional 'since' param
+      if (_force_full_contact_sync_once) {
+        // Existing MeshCore apps may hold a 'since' watermark from before
+        // HiveFW started exposing discovered nodes as normal contacts. A full
+        // sync once per APP_START makes those historical contacts visible
+        // without disabling incremental sync for later requests.
+        _iter_filter_since = 0;
+        _force_full_contact_sync_once = false;
+      } else if (len >= 5) { // has optional 'since' param
         memcpy(&_iter_filter_since, &cmd_frame[1], 4);
       } else {
         _iter_filter_since = 0;
