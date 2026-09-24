@@ -2455,6 +2455,10 @@ bool MyMesh::handleRepeaterRemoteCommand(
       }
     }
 
+    if (removed) {
+      markRepeaterNeighboursDirty();
+    }
+
     snprintf(
       reply,
       reply_size,
