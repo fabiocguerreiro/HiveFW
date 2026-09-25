@@ -2118,10 +2118,25 @@ class HiveFWPanel extends BasePanel {
       .hive-network-contact-gps,
       .hive-network-contact-age-dot {
         min-height:18px;
-        display:flex;
+        display:grid;
+        grid-template-columns:auto 18px;
         align-items:center;
-        justify-content:flex-end;
-        gap:5px;
+        justify-content:end;
+        column-gap:5px;
+      }
+      .hive-network-contact-gps-label,
+      .hive-network-contact-age-spacer {
+        font-size:10px;
+        font-weight:650;
+        color:var(--secondary-text-color);
+        text-align:right;
+      }
+      .hive-network-contact-age-spacer {
+        visibility:hidden;
+      }
+      .hive-network-contact-gps ha-icon,
+      .hive-network-contact-age-dot .hive-discovery-signal-dot {
+        justify-self:center;
       }
       .hive-network-contact-gps ha-icon {
         --mdc-icon-size:18px;
@@ -2232,6 +2247,13 @@ class HiveFWPanel extends BasePanel {
         text-align:center;
         font-size:11px;
         line-height:1.45;
+      }
+      .hive-neighbors-map-actions .mcr-btn {
+        min-height:0;
+        padding:4px 7px;
+        border-radius:7px;
+        font-size:9px;
+        line-height:1.2;
       }
       .hive-neighbors-map-count {
         position:absolute;
@@ -8990,7 +9012,12 @@ class HiveFWPanel extends BasePanel {
 
   __renderNetworkContacts(container) {
     container.replaceChildren();
-    const source=Array.isArray(this.__nodesMapContacts)?[...this.__nodesMapContacts]:[];
+    const rawSource=Array.isArray(this.__nodesMapContacts)?[...this.__nodesMapContacts]:[];
+    const localContact=this.__localRepeaterMapContact?.();
+    const localId=localContact?this.__nodeId(localContact):"";
+    const source=localContact&&localId
+      ? rawSource.map((contact)=>this.__nodeId(contact)===localId?localContact:contact)
+      : rawSource;
     const query=String(this.__networkContactsSearchQuery||"").trim().toLocaleLowerCase();
     const contacts=source
       .filter((contact)=>{
@@ -9001,7 +9028,7 @@ class HiveFWPanel extends BasePanel {
         ].map((value)=>String(value||"").toLocaleLowerCase()).join(" ");
         return haystack.includes(query);
       })
-      .sort((a,b)=>Number(b?.lastmod||b?.last_advert||0)-Number(a?.lastmod||a?.last_advert||0));
+      .sort((a,b)=>Number(b?.last_advert||0)-Number(a?.last_advert||0));
 
     const head=document.createElement("div");
     head.className="hive-discovery-head hive-network-contacts-head";
@@ -9129,7 +9156,7 @@ class HiveFWPanel extends BasePanel {
           : fallbackAge;
         if(Number.isFinite(ageSeconds)){
           const age=document.createElement("span");
-          age.textContent="Há "+this.__age(ageSeconds);
+          age.textContent=this.__age(ageSeconds);
           meta.appendChild(age);
         }
         info.append(name,prefix,meta);
@@ -9140,16 +9167,22 @@ class HiveFWPanel extends BasePanel {
         const gpsRow=document.createElement("div");
         gpsRow.className="hive-network-contact-gps";
         const hasGps=Boolean(this.__nodeCoords(contact));
+        const gpsLabel=document.createElement("span");
+        gpsLabel.className="hive-network-contact-gps-label";
+        gpsLabel.textContent="GPS:";
         const gpsIcon=document.createElement("ha-icon");
         gpsIcon.icon=hasGps?"mdi:map-marker":"mdi:map-marker-off-outline";
         gpsIcon.style.color=hasGps?"#2e7d32":"#9e9e9e";
         gpsIcon.title=hasGps
           ? "GPS incluído no advert"
           : "Advert sem localização GPS";
-        gpsRow.appendChild(gpsIcon);
+        gpsRow.append(gpsLabel,gpsIcon);
 
         const ageRow=document.createElement("div");
         ageRow.className="hive-network-contact-age-dot";
+        const ageSpacer=document.createElement("span");
+        ageSpacer.className="hive-network-contact-age-spacer";
+        ageSpacer.textContent="GPS:";
         const dot=document.createElement("span");
         dot.className="hive-discovery-signal-dot";
         const advertAge=Number.isFinite(ageSeconds)?Math.max(0,ageSeconds):Infinity;
@@ -9165,7 +9198,7 @@ class HiveFWPanel extends BasePanel {
         dot.title=Number.isFinite(advertAge)
           ? "Último advert: há "+this.__age(advertAge)
           : "Sem data de advert disponível";
-        ageRow.appendChild(dot);
+        ageRow.append(ageSpacer,dot);
 
         side.append(gpsRow,ageRow);
         row.append(info,side);
@@ -9481,7 +9514,7 @@ class HiveFWPanel extends BasePanel {
       direct.className="hive-neighbor-pill";
       direct.textContent="ZERO-HOP";
       const age=document.createElement("span");
-      age.textContent="Advert "+this.__age(Number(neighbor.secs_ago||0));
+      age.textContent=this.__age(Number(neighbor.secs_ago||0));
       meta.append(direct,age);
       if(neighbor.known_contact){
         const known=document.createElement("span");
@@ -9993,7 +10026,8 @@ class HiveFWPanel extends BasePanel {
     title.textContent = "Mapa";
 
     const actions=document.createElement("div");
-    actions.style.cssText="display:flex;align-items:center;gap:6px;";
+    actions.className="hive-neighbors-map-actions";
+    actions.style.cssText="display:flex;align-items:center;gap:4px;";
     for(const [mode,label] of [["neighbors","Vizinhos"],["discovery","Descobrir Repetidores"],["contacts","Contactos Descobertos"]]){
       const button=document.createElement("button");
       button.type="button";
