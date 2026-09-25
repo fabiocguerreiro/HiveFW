@@ -1,13 +1,25 @@
 # HiveFW — Roadmap
 
-O HiveFW é um projeto unificado: firmware Companion + Repeater e integração
-Home Assistant vivem no mesmo repositório, partilham a mesma linha de versão e
-são publicados pela mesma linha de Releases.
+O HiveFW tem três vertentes com nomenclatura fixa:
+
+- **Firmware** — software do Rádio Companion (Companion + Repeater);
+- **Integração** — Home Assistant e respetivo frontend HiveFW;
+- **App** — futura aplicação Android HiveFW.
+
+Firmware e Integração vivem atualmente neste repositório, partilham a mesma
+linha de versão e são publicados pela mesma linha de Releases. A App é
+desenvolvida separadamente em `fabiocguerreiro/HiveFW-app` e está prevista
+para futura integração neste repositório quando estiver suficientemente madura.
+
+Ver [docs/project_scope.md](docs/project_scope.md).
 
 ## Estado atual — 1.14.8+
 
 ### Projeto / manutenção
 
+- [x] nomenclatura canónica Firmware / Integração / App documentada;
+- [x] App Android isolada num repositório próprio durante a fase atual;
+- [ ] integrar a App no repositório principal quando a arquitetura e o ciclo de release estiverem maduros;
 - [x] firmware e Home Assistant no mesmo repositório;
 - [x] Heltec V3 e Heltec T114 como alvos suportados;
 - [x] integração Home Assistant standalone;
