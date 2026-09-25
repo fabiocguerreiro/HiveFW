@@ -10,6 +10,18 @@ O Companion continua a ser a interface principal do rádio. O modo **Repeater** 
 
 > **Companion primeiro. Repeater quando ativado. Firmware e Home Assistant no mesmo HiveFW.**
 
+## Nomenclatura do projeto
+
+No HiveFW, estes três termos têm significado fixo:
+
+- **Firmware** — software que é compilado e instalado no Rádio Companion;
+- **Integração** — integração Home Assistant **e o respetivo frontend HiveFW**;
+- **App** — futura aplicação HiveFW para Android, atualmente desenvolvida separadamente em `fabiocguerreiro/HiveFW-app`.
+
+Firmware e Integração vivem neste repositório e partilham a linha de versões HiveFW. A App mantém-se independente enquanto estiver no repositório próprio; está prevista uma futura integração no repositório principal quando estiver suficientemente madura.
+
+Ver [Vertentes do projeto HiveFW](docs/project_scope.md).
+
 ## Visão geral
 
 O projeto unificado inclui:
@@ -36,11 +48,13 @@ O projeto unificado inclui:
 ```text
                            HiveFW
                              │
-             ┌───────────────┴───────────────┐
-             │                               │
-          Firmware                      Home Assistant
-             │                               │
-     Companion + Repeater              hivefw_integration
+       ┌─────────────────────┼─────────────────────┐
+       │                     │                     │
+    Firmware             Integração              App
+       │                     │                     │
+Companion + Repeater    Home Assistant       Android (futuro)
+                             │              repo separado hoje
+                       hivefw_integration
              │                               │
       ┌──────┴──────┐              ┌─────────┴─────────┐
       │             │              │                   │
