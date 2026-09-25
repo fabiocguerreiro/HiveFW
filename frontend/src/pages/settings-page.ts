@@ -598,22 +598,28 @@ export class SettingsPage extends LitElement {
         }
       }
 
-      .settings-shortcuts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;padding:2px}
-      .settings-shortcut{display:flex;flex-direction:column;align-items:flex-start;gap:5px;min-height:92px;padding:16px;border:1px solid var(--divider-color);border-radius:12px;background:var(--card-background-color);color:var(--primary-text-color);cursor:pointer;text-align:left;transition:.15s}
+      .settings-shortcuts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;padding:4px}
+      .settings-shortcut{display:grid;grid-template-columns:48px minmax(0,1fr);align-items:center;column-gap:14px;min-height:112px;padding:20px;border:1px solid var(--divider-color);border-radius:14px;background:var(--card-background-color);color:var(--primary-text-color);cursor:pointer;text-align:left;transition:.15s}
       .settings-shortcut:hover{border-color:var(--primary-color);background:color-mix(in srgb,var(--primary-color) 5%,var(--card-background-color));transform:translateY(-1px)}
-      .settings-shortcut-title{font-size:14px;font-weight:700}.settings-shortcut-desc{font-size:11px;line-height:1.4;color:var(--secondary-text-color)}
+      .settings-shortcut-icon{grid-row:1 / span 2;width:46px;height:46px;display:grid;place-items:center;border-radius:12px;background:color-mix(in srgb,var(--primary-color) 12%,transparent);color:var(--primary-color)}
+      .settings-shortcut-icon ha-icon{--mdc-icon-size:26px}
+      .settings-shortcut-copy{display:flex;flex-direction:column;gap:5px;min-width:0}
+      .settings-shortcut-title{font-size:16px;font-weight:700}.settings-shortcut-desc{font-size:12px;line-height:1.45;color:var(--secondary-text-color)}
       .settings-topic-overlay{position:fixed;inset:0;z-index:10020;display:grid;place-items:center;padding:18px;box-sizing:border-box;background:rgba(0,0,0,.5)}
       .settings-topic-dialog{width:min(1080px,100%);max-height:min(90vh,900px);display:flex;flex-direction:column;overflow:hidden;border-radius:14px;background:var(--primary-background-color);color:var(--primary-text-color);box-shadow:0 14px 42px rgba(0,0,0,.32)}
       .settings-topic-header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 16px;border-bottom:1px solid var(--divider-color);background:var(--card-background-color);flex:0 0 auto}
       .settings-topic-header strong{font-size:16px}.settings-topic-close{width:34px;height:34px;border:0;border-radius:50%;background:transparent;color:var(--secondary-text-color);font-size:20px;cursor:pointer}.settings-topic-close:hover{background:var(--secondary-background-color);color:var(--primary-text-color)}
       .settings-topic-body{overflow:auto;padding:16px;min-height:0}.settings-topic-body .settings-grid{margin:0}
+      .topic-firmware .firmware-manager,.topic-wifi #hive-wifi-portal-card,.topic-location .settings-card-location,.topic-identity .settings-card-identity,.topic-backup .backup-restore-card{width:100%;max-width:none;box-sizing:border-box}
+      .topic-firmware .settings-grid,.topic-wifi .settings-grid,.topic-location .settings-grid,.topic-identity .settings-grid,.topic-backup .settings-grid{grid-template-columns:minmax(0,1fr)!important}
+      .topic-wifi .settings-column,.topic-location .settings-column,.topic-identity .settings-column,.topic-backup .settings-column{display:contents}
       .settings-topic-dialog #hive-repeater-settings-card,.settings-topic-dialog .firmware-manager,.settings-topic-dialog .settings-card-identity,.settings-topic-dialog .backup-restore-card,.settings-topic-dialog #hive-console-settings-card,.settings-topic-dialog #hive-rxlog-card,.settings-topic-dialog #hive-observability-settings-card,.settings-topic-dialog .settings-card-location,.settings-topic-dialog #hive-wifi-portal-card{display:none}
       .topic-firmware .firmware-manager,.topic-identity .settings-card-identity,.topic-backup .backup-restore-card,.topic-location .settings-card-location,.topic-wifi #hive-wifi-portal-card,.topic-diagnostics #hive-console-settings-card,.topic-diagnostics #hive-rxlog-card,.topic-diagnostics #hive-observability-settings-card,.topic-users #hive-repeater-settings-card,.topic-radio #hive-repeater-settings-card,.topic-repeater #hive-repeater-settings-card,.topic-regions #hive-repeater-settings-card{display:block}
       .topic-users [data-hive-repeater-quick],.topic-users [data-hive-owner-info],.topic-users [data-hive-native="companion"],.topic-users [data-hive-routing],.topic-users [data-hive-rf],.topic-users .settings-regions-block{display:none!important}
       .topic-radio [data-hive-repeater-quick],.topic-radio [data-hive-repeater-access],.topic-radio [data-hive-owner-info],.topic-radio [data-hive-routing],.topic-radio [data-hive-rf],.topic-radio .settings-regions-block{display:none!important}
       .topic-repeater [data-hive-repeater-access],.topic-repeater [data-hive-native="companion"],.topic-repeater .settings-regions-block{display:none!important}
       .topic-regions [data-hive-repeater-quick],.topic-regions [data-hive-repeater-access],.topic-regions [data-hive-owner-info],.topic-regions [data-hive-native="companion"],.topic-regions [data-hive-routing],.topic-regions [data-hive-rf]{display:none!important}
-      @media(max-width:870px){.settings-shortcuts{grid-template-columns:1fr 1fr}.settings-topic-overlay{padding:0}.settings-topic-dialog{width:100%;height:100%;max-height:none;border-radius:0}}
+      @media(max-width:870px){.settings-shortcuts{grid-template-columns:1fr}.settings-topic-overlay{padding:0}.settings-topic-dialog{width:100%;height:100%;max-height:none;border-radius:0}}
       @media(max-width:520px){.settings-shortcuts{grid-template-columns:1fr}}
 
       .card-title {
@@ -1423,20 +1429,23 @@ export class SettingsPage extends LitElement {
         <div class="settings-container" data-hive-native-layout="device-v2">
           <div class="settings-shortcuts">
             ${[
-              ['firmware','Gestão Firmware','Releases, OTA, flash manual e downloads'],
-              ['users','Utilizadores','Acesso remoto, passwords e ACL'],
-              ['radio','Config. Rádio','Frequência, BW, SF, CR, potência e RX'],
-              ['repeater','Config. Repetidor','Modo, adverts, Timekeeper, routing e retransmissão'],
-              ['wifi','Wi-Fi','Configuração de rede do Companion'],
-              ['location','Localização','GPS, manual ou Home Assistant'],
-              ['regions','Regiões & Scopes','RegionMap e flood scopes'],
-              ['identity','Identidade','Nome, identidade e chaves do dispositivo'],
-              ['backup','Backup & Restore','Cópias Companion e Repeater'],
-              ['diagnostics','Diagnóstico','Consola, RX Log, alertas e automações'],
-            ].map(([id,title,desc])=>html`
+              ['firmware','Gestão Firmware','Releases, OTA, flash manual e downloads','mdi:update'],
+              ['users','Utilizadores','Acesso remoto, passwords e ACL','mdi:account-group-outline'],
+              ['radio','Configuração Rádio','Frequência, BW, SF, CR, potência e RX','mdi:radio-tower'],
+              ['repeater','Configuração Repetidor','Modo, adverts, Timekeeper, routing e retransmissão','mdi:access-point-network'],
+              ['wifi','Wi-Fi','Configuração de rede do Companion','mdi:wifi-cog'],
+              ['location','Localização','GPS, manual ou Home Assistant','mdi:map-marker-outline'],
+              ['regions','Regiões & Scopes','RegionMap e flood scopes','mdi:map-outline'],
+              ['identity','Identidade','Nome, identidade e chaves do dispositivo','mdi:card-account-details-outline'],
+              ['backup','Backup & Restore','Cópias Companion e Repeater','mdi:backup-restore'],
+              ['diagnostics','Diagnóstico','Consola, RX Log, alertas e automações','mdi:stethoscope'],
+            ].map(([id,title,desc,icon])=>html`
               <button class="settings-shortcut" @click=${()=>{this._settingsTopic=id as SettingsTopic;}}>
-                <span class="settings-shortcut-title">${title}</span>
-                <span class="settings-shortcut-desc">${desc}</span>
+                <span class="settings-shortcut-icon" aria-hidden="true"><ha-icon .icon=${icon}></ha-icon></span>
+                <span class="settings-shortcut-copy">
+                  <span class="settings-shortcut-title">${title}</span>
+                  <span class="settings-shortcut-desc">${desc}</span>
+                </span>
               </button>`)}
           </div>
         </div>
@@ -1447,8 +1456,8 @@ export class SettingsPage extends LitElement {
           <div class="settings-topic-dialog topic-${this._settingsTopic}" role="dialog" aria-modal="true">
             <div class="settings-topic-header">
               <strong>${({
-                firmware:'Gestão Firmware',users:'Utilizadores',radio:'Config. Rádio',
-                repeater:'Config. Repetidor',wifi:'Wi-Fi',location:'Localização',
+                firmware:'Gestão Firmware',users:'Utilizadores',radio:'Configuração Rádio',
+                repeater:'Configuração Repetidor',wifi:'Wi-Fi',location:'Localização',
                 regions:'Regiões & Scopes',identity:'Identidade',backup:'Backup & Restore',
                 diagnostics:'Diagnóstico',
               } as Record<SettingsTopic,string>)[this._settingsTopic]}</strong>
