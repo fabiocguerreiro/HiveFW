@@ -2151,6 +2151,7 @@ class HiveFWPanel extends BasePanel {
         border:2px solid white;
         box-shadow:0 1px 4px rgba(0,0,0,.35);
       }
+      /* Same four-bar visual language used by the HiveFW app header. */
       .hive-signal-bars {
         width:20.5px;
         height:18px;
