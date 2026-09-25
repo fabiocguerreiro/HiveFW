@@ -695,13 +695,12 @@ class MeshCoreContactDiagnosticBinarySensor(CoordinatorEntity, BinarySensorEntit
         if not self._contact_data:
             return False
             
-        # Check last advertisement time for contact status
-        last_advert = self._contact_data.get("last_advert", 0)
-        if last_advert > 0:
-            # Calculate time since last advert
-            time_since = time.time() - last_advert
-            # If less than 12 hour, consider fresh/active
-            if time_since < 3600*12:
+        # MeshCore local "last heard" clock is lastmod. Do not use
+        # last_advert here: that timestamp is supplied by the remote node.
+        lastmod = self._contact_data.get("lastmod") or self._contact_data.get("last_modified") or 0
+        if lastmod > 0:
+            time_since = time.time() - lastmod
+            if time_since < 3600 * 12:
                 return True
         
         return False
@@ -754,11 +753,15 @@ class MeshCoreContactDiagnosticBinarySensor(CoordinatorEntity, BinarySensorEntit
         if icon_file:
             attributes["entity_picture"] = f"/api/hivefw/static/{icon_file}"
         
-        # Format last advertisement time if available
+        # Keep both clocks visible: lastmod is Companion-side "last heard";
+        # last_advert is the timestamp announced by the remote node.
+        lastmod = self._contact_data.get("lastmod") or self._contact_data.get("last_modified") or 0
+        if lastmod > 0:
+            attributes["last_modified_formatted"] = datetime.fromtimestamp(lastmod).isoformat()
+
         last_advert = self._contact_data.get("last_advert", 0)
         if last_advert > 0:
-            last_advert_time = datetime.fromtimestamp(last_advert)
-            attributes["last_advert_formatted"] = last_advert_time.isoformat()
+            attributes["last_advert_formatted"] = datetime.fromtimestamp(last_advert).isoformat()
 
         return attributes
 
