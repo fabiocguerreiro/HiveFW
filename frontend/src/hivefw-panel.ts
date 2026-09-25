@@ -5906,13 +5906,24 @@ class HiveFWPanel extends BasePanel {
           longitude:this.__meshcoreExportCoord(contact?.adv_lon ?? contact?.longitude),
           last_advert:Math.trunc(Number(contact?.last_advert ?? 0)) || 0,
           last_modified:Math.trunc(Number(contact?.lastmod ?? contact?.last_modified ?? 0)) || 0,
+          // HiveFW diagnostic extension. Import deliberately does not trust this
+          // value as a new local receive time on another HA instance.
+          heard_at:contact?.heard_at == null
+            ? null
+            : (Math.trunc(Number(contact.heard_at)) || null),
           advert_path_list:this.__meshcoreExportPath(contact),
         };
         const previous=byKey.get(publicKey);
-        if(!previous || row.last_modified>=previous.last_modified)byKey.set(publicKey,row);
+        const rowOrder=Number(row.heard_at||0) || row.last_modified;
+        const previousOrder=Number(previous?.heard_at||0) || Number(previous?.last_modified||0);
+        if(!previous || rowOrder>=previousOrder)byKey.set(publicKey,row);
       }
 
-      const contacts=[...byKey.values()].sort((a,b)=>b.last_modified-a.last_modified);
+      const contacts=[...byKey.values()].sort((a,b)=>{
+        const aOrder=Number(a.heard_at||0) || Number(a.last_modified||0);
+        const bOrder=Number(b.heard_at||0) || Number(b.last_modified||0);
+        return bOrder-aOrder;
+      });
       const json=JSON.stringify({discovered_contacts:contacts},null,2);
       const blob=new Blob([json],{type:"application/json;charset=utf-8"});
       const url=URL.createObjectURL(blob);
@@ -9172,7 +9183,10 @@ class HiveFWPanel extends BasePanel {
         sourcePill.textContent=contact?.added_to_node?"NO RÁDIO":"LOCAL";
         meta.appendChild(sourcePill);
         const heardEpoch=Number(contact?.heard_at||0);
-        const fallbackAge=Number(contact?.age_seconds);
+        // Number(null) === 0, which previously rendered legacy/unknown contacts
+        // as "agora". Preserve unknown age as NaN instead.
+        const rawFallbackAge=contact?.age_seconds;
+        const fallbackAge=rawFallbackAge == null ? Number.NaN : Number(rawFallbackAge);
         const ageSeconds=heardEpoch>0
           ? Math.max(0,Math.floor(Date.now()/1000-heardEpoch))
           : fallbackAge;
