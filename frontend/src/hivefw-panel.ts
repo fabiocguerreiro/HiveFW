@@ -1106,10 +1106,53 @@ class HiveFWPanel extends BasePanel {
     const routeHashes = Array.isArray(item?.route_hashes)
       ? item.route_hashes.map((value) => String(value || "").toUpperCase())
       : [];
+    const routeHops = Array.isArray(item?.route_hops) && item.route_hops.length
+      ? item.route_hops
+      : routeHashes.map((hash) => ({ hash, status: "unknown", match_count: 0 }));
     const ingressPrefix = String(item?.ingress_prefix || "").toUpperCase();
     const ingressName = String(item?.ingress_name || ingressPrefix || "").trim();
     const localName =
       String(this.__repeaterStatus?.name || this._selectedDevice?.name || "Este Repeater");
+    const hashSize = Number(item?.path_hash_size || 0);
+    const seenHashes = new Map();
+    for (const hop of routeHops) {
+      const hash = String(hop?.hash || "").toUpperCase();
+      if (!hash) continue;
+      seenHashes.set(hash, (seenHashes.get(hash) || 0) + 1);
+    }
+    const repeatedHashes = [...seenHashes.entries()]
+      .filter(([, count]) => count > 1)
+      .map(([hash, count]) => ({ hash, count }));
+
+    if (item?.route_supported) {
+      const summary = document.createElement("div");
+      summary.style.cssText =
+        "display:flex;flex-wrap:wrap;gap:6px;margin:0 0 10px;";
+      const chips = [
+        String(routeHops.length) + " hops",
+        hashSize ? "Path Hash " + String(hashSize) + " bytes" : "",
+        ingressName ? "Entrada: " + ingressName : "",
+      ].filter(Boolean);
+      for (const label of chips) {
+        const chip = document.createElement("span");
+        chip.style.cssText =
+          "display:inline-flex;align-items:center;padding:4px 7px;border-radius:999px;background:var(--secondary-background-color,#f5f5f5);font-size:10px;font-weight:650;";
+        chip.textContent = label;
+        summary.appendChild(chip);
+      }
+      dialog.appendChild(summary);
+
+      if (repeatedHashes.length) {
+        const warning = document.createElement("div");
+        warning.style.cssText =
+          "margin:0 0 10px;padding:9px 10px;border:1px solid #d89b00;border-radius:9px;background:rgba(216,155,0,.10);font-size:11px;line-height:1.45;";
+        warning.textContent =
+          "⚠ Hash repetido no path: " +
+          repeatedHashes.map((entry) => entry.hash + " ×" + entry.count).join(", ") +
+          ". Pode indicar loop/retransmissão repetida ou colisão de Path Hash; não é tratado automaticamente como loop.";
+        dialog.appendChild(warning);
+      }
+    }
 
     if (!item?.route_supported) {
       const unavailable = document.createElement("div");
@@ -1118,7 +1161,7 @@ class HiveFWPanel extends BasePanel {
       unavailable.textContent =
         "Este canal foi observado antes de o firmware guardar o caminho RF da última mensagem. A próxima mensagem recebida neste canal passará a trazer o trace.";
       dialog.appendChild(unavailable);
-    } else if (!routeHashes.length) {
+    } else if (!routeHops.length) {
       const direct = document.createElement("div");
       direct.style.cssText =
         "padding:14px;border:1px solid var(--divider-color,#ddd);border-radius:9px;font-size:12px;line-height:1.5;";
@@ -1130,8 +1173,30 @@ class HiveFWPanel extends BasePanel {
       route.style.cssText =
         "display:flex;flex-direction:column;gap:7px;margin-top:4px;";
 
-      routeHashes.forEach((hash, index) => {
-        const isIngress = index === routeHashes.length - 1;
+      const origin = document.createElement("div");
+      origin.style.cssText =
+        "display:grid;grid-template-columns:28px minmax(0,1fr);gap:9px;align-items:start;padding:9px 10px;border:1px dashed var(--divider-color,#bbb);border-radius:9px;";
+      const originNumber = document.createElement("div");
+      originNumber.style.cssText =
+        "width:24px;height:24px;border-radius:50%;display:grid;place-items:center;background:var(--secondary-background-color,#eee);font-size:11px;font-weight:700;";
+      originNumber.textContent = "○";
+      const originBody = document.createElement("div");
+      const originPrimary = document.createElement("div");
+      originPrimary.style.cssText = "font-size:12px;font-weight:650;";
+      originPrimary.textContent = "Origem anterior ao primeiro hop";
+      const originSecondary = document.createElement("div");
+      originSecondary.style.cssText =
+        "font-size:10px;color:var(--secondary-text-color,#777);margin-top:2px;";
+      originSecondary.textContent =
+        "O path do pacote não identifica necessariamente o Companion/utilizador que originou a mensagem.";
+      originBody.append(originPrimary, originSecondary);
+      origin.append(originNumber, originBody);
+      route.appendChild(origin);
+
+      routeHops.forEach((hop, index) => {
+        const hash = String(hop?.hash || routeHashes[index] || "").toUpperCase();
+        const isIngress = index === routeHops.length - 1;
+        const status = String(hop?.status || "unknown");
         const step = document.createElement("div");
         step.style.cssText =
           "display:grid;grid-template-columns:28px minmax(0,1fr);gap:9px;align-items:start;padding:9px 10px;border:1px solid var(--divider-color,#ddd);border-radius:9px;background:var(--secondary-background-color,#f5f5f5);";
@@ -1143,19 +1208,47 @@ class HiveFWPanel extends BasePanel {
         const body = document.createElement("div");
         const primary = document.createElement("div");
         primary.style.cssText = "font-size:12px;font-weight:650;";
-        primary.textContent =
-          isIngress && ingressName
-            ? ingressName
-            : "Repeater " + hash;
+        if (status === "resolved" && hop?.name) {
+          primary.textContent = String(hop.name);
+        } else if (status === "ambiguous") {
+          primary.textContent = "Repeater " + hash + " · identificação ambígua";
+        } else {
+          primary.textContent = "Repeater " + hash;
+        }
+
         const secondary = document.createElement("div");
         secondary.style.cssText =
           "font:10px ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--secondary-text-color,#777);margin-top:2px;";
+        const resolvedPrefix = String(hop?.pubkey_prefix || "").toUpperCase();
         secondary.textContent =
           isIngress
             ? "Entrada no nosso rádio · hash " + hash +
-              (ingressPrefix ? " · " + ingressPrefix : "")
-            : "Hop " + (index + 1) + " · hash " + hash;
+              (resolvedPrefix || ingressPrefix ? " · " + (resolvedPrefix || ingressPrefix) : "")
+            : "Hop " + (index + 1) + " · hash " + hash +
+              (resolvedPrefix ? " · " + resolvedPrefix : "");
+
         body.append(primary, secondary);
+
+        if (status === "ambiguous") {
+          const candidates = Array.isArray(hop?.candidates) ? hop.candidates.filter(Boolean) : [];
+          const ambiguous = document.createElement("div");
+          ambiguous.style.cssText =
+            "font-size:10px;color:#b07800;margin-top:3px;line-height:1.35;";
+          ambiguous.textContent =
+            candidates.length
+              ? String(hop?.match_count || candidates.length) + " contactos compatíveis: " + candidates.join(", ")
+              : String(hop?.match_count || 2) + " contactos compatíveis com este hash.";
+          body.appendChild(ambiguous);
+        }
+
+        if ((seenHashes.get(hash) || 0) > 1) {
+          const repeated = document.createElement("div");
+          repeated.style.cssText =
+            "font-size:10px;color:#b07800;margin-top:3px;";
+          repeated.textContent = "⚠ Hash repetido neste path.";
+          body.appendChild(repeated);
+        }
+
         step.append(number, body);
         route.appendChild(step);
       });
@@ -1186,7 +1279,7 @@ class HiveFWPanel extends BasePanel {
     foot.style.cssText =
       "margin-top:12px;font-size:10px;line-height:1.45;color:var(--secondary-text-color,#777);";
     foot.textContent =
-      "Os hops intermédios são mostrados pelo hash transportado no pacote. O Repeater de entrada é identificado pelo contacto/vizinho local quando existe correspondência segura.";
+      "Cada hop é resolvido contra os contactos conhecidos apenas quando o Path Hash tem uma correspondência única. Correspondências múltiplas ficam marcadas como ambíguas. O Repeater de entrada usa também a identificação segura enviada pelo firmware quando disponível.";
     dialog.appendChild(foot);
 
     overlay.appendChild(dialog);
@@ -1259,6 +1352,7 @@ class HiveFWPanel extends BasePanel {
         item?.ingress_prefix,
         item?.ingress_name,
         item?.route_hashes,
+        item?.route_hops,
       ]),
     });
     if (column.dataset.signature === signature) return;
