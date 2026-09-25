@@ -1,0 +1,89 @@
+name: HiveFW App GitHub release
+
+on:
+  push:
+    tags:
+      - "app-v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
+    env:
+      HAS_SIGNING_KEY: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' && secrets.ANDROID_KEYSTORE_PASSWORD != '' && secrets.ANDROID_KEY_PASSWORD != '' && secrets.ANDROID_KEY_ALIAS != '' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Set up JDK 17
+        uses: actions/setup-java@v6
+        with:
+          java-version: "17"
+          distribution: "temurin"
+          cache: gradle
+          cache-dependency-path: |
+            app/android/**/*.gradle*
+            app/android/**/gradle-wrapper.properties
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Require persistent release signing key
+        if: env.HAS_SIGNING_KEY != 'true'
+        run: |
+          echo "A GitHub release requires ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_PASSWORD and ANDROID_KEY_ALIAS."
+          exit 1
+      - name: Configure signing
+        if: env.HAS_SIGNING_KEY == 'true'
+        run: |
+          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 --decode > android/app/keystore.jks
+          cat > android/key.properties <<EOF
+          storePassword=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          keyPassword=${{ secrets.ANDROID_KEY_PASSWORD }}
+          keyAlias=${{ secrets.ANDROID_KEY_ALIAS }}
+          storeFile=keystore.jks
+          EOF
+      - name: Dependencies
+        run: flutter pub get
+      - name: Generate launcher icons
+        run: dart run flutter_launcher_icons
+      - name: Analyse
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings
+      - name: Tests
+        run: flutter test
+      - name: Build signed release APK
+        run: flutter build apk --release
+      - name: Prepare release
+        shell: bash
+        run: |
+          mkdir -p build/dist
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            VERSION="${GITHUB_REF_NAME}"
+          else
+            VERSION="manual-${GITHUB_SHA::7}"
+          fi
+          FILE="HiveFW-${VERSION}.apk"
+          cp build/app/outputs/flutter-apk/app-release.apk "build/dist/${FILE}"
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: hivefw-app-release
+          path: app/build/dist/*.apk
+          if-no-files-found: error
+      - name: Publish GitHub release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v3
+        with:
+          name: HiveFW ${{ github.ref_name }}
+          generate_release_notes: true
+          files: app/build/dist/*.apk
+      - name: Cleanup signing material
+        if: always()
+        run: rm -f android/key.properties android/app/keystore.jks
