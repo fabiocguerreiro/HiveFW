@@ -46,25 +46,22 @@ O projeto unificado inclui:
 ## Arquitetura
 
 ```text
-                           HiveFW
-                             │
-       ┌─────────────────────┼─────────────────────┐
-       │                     │                     │
-    Firmware             Integração              App
-       │                     │                     │
-Companion + Repeater    Home Assistant       Android (futuro)
-                             │              repo separado hoje
-                       hivefw_integration
-             │                               │
-      ┌──────┴──────┐              ┌─────────┴─────────┐
-      │             │              │                   │
- Heltec V3      Heltec T114     Dispositivo        Chat / Nós
- Wi-Fi/TCP         BLE          Diagnóstico        Mapa / Vizinhos
- Web OTA        DFU / UF2       Backup/Restore     Console
-      │             │              │                   │
-      └─────────────┴──────────────┴───────────────────┘
-                             │
-                         Rede MeshCore
+HiveFW
+├── Firmware
+│   ├── Companion + Repeater
+│   ├── Heltec V3 · Wi-Fi/TCP ou BLE
+│   └── Heltec T114 · BLE / DFU / UF2
+│
+├── Integração
+│   ├── Home Assistant · hivefw_integration
+│   ├── Backend · custom_components/
+│   └── Frontend HiveFW · frontend/
+│
+└── App
+    └── Android · desenvolvimento separado em HiveFW-app
+        └── futura integração neste repositório
+
+Firmware ↔ Integração ↔ Rádio Companion ↔ Rede MeshCore
 ```
 
 O código MeshCore/HiveFW permanece na raiz do repositório para manter a estrutura normal de desenvolvimento e facilitar o acompanhamento do upstream. A integração Home Assistant também permanece na raiz, em `custom_components/hivefw_integration/`, para continuar compatível com HACS.
