@@ -160,8 +160,143 @@ jobs:
           path: release-assets/*
           if-no-files-found: error
 
+  package-integration:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Resolve version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="$(tr -d '[:space:]' < VERSION)"
+          VERSION="${VERSION#V}"
+          VERSION="${VERSION#v}"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Package Home Assistant integration
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release-assets
+          ZIP="release-assets/HiveFW-Integration-${{ steps.version.outputs.version }}.zip"
+          zip -r -9 "$ZIP" custom_components/hivefw_integration             -x '*/__pycache__/*' '*.pyc'
+          sha256sum "$ZIP" > "$ZIP.sha256"
+
+      - name: Upload integration assets
+        uses: actions/upload-artifact@v7
+        with:
+          name: integration
+          path: release-assets/*
+          if-no-files-found: error
+
+  build-app:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
+    env:
+      HAS_SIGNING_KEY: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' && secrets.ANDROID_KEYSTORE_PASSWORD != '' && secrets.ANDROID_KEY_PASSWORD != '' && secrets.ANDROID_KEY_ALIAS != '' }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v6
+        with:
+          java-version: "17"
+          distribution: temurin
+          cache: gradle
+          cache-dependency-path: |
+            app/android/**/*.gradle*
+            app/android/**/gradle-wrapper.properties
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Resolve version
+        id: version
+        shell: bash
+        working-directory: .
+        run: |
+          set -euo pipefail
+          VERSION="$(tr -d '[:space:]' < VERSION)"
+          VERSION="${VERSION#V}"
+          VERSION="${VERSION#v}"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Configure persistent Android signing
+        if: env.HAS_SIGNING_KEY == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 --decode > android/app/keystore.jks
+          cat > android/key.properties <<EOF
+          storePassword=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          keyPassword=${{ secrets.ANDROID_KEY_PASSWORD }}
+          keyAlias=${{ secrets.ANDROID_KEY_ALIAS }}
+          storeFile=keystore.jks
+          EOF
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Generate launcher icons
+        run: dart run flutter_launcher_icons
+
+      - name: Analyse
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings
+
+      - name: Tests
+        run: flutter test
+
+      - name: Build signed release APK
+        if: env.HAS_SIGNING_KEY == 'true'
+        run: flutter build apk --release
+
+      - name: Build preview APK fallback
+        if: env.HAS_SIGNING_KEY != 'true'
+        run: flutter build apk --debug
+
+      - name: Prepare app release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/dist
+          VERSION="${{ steps.version.outputs.version }}"
+          if [[ "$HAS_SIGNING_KEY" == "true" ]]; then
+            SRC="build/app/outputs/flutter-apk/app-release.apk"
+            DEST="build/dist/HiveFW-App-${VERSION}.apk"
+          else
+            SRC="build/app/outputs/flutter-apk/app-debug.apk"
+            DEST="build/dist/HiveFW-App-${VERSION}-preview.apk"
+            printf '%s\n'               "This APK is an installable debug/preview build because persistent Android signing secrets were not available to the unified release workflow."               "Firmware and Home Assistant Integration assets in this release are unaffected."               > "build/dist/HiveFW-App-${VERSION}-preview.txt"
+          fi
+          test -s "$SRC"
+          cp "$SRC" "$DEST"
+          sha256sum "$DEST" > "$DEST.sha256"
+
+      - name: Upload app assets
+        uses: actions/upload-artifact@v7
+        with:
+          name: app
+          path: |
+            app/build/dist/*.apk
+            app/build/dist/*.sha256
+            app/build/dist/*.txt
+          if-no-files-found: error
+
+      - name: Cleanup signing material
+        if: always()
+        run: rm -f android/key.properties android/app/keystore.jks
+
   publish:
-    needs: build
+    needs: [build, package-integration, build-app]
     if: github.event_name == 'push' && startsWith(github.event.head_commit.message, 'Release HiveFW ')
     runs-on: ubuntu-latest
 
@@ -182,10 +317,10 @@ jobs:
           test -n "$VERSION"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
-      - name: Download built firmware assets
+      - name: Download unified release assets
         uses: actions/download-artifact@v7
         with:
-          pattern: firmware-*
+          pattern: "*"
           path: release-assets
           merge-multiple: true
 
@@ -200,9 +335,11 @@ jobs:
           V3_BLE_MERGED_COUNT="$(find release-assets -maxdepth 1 -type f -name 'Heltec_v3_companion_radio_ble-*-merged.bin' ! -name '*.sha256' | wc -l)"
           T114_ZIP_COUNT="$(find release-assets -maxdepth 1 -type f -name 'Heltec_t114_companion_radio_ble-*.zip' ! -name '*.sha256' | wc -l)"
           T114_UF2_COUNT="$(find release-assets -maxdepth 1 -type f -name 'Heltec_t114_companion_radio_ble-*.uf2' ! -name '*.sha256' | wc -l)"
+          INTEGRATION_COUNT="$(find release-assets -maxdepth 1 -type f -name 'HiveFW-Integration-*.zip' ! -name '*.sha256' | wc -l)"
+          APP_COUNT="$(find release-assets -maxdepth 1 -type f -name 'HiveFW-App-*.apk' ! -name '*.sha256' | wc -l)"
 
-          if [[ "$V3_COUNT" -lt 1 || "$V3_MERGED_COUNT" -lt 1 || "$V3_RECOVERY_COUNT" -lt 1 || "$V3_BLE_BIN_COUNT" -lt 1 || "$V3_BLE_MERGED_COUNT" -lt 1 || "$T114_ZIP_COUNT" -lt 1 || "$T114_UF2_COUNT" -lt 1 ]]; then
-            echo "Release blocked: required V3 Wi-Fi, V3 BLE and T114 assets are missing."
+          if [[ "$V3_COUNT" -lt 1 || "$V3_MERGED_COUNT" -lt 1 || "$V3_RECOVERY_COUNT" -lt 1 || "$V3_BLE_BIN_COUNT" -lt 1 || "$V3_BLE_MERGED_COUNT" -lt 1 || "$T114_ZIP_COUNT" -lt 1 || "$T114_UF2_COUNT" -lt 1 || "$INTEGRATION_COUNT" -lt 1 || "$APP_COUNT" -lt 1 ]]; then
+            echo "Release blocked: one or more unified Firmware / Integration / App assets are missing."
             ls -lh release-assets
             exit 1
           fi
