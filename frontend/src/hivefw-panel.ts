@@ -4662,7 +4662,7 @@ class HiveFWPanel extends BasePanel {
 
     const contacts=Array.isArray(this._contacts)?this._contacts:[];
     const nowSec=Date.now()/1000;
-    const activeAt=(contact)=>Math.max(Number(contact?.lastmod||0),Number(contact?.last_advert||0));
+    const activeAt=(contact)=>Number(contact?.lastmod ?? contact?.last_modified ?? 0);
     const active24=contacts.filter((contact)=>activeAt(contact)>0&&nowSec-activeAt(contact)<=86400).length;
     const active7d=contacts.filter((contact)=>activeAt(contact)>0&&nowSec-activeAt(contact)<=7*86400).length;
     const gps=contacts.filter((contact)=>this.__nodeCoords(contact)).length;
@@ -6671,21 +6671,30 @@ class HiveFWPanel extends BasePanel {
     };
 
     const lastAdvert=Number(contact.last_advert||0);
-    if(lastAdvert>0){
-      const date=new Date(lastAdvert*1000);
-      if(!Number.isNaN(date.getTime())){
-        const ageSeconds=(Date.now()-date.getTime())/1000;
-        rows.push([
-          contact?.__hivefw_local ? "Último advert enviado" : "Último advert",
-          date.toLocaleString()+"\nHá "+formatElapsed(ageSeconds)
-        ]);
-      }
-    }
-
     const lastmod=Number(contact.lastmod ?? contact.last_modified ?? 0);
-    if(lastmod>0){
-      const date=new Date(lastmod*1000);
-      if(!Number.isNaN(date.getTime()))rows.push(["Criado localmente",date.toLocaleString()]);
+
+    if(contact?.__hivefw_local){
+      if(lastAdvert>0){
+        const date=new Date(lastAdvert*1000);
+        if(!Number.isNaN(date.getTime())){
+          const ageSeconds=(Date.now()-date.getTime())/1000;
+          rows.push(["Último advert enviado",date.toLocaleString()+"\nHá "+formatElapsed(ageSeconds)]);
+        }
+      }
+    }else{
+      if(lastmod>0){
+        const date=new Date(lastmod*1000);
+        if(!Number.isNaN(date.getTime())){
+          const ageSeconds=(Date.now()-date.getTime())/1000;
+          rows.push(["Última vez ouvido pelo Companion",date.toLocaleString()+"\nHá "+formatElapsed(ageSeconds)]);
+        }
+      }
+      if(lastAdvert>0){
+        const date=new Date(lastAdvert*1000);
+        if(!Number.isNaN(date.getTime())){
+          rows.push(["Timestamp anunciado pelo nó",date.toLocaleString()]);
+        }
+      }
     }
 
     const lat=Number(contact.adv_lat ?? contact.latitude);
@@ -9028,7 +9037,10 @@ class HiveFWPanel extends BasePanel {
         ].map((value)=>String(value||"").toLocaleLowerCase()).join(" ");
         return haystack.includes(query);
       })
-      .sort((a,b)=>Number(b?.last_advert||0)-Number(a?.last_advert||0));
+      .sort((a,b)=>
+        Number(b?.lastmod ?? b?.last_modified ?? 0)-
+        Number(a?.lastmod ?? a?.last_modified ?? 0)
+      );
 
     const head=document.createElement("div");
     head.className="hive-discovery-head hive-network-contacts-head";
@@ -9149,10 +9161,11 @@ class HiveFWPanel extends BasePanel {
         sourcePill.className="hive-neighbor-pill";
         sourcePill.textContent=contact?.added_to_node?"NO RÁDIO":"LOCAL";
         meta.appendChild(sourcePill);
-        const advertEpoch=Number(contact?.last_advert||0);
-        const fallbackAge=Number(contact?.age_seconds);
-        const ageSeconds=advertEpoch>0
-          ? Math.max(0,Math.floor(Date.now()/1000-advertEpoch))
+        const lastmodEpoch=Number(contact?.lastmod ?? contact?.last_modified ?? 0);
+        const rawFallbackAge=contact?.age_seconds;
+        const fallbackAge=rawFallbackAge == null ? Number.NaN : Number(rawFallbackAge);
+        const ageSeconds=lastmodEpoch>0
+          ? Math.max(0,Math.floor(Date.now()/1000-lastmodEpoch))
           : fallbackAge;
         if(Number.isFinite(ageSeconds)){
           const age=document.createElement("span");
@@ -9186,8 +9199,8 @@ class HiveFWPanel extends BasePanel {
         const dot=document.createElement("span");
         dot.className="hive-discovery-signal-dot";
         const advertAge=Number.isFinite(ageSeconds)?Math.max(0,ageSeconds):Infinity;
-        // Advert freshness: 0–24 h green, 24–48 h yellow,
-        // 48–72 h red, then grey until a new advert arrives.
+        // Companion last-heard freshness: 0–24 h green, 24–48 h yellow,
+        // 48–72 h red, then grey until lastmod is refreshed.
         dot.style.background=advertAge<24*3600
           ? "#2e7d32"
           : advertAge<48*3600
@@ -9196,8 +9209,8 @@ class HiveFWPanel extends BasePanel {
               ? "#c62828"
               : "#757575";
         dot.title=Number.isFinite(advertAge)
-          ? "Último advert: há "+this.__age(advertAge)
-          : "Sem data de advert disponível";
+          ? "Última vez ouvido: há "+this.__age(advertAge)
+          : "Sem lastmod disponível";
         ageRow.append(ageSpacer,dot);
 
         side.append(gpsRow,ageRow);
