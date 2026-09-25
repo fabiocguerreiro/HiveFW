@@ -629,6 +629,14 @@ private:
     uint16_t message_count;
     uint16_t sample_len;
     uint8_t sample[MAX_PACKET_PAYLOAD - 1];
+
+    // Snapshot of the RF route from the most recently observed packet.
+    // Runtime-only like the rest of ObservedChannel; this lets the Companion
+    // explain which repeater chain delivered a discovered channel without
+    // transmitting an active trace packet.
+    uint8_t path_hash_size;
+    uint8_t path_hash_count;
+    uint8_t path_bytes[MAX_PATH_SIZE];
   };
 
   // Unknown group-text channels that this Repeater actually forwarded.
