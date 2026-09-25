@@ -407,7 +407,7 @@ class HiveFWPanel extends BasePanel {
       }
       if (
         !this.__repeaterLoading &&
-        (!this.__repeaterStatus || !this.__repeaterStatusLoadedAt || Date.now()-this.__repeaterStatusLoadedAt>10000)
+        (!this.__repeaterStatus || !this.__repeaterStatusLoadedAt || Date.now()-this.__repeaterStatusLoadedAt>2000)
       ) {
         void this.__loadRepeaterStatus();
       }
