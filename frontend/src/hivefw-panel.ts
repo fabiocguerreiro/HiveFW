@@ -2170,25 +2170,35 @@ class HiveFWPanel extends BasePanel {
       .hive-signal-bars {
         width:20.5px;
         height:18px;
-        display:flex;
-        align-items:flex-end;
-        justify-content:space-between;
+        display:block;
         flex:0 0 auto;
+        contain:paint;
+        --hive-signal-muted:color-mix(in srgb,var(--hive-signal-color,#757575) 22%,transparent);
+        --hive-bar-1:var(--hive-signal-muted);
+        --hive-bar-2:var(--hive-signal-muted);
+        --hive-bar-3:var(--hive-signal-muted);
+        --hive-bar-4:var(--hive-signal-muted);
+        background:
+          linear-gradient(var(--hive-bar-1),var(--hive-bar-1)) 0 13.5px/4px 4.5px no-repeat,
+          linear-gradient(var(--hive-bar-2),var(--hive-bar-2)) 5.5px 9px/4px 9px no-repeat,
+          linear-gradient(var(--hive-bar-3),var(--hive-bar-3)) 11px 4.5px/4px 13.5px no-repeat,
+          linear-gradient(var(--hive-bar-4),var(--hive-bar-4)) 16.5px 0/4px 18px no-repeat;
       }
-      .hive-signal-bars > span {
-        width:4px;
-        border-radius:1.5px 1.5px 0 0;
-        background:color-mix(in srgb,var(--hive-signal-color,#757575) 22%,transparent);
+      .hive-signal-bars[data-bars="1"] { --hive-bar-1:var(--hive-signal-color,#757575); }
+      .hive-signal-bars[data-bars="2"] {
+        --hive-bar-1:var(--hive-signal-color,#757575);
+        --hive-bar-2:var(--hive-signal-color,#757575);
       }
-      .hive-signal-bars > span:nth-child(1){height:4.5px}
-      .hive-signal-bars > span:nth-child(2){height:9px}
-      .hive-signal-bars > span:nth-child(3){height:13.5px}
-      .hive-signal-bars > span:nth-child(4){height:18px}
-      .hive-signal-bars[data-bars="1"] > span:nth-child(-n+1),
-      .hive-signal-bars[data-bars="2"] > span:nth-child(-n+2),
-      .hive-signal-bars[data-bars="3"] > span:nth-child(-n+3),
-      .hive-signal-bars[data-bars="4"] > span:nth-child(-n+4) {
-        background:var(--hive-signal-color,#757575);
+      .hive-signal-bars[data-bars="3"] {
+        --hive-bar-1:var(--hive-signal-color,#757575);
+        --hive-bar-2:var(--hive-signal-color,#757575);
+        --hive-bar-3:var(--hive-signal-color,#757575);
+      }
+      .hive-signal-bars[data-bars="4"] {
+        --hive-bar-1:var(--hive-signal-color,#757575);
+        --hive-bar-2:var(--hive-signal-color,#757575);
+        --hive-bar-3:var(--hive-signal-color,#757575);
+        --hive-bar-4:var(--hive-signal-color,#757575);
       }
       .hive-discovery-empty {
         padding:22px 14px;
@@ -9392,7 +9402,6 @@ class HiveFWPanel extends BasePanel {
     bars.style.setProperty("--hive-signal-color",color);
     bars.title=Number.isFinite(snr)?label+" · SNR "+snr.toFixed(1)+" dB":label;
     bars.setAttribute("aria-label",bars.title);
-    for(let i=0;i<4;i++)bars.appendChild(document.createElement("span"));
     return bars;
   }
 
