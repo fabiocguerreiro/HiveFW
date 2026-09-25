@@ -6708,10 +6708,12 @@ async def ws_get_observed_channels(hass, connection, msg):
         # also appear in Canais Observados 48H.
         channels = [item for item in channels if not item.get("configured")]
 
-        # Resolve the ingress repeater prefix against the normal contact cache.
-        # Intermediate route hashes may be only 1-3 bytes and therefore remain
-        # displayed as hashes unless the firmware can identify them safely.
+        # Resolve every route hash against the local contact cache, but only
+        # accept an identity when the short path hash has exactly one match.
+        # Two-byte hashes can collide, so ambiguous matches stay explicitly
+        # ambiguous instead of being assigned to an arbitrary repeater.
         contacts = await _get_contacts_via_service(hass, msg.get("entry_id"))
+        contact_index = []
         contact_names = {}
         for contact in contacts or []:
             if not isinstance(contact, dict):
@@ -6720,13 +6722,23 @@ async def ws_get_observed_channels(hass, connection, msg):
             prefix = str(
                 contact.get("pubkey_prefix") or public_key[:12] or ""
             ).strip().lower()[:12]
-            if not prefix:
+            if not public_key and not prefix:
                 continue
-            contact_names[prefix] = str(
+            name = str(
                 contact.get("adv_name")
                 or contact.get("name")
                 or prefix.upper()
+                or public_key[:12].upper()
             ).strip()
+            if prefix:
+                contact_names[prefix] = name
+            contact_index.append(
+                {
+                    "public_key": public_key,
+                    "prefix": prefix,
+                    "name": name,
+                }
+            )
 
         for item in channels:
             ingress_prefix = str(item.get("ingress_prefix") or "").lower()
@@ -6735,6 +6747,55 @@ async def ws_get_observed_channels(hass, connection, msg):
                     ingress_prefix,
                     ingress_prefix.upper(),
                 )
+
+            route_hops = []
+            route_hashes = item.get("route_hashes")
+            if isinstance(route_hashes, list):
+                for raw_hash in route_hashes:
+                    hop_hash = str(raw_hash or "").strip().lower()
+                    if not hop_hash:
+                        continue
+                    matches = [
+                        entry
+                        for entry in contact_index
+                        if (
+                            (entry["public_key"] and entry["public_key"].startswith(hop_hash))
+                            or (entry["prefix"] and entry["prefix"].startswith(hop_hash))
+                        )
+                    ]
+                    hop = {
+                        "hash": hop_hash.upper(),
+                        "match_count": len(matches),
+                        "status": (
+                            "resolved"
+                            if len(matches) == 1
+                            else "ambiguous"
+                            if len(matches) > 1
+                            else "unknown"
+                        ),
+                    }
+                    if len(matches) == 1:
+                        hop["name"] = matches[0]["name"]
+                        hop["pubkey_prefix"] = (
+                            matches[0]["prefix"]
+                            or matches[0]["public_key"][:12]
+                        ).upper()
+                    elif len(matches) > 1:
+                        hop["candidates"] = [
+                            match["name"] for match in matches[:4]
+                        ]
+                    route_hops.append(hop)
+
+            # The firmware-provided ingress prefix is a stronger identity hint
+            # for the final hop than a short-hash contact lookup. Preserve it.
+            if route_hops and ingress_prefix:
+                last = route_hops[-1]
+                last["status"] = "resolved"
+                last["name"] = item.get("ingress_name") or ingress_prefix.upper()
+                last["pubkey_prefix"] = ingress_prefix.upper()
+                last["ingress"] = True
+
+            item["route_hops"] = route_hops
 
         # Keep only entries that still correspond to the current observed set.
         coordinator._hivefw_observed_channel_resolution = {
