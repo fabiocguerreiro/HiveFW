@@ -9505,9 +9505,12 @@ class HiveFWPanel extends BasePanel {
     heading.append(eyebrow,title,subtitle);
 
     const refresh=document.createElement("button");
-    refresh.className="mcr-btn";
+    refresh.type="button";
+    refresh.className="hive-network-contact-search-button";
     refresh.disabled=this.__hiveNeighborsLoading;
-    refresh.textContent=this.__hiveNeighborsLoading?"A atualizar…":"↻ Atualizar";
+    refresh.textContent=this.__hiveNeighborsLoading?"…":"↻";
+    refresh.title=this.__hiveNeighborsLoading?"A atualizar vizinhos…":"Atualizar vizinhos";
+    refresh.setAttribute("aria-label","Atualizar vizinhos");
     refresh.addEventListener("click",()=>void this.__loadHiveNeighbors());
     head.append(heading,refresh);
     container.appendChild(head);
