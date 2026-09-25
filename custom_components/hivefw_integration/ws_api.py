@@ -2393,16 +2393,22 @@ async def ws_get_local_repeater_status(hass, connection, msg):
             "yes",
         }
 
-        power_notify_supported = "power_notify" in custom_vars
-        power_notify = str(custom_vars.get("power_notify", "0")).strip().lower() in {
-            "1",
-            "true",
-            "on",
-            "yes",
-        }
+        compact_power = str(custom_vars.get("pwr", "")).strip()
+        power_notify_supported = (
+            len(compact_power) >= 1 or "power_notify" in custom_vars
+        )
+        if len(compact_power) >= 1 and compact_power[0] in {"0", "1"}:
+            power_notify = compact_power[0] == "1"
+        else:
+            power_notify = str(
+                custom_vars.get("power_notify", "0")
+            ).strip().lower() in {"1", "true", "on", "yes"}
 
         external_power = None
-        if "ext_power" in custom_vars:
+        if len(compact_power) >= 2 and compact_power[1] in {"0", "1"}:
+            external_power = compact_power[1] == "1"
+        elif "ext_power" in custom_vars:
+            # Backward compatibility with the first external-power build.
             external_power = str(custom_vars.get("ext_power", "0")).strip().lower() in {
                 "1",
                 "true",
