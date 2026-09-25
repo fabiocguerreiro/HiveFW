@@ -4123,7 +4123,7 @@ class HiveFWPanel extends BasePanel {
       const entityId=this.__findDeviceMetricEntity(summary,key);
       return entityId?{label,key,unit,entityId}:null;
     }).filter(Boolean);
-    const key=entry+"|7d|"+metrics.map((metric)=>metric.entityId).join("|");
+    const key=entry+"|48h|"+metrics.map((metric)=>metric.entityId).join("|");
     const fresh=this.__diagHistoryKey===key && Date.now()-this.__diagHistoryAt<5*60*1000;
     if(fresh||this.__diagHistoryLoading)return;
     if(!metrics.length){
@@ -4136,7 +4136,7 @@ class HiveFWPanel extends BasePanel {
     this.__diagHistoryLoading=true;
     try{
       const end=new Date();
-      const start=new Date(end.getTime()-7*24*60*60*1000);
+      const start=new Date(end.getTime()-48*60*60*1000);
       const statistics=await this.hass.callWS({
         type:"recorder/statistics_during_period",
         start_time:start.toISOString(),
@@ -4153,7 +4153,7 @@ class HiveFWPanel extends BasePanel {
         })).filter((point)=>Number.isFinite(point.t)&&Number.isFinite(point.v));
         series[metric.entityId]=values;
       }
-      this.__diagHistory={metrics,series,windowHours:7*24};
+      this.__diagHistory={metrics,series,windowHours:48};
       this.__diagHistoryKey=key;
       this.__diagHistoryAt=Date.now();
     }catch(error){
@@ -4210,7 +4210,7 @@ class HiveFWPanel extends BasePanel {
     const title=document.createElement("div");
     title.style.cssText="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:9px;";
     const heading=document.createElement("strong");
-    heading.textContent="Histórico RF / tráfego · 7 dias";
+    heading.textContent="Histórico RF / tráfego · 48 horas";
     heading.style.cssText="font-size:11px;text-transform:uppercase;letter-spacing:.45px;";
     const source=document.createElement("span");
     source.textContent="Recorder do Home Assistant";
