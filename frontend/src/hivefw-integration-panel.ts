@@ -419,6 +419,20 @@ export class MeshCorePanel extends LitElement {
         transition: width 0.3s ease;
       }
 
+      .battery-charge-bolt {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -52%);
+        z-index: 2;
+        font-size: 9px;
+        line-height: 1;
+        font-weight: 900;
+        color: #fff;
+        text-shadow: 0 0 2px rgba(0,0,0,.75);
+        pointer-events: none;
+      }
+
       .battery-fill.high {
         background: #4caf50;
       }
@@ -783,10 +797,14 @@ export class MeshCorePanel extends LitElement {
               : html``}
             ${device && this._getBatteryLevel(device) !== null
               ? html`
-                  <span class="battery-indicator">
+                  <span class="battery-indicator"
+                        title=${this._getExternalPowerState() === true ? 'Alimentação externa / carga' : 'Bateria'}>
                     <span class="battery-icon">
                       <span class="battery-fill ${this._getBatteryLevel(device)! > 50 ? 'high' : this._getBatteryLevel(device)! > 20 ? 'medium' : 'low'}"
                             style="width: ${this._getBatteryLevel(device)}%"></span>
+                      ${this._getExternalPowerState() === true
+                        ? html`<span class="battery-charge-bolt" aria-label="Alimentação externa">⚡</span>`
+                        : html``}
                     </span>
                     <span class="battery-pct">${this._getBatteryLevel(device)}%</span>
                   </span>`
@@ -931,6 +949,14 @@ export class MeshCorePanel extends LitElement {
     if (!state || state.state === 'unknown' || state.state === 'unavailable') return null;
     const val = parseFloat(state.state);
     return isNaN(val) ? null : Math.round(val);
+  }
+
+  private _getExternalPowerState(): boolean | null {
+    const status = (this as unknown as {
+      __repeaterStatus?: { battery?: { external_power?: boolean | null } };
+    }).__repeaterStatus;
+    const value = status?.battery?.external_power;
+    return typeof value === 'boolean' ? value : null;
   }
 
   private async _loadData() {
