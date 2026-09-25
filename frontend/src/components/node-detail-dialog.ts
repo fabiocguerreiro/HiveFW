@@ -359,15 +359,7 @@ export class NodeDetailDialog extends LitElement {
                       </div>
                       ${isContact ? html`
                         <div class="info-item">
-                          <div class="info-label">Heard by Companion</div>
-                          <div class="info-value">
-                            ${(this.node as Contact).heard_at
-                              ? new Date((this.node as Contact).heard_at! * 1000).toLocaleString()
-                              : 'No local receive record'}
-                          </div>
-                        </div>
-                        <div class="info-item">
-                          <div class="info-label">Advert Timestamp</div>
+                          <div class="info-label">Last Advert</div>
                           <div class="info-value">
                             ${(this.node as Contact).last_advert
                               ? new Date((this.node as Contact).last_advert * 1000).toLocaleString()

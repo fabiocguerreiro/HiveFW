@@ -544,35 +544,6 @@ async def test_ws_get_contacts_error_no_coordinator(
     assert conn.errors and conn.errors[0][1] == "not_found"
 
 
-def test_node_age_uses_local_heard_at_not_remote_or_companion_clock() -> None:
-    """A bogus year-2240 advert must not make a contact look freshly heard."""
-    now = 2_000_000_000
-    contact = {
-        "heard_at": now - 120,
-        "last_advert": 8_520_336_000,  # 2240-01-01 UTC
-        "lastmod": 8_520_336_000,
-    }
-
-    bucket, age = ws_api._node_age(contact, now=now)
-
-    assert bucket == "lt1h"
-    assert age == 120
-
-
-def test_node_age_without_local_receive_time_does_not_trust_future_timestamps() -> None:
-    """Legacy records stay unknown until HA witnesses a new live advert."""
-    bucket, age = ws_api._node_age(
-        {
-            "last_advert": 8_520_336_000,  # 2240-01-01 UTC
-            "lastmod": 8_520_336_000,
-        },
-        now=2_000_000_000,
-    )
-
-    assert bucket == "stale"
-    assert age is None
-
-
 # ─── ws_get_contacts_paginated ──────────────────────────────────────────
 
 
@@ -606,54 +577,6 @@ async def test_ws_get_contacts_paginated_filters_and_paginates(
     # Alphabetic by name
     names = [c["adv_name"] for c in payload["contacts"]]
     assert names == sorted(names, key=str.lower)
-
-
-async def test_ws_get_contacts_paginated_sorts_by_local_heard_time(
-    hass: HomeAssistant, coordinator: MagicMock
-) -> None:
-    """Remote future clocks cannot pin a discovered contact to the top."""
-    contacts = [
-        {
-            "adv_name": "FutureClock",
-            "added_to_node": False,
-            "type": 2,
-            "heard_at": 100,
-            "last_advert": 8_520_336_000,  # 2240-01-01 UTC
-            "lastmod": 8_520_336_000,
-        },
-        {
-            "adv_name": "ActuallyRecent",
-            "added_to_node": False,
-            "type": 2,
-            "heard_at": 200,
-            "last_advert": 1,
-            "lastmod": 1,
-        },
-    ]
-
-    async def _fake_call(*a, **kw):
-        return {"contacts": contacts}
-
-    with (
-        patch("homeassistant.core.ServiceRegistry.has_service", return_value=True),
-        patch("homeassistant.core.ServiceRegistry.async_call", side_effect=_fake_call),
-    ):
-        conn = _Connection()
-        await _call_ws(
-            ws_api.ws_get_contacts_paginated,
-            hass,
-            conn,
-            {
-                "id": 1,
-                "category": "discovered",
-                "limit": 50,
-                "offset": 0,
-                "sort_by": "last_heard",
-            },
-        )
-
-    names = [item["adv_name"] for item in conn.results[0][1]["contacts"]]
-    assert names == ["ActuallyRecent", "FutureClock"]
 
 
 async def test_ws_get_contacts_paginated_error_no_coordinator(

@@ -158,9 +158,6 @@ class MeshCoreDataUpdateCoordinator(DataUpdateCoordinator):
         self._current_node_info = {}
         self._contacts = {}  # Dict keyed by 12-char public_key prefix
         self._discovered_contacts = {}  # Dict keyed by public_key
-        # HA-local receive clock, keyed by full public key. This is the only
-        # authoritative recency source; radio/node RTC timestamps are diagnostic.
-        self._contact_heard_at: dict[str, float] = {}
         self._manual_mode_initialized = False
 
         # Storage for discovered contacts
@@ -381,11 +378,8 @@ class MeshCoreDataUpdateCoordinator(DataUpdateCoordinator):
     def get_all_contacts(self) -> list:
         """Get deduplicated list of all contacts (added + discovered).
 
-        heard_at is stamped by Home Assistant when NEW_CONTACT is received
-        and is therefore the authoritative recency clock. last_advert is the
-        remote node clock and lastmod is the Companion clock; either may be
-        wrong. Legacy records without heard_at use lastmod only as a
-        content-selection fallback, never as a recency signal.
+        For each public_key, uses the contact with the latest lastmod.
+        Marks as added_to_node=True if contact exists in added list.
         """
         contacts_dict = {}
 
@@ -404,32 +398,14 @@ class MeshCoreDataUpdateCoordinator(DataUpdateCoordinator):
             contact_copy["pubkey_prefix"] = public_key[:12]
             contact_copy["added_to_node"] = public_key in added_pubkeys
 
-            # Overlay the latest HA-local receive time even for added contacts,
-            # whose radio contact record does not carry this field on the wire.
-            heard_at = max(
-                float(contact_copy.get("heard_at") or 0),
-                float(self._contact_heard_at.get(public_key) or 0),
-            )
-            if heard_at > 0:
-                contact_copy["heard_at"] = heard_at
-
+            # If we already have this contact, keep the one with latest lastmod
             if public_key in contacts_dict:
                 existing = contacts_dict[public_key]
-                existing_heard = float(existing.get("heard_at") or 0)
-                new_heard = float(contact_copy.get("heard_at") or 0)
-                heard_at = max(existing_heard, new_heard)
+                existing_lastmod = existing.get("lastmod", 0)
+                new_lastmod = contact_copy.get("lastmod", 0)
 
-                replace = new_heard > existing_heard
-                if not existing_heard and not new_heard:
-                    replace = float(contact_copy.get("lastmod") or 0) > float(
-                        existing.get("lastmod") or 0
-                    )
-
-                if replace:
+                if new_lastmod > existing_lastmod:
                     contacts_dict[public_key] = contact_copy
-                if heard_at > 0:
-                    contacts_dict[public_key]["heard_at"] = heard_at
-                contacts_dict[public_key]["added_to_node"] = public_key in added_pubkeys
             else:
                 contacts_dict[public_key] = contact_copy
 
@@ -668,11 +644,11 @@ class MeshCoreDataUpdateCoordinator(DataUpdateCoordinator):
         return True
 
     async def _cleanup_stale_discovered_contacts(self, days_threshold: int) -> int:
-        """Remove discovered contacts whose locally-observed age exceeds the threshold.
+        """Remove discovered contacts whose lastmod exceeds the age threshold.
 
-        Uses heard_at stamped by Home Assistant on NEW_CONTACT. Remote
-        last_advert and Companion lastmod timestamps are deliberately ignored
-        because either device clock may be wrong.
+        Uses lastmod (companion device's local clock, synced by HA) instead of
+        last_advert (which may contain timestamps from advertising nodes with
+        incorrect clocks).
 
         Contacts with added_to_node=True are always preserved.
 
@@ -698,11 +674,8 @@ class MeshCoreDataUpdateCoordinator(DataUpdateCoordinator):
             if contact.get("added_to_node", False):
                 skipped_node_contacts += 1
                 continue
-            heard_at = float(contact.get("heard_at") or 0)
-            # Legacy/imported records have no trustworthy local receive time.
-            # Do not invent one from last_advert/lastmod; the next live advert
-            # will stamp heard_at and make normal cleanup possible.
-            if heard_at > 0 and (now - heard_at) > threshold_seconds:
+            lastmod = contact.get("lastmod", 0)
+            if not lastmod or (now - lastmod) > threshold_seconds:
                 stale_keys.append(public_key)
 
         # Phase 2: Remove in batches, yielding the event loop between each
@@ -722,7 +695,7 @@ class MeshCoreDataUpdateCoordinator(DataUpdateCoordinator):
 
             pubkey_prefix = public_key[:12]
             contact_name = contact.get("adv_name", pubkey_prefix)
-            heard_at = float(contact.get("heard_at") or 0)
+            lastmod = contact.get("lastmod", 0)
 
             del self._discovered_contacts[public_key]
             self.tracked_diagnostic_binary_contacts.discard(public_key)
@@ -739,8 +712,8 @@ class MeshCoreDataUpdateCoordinator(DataUpdateCoordinator):
 
             removed_count += 1
             _LOGGER.debug(
-                "Removed stale discovered contact: %s (%s) — last heard %.0f days ago",
-                contact_name, pubkey_prefix, (now - heard_at) / 86400 if heard_at else 0,
+                "Removed stale discovered contact: %s (%s) — last updated %.0f days ago",
+                contact_name, pubkey_prefix, (now - lastmod) / 86400 if lastmod else 0,
             )
 
             # Yield the event loop every batch_size removals
@@ -1695,13 +1668,6 @@ class MeshCoreDataUpdateCoordinator(DataUpdateCoordinator):
                     stored_contacts = await self._store.async_load()
                     if stored_contacts:
                         self._discovered_contacts = stored_contacts
-                        for stored_key, stored_contact in stored_contacts.items():
-                            try:
-                                stored_heard = float(stored_contact.get("heard_at") or 0)
-                            except (AttributeError, TypeError, ValueError):
-                                stored_heard = 0
-                            if stored_heard > 0:
-                                self._contact_heard_at[stored_key] = stored_heard
                         self.logger.info(f"Loaded {len(stored_contacts)} discovered contacts from storage")
                 else:
                     self.logger.error(f"Failed to set manual contact mode: {result}")

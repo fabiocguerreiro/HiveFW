@@ -665,21 +665,21 @@ def _contact_meta_key(contact: dict) -> str:
 
 
 def _node_age(contact: dict, now: float | None = None) -> tuple[str, int | None]:
-    """Return age from HA-local advert reception time only.
+    """Return (bucket, age_seconds) from the freshest known contact timestamp."""
+    stamps: list[float] = []
+    for field in ("lastmod", "last_advert", "last_modified"):
+        try:
+            value = float(contact.get(field) or 0)
+        except (TypeError, ValueError):
+            value = 0
+        if value > 0:
+            stamps.append(value)
 
-    last_advert belongs to the advertising node and lastmod belongs to the
-    Companion. Either RTC may be wrong, so neither is valid for recency.
-    """
-    try:
-        heard_at = float(contact.get("heard_at") or 0)
-    except (TypeError, ValueError):
-        heard_at = 0
-
-    if heard_at <= 0:
+    if not stamps:
         return "stale", None
 
     current = now if now is not None else time.time()
-    age = max(0, int(current - heard_at))
+    age = max(0, int(current - max(stamps)))
     if age < 3600:
         return "lt1h", age
     if age < 6 * 3600:
@@ -1089,10 +1089,8 @@ async def ws_bulk_cleanup_contacts(hass, connection, msg):
             continue
 
         if threshold_seconds is not None:
-            heard_at = float(contact.get("heard_at") or 0)
-            # Unknown local age is not safe to delete. A future live advert
-            # will stamp heard_at and make the record eligible for cleanup.
-            if heard_at <= 0 or (now - heard_at) <= threshold_seconds:
+            lastmod = float(contact.get("lastmod") or contact.get("last_advert") or 0)
+            if lastmod and (now - lastmod) <= threshold_seconds:
                 skipped["age"] += 1
                 continue
 
@@ -1542,9 +1540,9 @@ async def ws_get_contacts_paginated(hass, connection, msg):
     elif sort_by == "prefix":
         filtered.sort(key=lambda c: c.get("pubkey_prefix") or "")
     else:
-        # "last_heard" is strictly HA-local receive time. Do not use
-        # last_advert (remote RTC) or lastmod (Companion RTC).
-        filtered.sort(key=lambda c: c.get("heard_at") or 0, reverse=True)
+        # "last_heard" default — keyed on `lastmod` (not `last_advert`) so
+        # firmware-emitted bogus year-2081+ values can't pin nodes to top.
+        filtered.sort(key=lambda c: c.get("lastmod") or 0, reverse=True)
 
     total = len(filtered)
     page = filtered[offset : offset + limit]
@@ -1592,7 +1590,7 @@ async def ws_get_node_counts(hass, connection, msg):
 
 # ─── meshcore/clear_discovered_contacts ─────────────────────────────
 # Clears discovered contacts. If days_threshold is provided, only
-# contacts whose HA-local heard_at exceeds that age are removed; otherwise all
+# contacts whose lastmod exceeds that age are removed; otherwise all
 # discovered contacts are removed.
 
 
