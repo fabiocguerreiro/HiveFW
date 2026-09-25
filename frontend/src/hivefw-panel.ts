@@ -4662,7 +4662,7 @@ class HiveFWPanel extends BasePanel {
 
     const contacts=Array.isArray(this._contacts)?this._contacts:[];
     const nowSec=Date.now()/1000;
-    const activeAt=(contact)=>Math.max(Number(contact?.lastmod||0),Number(contact?.last_advert||0));
+    const activeAt=(contact)=>Number(contact?.heard_at||0);
     const active24=contacts.filter((contact)=>activeAt(contact)>0&&nowSec-activeAt(contact)<=86400).length;
     const active7d=contacts.filter((contact)=>activeAt(contact)>0&&nowSec-activeAt(contact)<=7*86400).length;
     const gps=contacts.filter((contact)=>this.__nodeCoords(contact)).length;
@@ -6671,21 +6671,43 @@ class HiveFWPanel extends BasePanel {
     };
 
     const lastAdvert=Number(contact.last_advert||0);
-    if(lastAdvert>0){
-      const date=new Date(lastAdvert*1000);
-      if(!Number.isNaN(date.getTime())){
-        const ageSeconds=(Date.now()-date.getTime())/1000;
-        rows.push([
-          contact?.__hivefw_local ? "Último advert enviado" : "Último advert",
-          date.toLocaleString()+"\nHá "+formatElapsed(ageSeconds)
-        ]);
+    if(contact?.__hivefw_local){
+      if(lastAdvert>0){
+        const date=new Date(lastAdvert*1000);
+        if(!Number.isNaN(date.getTime())){
+          const ageSeconds=(Date.now()-date.getTime())/1000;
+          rows.push(["Último advert enviado",date.toLocaleString()+"\n"+formatElapsed(ageSeconds)]);
+        }
       }
-    }
+    }else{
+      const heardAt=Number(contact.heard_at||0);
+      if(heardAt>0){
+        const heardDate=new Date(heardAt*1000);
+        if(!Number.isNaN(heardDate.getTime())){
+          const ageSeconds=(Date.now()-heardDate.getTime())/1000;
+          rows.push(["Ouvido pelo Companion",heardDate.toLocaleString()+"\n"+formatElapsed(ageSeconds)]);
+        }
+      }else{
+        rows.push(["Ouvido pelo Companion","Sem registo local"]);
+      }
 
-    const lastmod=Number(contact.lastmod ?? contact.last_modified ?? 0);
-    if(lastmod>0){
-      const date=new Date(lastmod*1000);
-      if(!Number.isNaN(date.getTime()))rows.push(["Criado localmente",date.toLocaleString()]);
+      // This is the time announced by the remote node. Keep it visible for
+      // diagnostics, but never use it for sorting/freshness because its RTC
+      // may be wrong (including timestamps far in the future).
+      if(lastAdvert>0){
+        const advertDate=new Date(lastAdvert*1000);
+        if(!Number.isNaN(advertDate.getTime())){
+          rows.push(["Timestamp anunciado pelo nó",advertDate.toLocaleString()]);
+        }
+      }
+
+      const lastmod=Number(contact.lastmod ?? contact.last_modified ?? 0);
+      if(lastmod>0){
+        const companionDate=new Date(lastmod*1000);
+        if(!Number.isNaN(companionDate.getTime())){
+          rows.push(["Timestamp interno do Companion",companionDate.toLocaleString()]);
+        }
+      }
     }
 
     const lat=Number(contact.adv_lat ?? contact.latitude);
@@ -9028,7 +9050,7 @@ class HiveFWPanel extends BasePanel {
         ].map((value)=>String(value||"").toLocaleLowerCase()).join(" ");
         return haystack.includes(query);
       })
-      .sort((a,b)=>Number(b?.last_advert||0)-Number(a?.last_advert||0));
+      .sort((a,b)=>Number(b?.heard_at||0)-Number(a?.heard_at||0));
 
     const head=document.createElement("div");
     head.className="hive-discovery-head hive-network-contacts-head";
@@ -9149,10 +9171,10 @@ class HiveFWPanel extends BasePanel {
         sourcePill.className="hive-neighbor-pill";
         sourcePill.textContent=contact?.added_to_node?"NO RÁDIO":"LOCAL";
         meta.appendChild(sourcePill);
-        const advertEpoch=Number(contact?.last_advert||0);
+        const heardEpoch=Number(contact?.heard_at||0);
         const fallbackAge=Number(contact?.age_seconds);
-        const ageSeconds=advertEpoch>0
-          ? Math.max(0,Math.floor(Date.now()/1000-advertEpoch))
+        const ageSeconds=heardEpoch>0
+          ? Math.max(0,Math.floor(Date.now()/1000-heardEpoch))
           : fallbackAge;
         if(Number.isFinite(ageSeconds)){
           const age=document.createElement("span");
@@ -9196,8 +9218,8 @@ class HiveFWPanel extends BasePanel {
               ? "#c62828"
               : "#757575";
         dot.title=Number.isFinite(advertAge)
-          ? "Último advert: há "+this.__age(advertAge)
-          : "Sem data de advert disponível";
+          ? "Ouvido pelo Companion: "+this.__age(advertAge)
+          : "Sem registo local de receção";
         ageRow.append(ageSpacer,dot);
 
         side.append(gpsRow,ageRow);
