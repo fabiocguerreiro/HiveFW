@@ -154,6 +154,7 @@ class HiveFWPanel extends BasePanel {
     this.__observedChannels = null;
     this.__observedChannelsLoading = false;
     this.__observedChannelsLoadedEntry = null;
+    this.__observedChannelTraceOverlay = null;
 
     this.__manualOtaSession = null;
     this.__manualOtaBusy = false;
@@ -977,6 +978,10 @@ class HiveFWPanel extends BasePanel {
           align-items: center;
           padding: 10px 12px;
           border-bottom: 1px solid var(--divider-color,#e0e0e0);
+          cursor: pointer;
+        }
+        .hive-observed-row:hover {
+          background: color-mix(in srgb, var(--primary-color,#03a9f4) 7%, transparent);
         }
         .hive-observed-hash {
           font: 700 12px ui-monospace,SFMono-Regular,Menlo,monospace;
@@ -1057,6 +1062,141 @@ class HiveFWPanel extends BasePanel {
     }
   }
 
+  __closeObservedChannelTrace() {
+    this.__observedChannelTraceOverlay?.remove();
+    this.__observedChannelTraceOverlay = null;
+  }
+
+  __openObservedChannelTrace(item) {
+    this.__closeObservedChannelTrace();
+
+    const overlay = document.createElement("div");
+    overlay.style.cssText =
+      "position:fixed;inset:0;z-index:10080;background:rgba(0,0,0,.52);display:grid;place-items:center;padding:18px;box-sizing:border-box;";
+
+    const dialog = document.createElement("div");
+    dialog.style.cssText =
+      "width:min(620px,100%);max-height:min(82vh,720px);overflow:auto;background:var(--card-background-color,#fff);color:var(--primary-text-color,#222);border-radius:12px;box-shadow:0 12px 38px rgba(0,0,0,.32);padding:16px;box-sizing:border-box;";
+
+    const head = document.createElement("div");
+    head.style.cssText =
+      "display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:12px;";
+    const headText = document.createElement("div");
+    const title = document.createElement("div");
+    title.style.cssText = "font-size:17px;font-weight:700;";
+    title.textContent =
+      "Trace · " + (item?.resolved && item?.name
+        ? String(item.name)
+        : "#" + String(item?.hash || "??"));
+    const subtitle = document.createElement("div");
+    subtitle.style.cssText =
+      "font-size:11px;line-height:1.45;color:var(--secondary-text-color,#777);margin-top:3px;";
+    subtitle.textContent =
+      "Caminho da última mensagem realmente recebida neste canal. É um trace passivo do pacote capturado e não gera tráfego LoRa.";
+    headText.append(title, subtitle);
+
+    const close = document.createElement("button");
+    close.type = "button";
+    close.className = "hive-observed-add";
+    close.textContent = "Fechar";
+    close.addEventListener("click", () => this.__closeObservedChannelTrace());
+    head.append(headText, close);
+    dialog.appendChild(head);
+
+    const routeHashes = Array.isArray(item?.route_hashes)
+      ? item.route_hashes.map((value) => String(value || "").toUpperCase())
+      : [];
+    const ingressPrefix = String(item?.ingress_prefix || "").toUpperCase();
+    const ingressName = String(item?.ingress_name || ingressPrefix || "").trim();
+    const localName =
+      String(this.__repeaterStatus?.name || this._selectedDevice?.name || "Este Repeater");
+
+    if (!item?.route_supported) {
+      const unavailable = document.createElement("div");
+      unavailable.style.cssText =
+        "padding:14px;border:1px solid var(--divider-color,#ddd);border-radius:9px;color:var(--secondary-text-color,#777);font-size:12px;line-height:1.5;";
+      unavailable.textContent =
+        "Este canal foi observado antes de o firmware guardar o caminho RF da última mensagem. A próxima mensagem recebida neste canal passará a trazer o trace.";
+      dialog.appendChild(unavailable);
+    } else if (!routeHashes.length) {
+      const direct = document.createElement("div");
+      direct.style.cssText =
+        "padding:14px;border:1px solid var(--divider-color,#ddd);border-radius:9px;font-size:12px;line-height:1.5;";
+      direct.textContent =
+        "Receção direta: o pacote chegou ao nosso Repeater sem hashes de repetidores anteriores no caminho.";
+      dialog.appendChild(direct);
+    } else {
+      const route = document.createElement("div");
+      route.style.cssText =
+        "display:flex;flex-direction:column;gap:7px;margin-top:4px;";
+
+      routeHashes.forEach((hash, index) => {
+        const isIngress = index === routeHashes.length - 1;
+        const step = document.createElement("div");
+        step.style.cssText =
+          "display:grid;grid-template-columns:28px minmax(0,1fr);gap:9px;align-items:start;padding:9px 10px;border:1px solid var(--divider-color,#ddd);border-radius:9px;background:var(--secondary-background-color,#f5f5f5);";
+        const number = document.createElement("div");
+        number.style.cssText =
+          "width:24px;height:24px;border-radius:50%;display:grid;place-items:center;background:var(--primary-color,#03a9f4);color:#fff;font-size:11px;font-weight:700;";
+        number.textContent = String(index + 1);
+
+        const body = document.createElement("div");
+        const primary = document.createElement("div");
+        primary.style.cssText = "font-size:12px;font-weight:650;";
+        primary.textContent =
+          isIngress && ingressName
+            ? ingressName
+            : "Repeater " + hash;
+        const secondary = document.createElement("div");
+        secondary.style.cssText =
+          "font:10px ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--secondary-text-color,#777);margin-top:2px;";
+        secondary.textContent =
+          isIngress
+            ? "Entrada no nosso rádio · hash " + hash +
+              (ingressPrefix ? " · " + ingressPrefix : "")
+            : "Hop " + (index + 1) + " · hash " + hash;
+        body.append(primary, secondary);
+        step.append(number, body);
+        route.appendChild(step);
+      });
+
+      const local = document.createElement("div");
+      local.style.cssText =
+        "display:grid;grid-template-columns:28px minmax(0,1fr);gap:9px;align-items:start;padding:9px 10px;border:1px solid var(--primary-color,#03a9f4);border-radius:9px;";
+      const localNumber = document.createElement("div");
+      localNumber.style.cssText =
+        "width:24px;height:24px;border-radius:50%;display:grid;place-items:center;background:var(--primary-color,#03a9f4);color:#fff;font-size:11px;font-weight:700;";
+      localNumber.textContent = "✓";
+      const localBody = document.createElement("div");
+      const localPrimary = document.createElement("div");
+      localPrimary.style.cssText = "font-size:12px;font-weight:700;";
+      localPrimary.textContent = localName;
+      const localSecondary = document.createElement("div");
+      localSecondary.style.cssText =
+        "font-size:10px;color:var(--secondary-text-color,#777);margin-top:2px;";
+      localSecondary.textContent = "Nosso Repeater · destino desta receção";
+      localBody.append(localPrimary, localSecondary);
+      local.append(localNumber, localBody);
+      route.appendChild(local);
+
+      dialog.appendChild(route);
+    }
+
+    const foot = document.createElement("div");
+    foot.style.cssText =
+      "margin-top:12px;font-size:10px;line-height:1.45;color:var(--secondary-text-color,#777);";
+    foot.textContent =
+      "Os hops intermédios são mostrados pelo hash transportado no pacote. O Repeater de entrada é identificado pelo contacto/vizinho local quando existe correspondência segura.";
+    dialog.appendChild(foot);
+
+    overlay.appendChild(dialog);
+    overlay.addEventListener("click", (event) => {
+      if (event.target === overlay) this.__closeObservedChannelTrace();
+    });
+    this.shadowRoot?.appendChild(overlay);
+    this.__observedChannelTraceOverlay = overlay;
+  }
+
   __openObservedChannelAdd(item) {
     const chat = this.shadowRoot?.querySelector("hivefw-integration-page");
     if (!chat) return;
@@ -1113,6 +1253,12 @@ class HiveFWPanel extends BasePanel {
         item?.secret,
         item?.message_count,
         item?.secs_ago,
+        item?.route_supported,
+        item?.path_hash_size,
+        item?.hop_count,
+        item?.ingress_prefix,
+        item?.ingress_name,
+        item?.route_hashes,
       ]),
     });
     if (column.dataset.signature === signature) return;
@@ -1160,6 +1306,8 @@ class HiveFWPanel extends BasePanel {
     for (const item of channels) {
       const row = document.createElement("div");
       row.className = "hive-observed-row";
+      row.title = "Abrir trace da última mensagem recebida";
+      row.addEventListener("click", () => this.__openObservedChannelTrace(item));
 
       const info = document.createElement("div");
       info.style.minWidth = "0";
@@ -1191,7 +1339,10 @@ class HiveFWPanel extends BasePanel {
         add.className = "hive-observed-add";
         add.textContent = "Adicionar";
         add.title = "Adicionar canal identificado; nome e chave já foram confirmados pelo MAC do pacote.";
-        add.addEventListener("click", () => this.__openObservedChannelAdd(item));
+        add.addEventListener("click", (event) => {
+          event.stopPropagation();
+          this.__openObservedChannelAdd(item);
+        });
         row.append(info, add);
       } else {
         row.append(info);
