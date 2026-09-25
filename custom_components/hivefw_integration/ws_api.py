@@ -1197,7 +1197,10 @@ async def ws_get_peer_activity(hass, connection, msg):
     """Return peer RX/TX and path-link volume derived from stored messages."""
     runtime = _get_runtime_data(hass, msg.get("entry_id"))
     if runtime is None:
-        connection.send_result(msg["id"], {"peers": {}, "links": {}, "edges": {}})
+        connection.send_result(
+            msg["id"],
+            {"peers": {}, "links": {}, "edges": {}, "ingress": {}},
+        )
         return
     result = await runtime.store.get_peer_activity()
     connection.send_result(msg["id"], result)
