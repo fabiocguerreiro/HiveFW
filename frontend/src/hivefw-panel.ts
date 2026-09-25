@@ -2228,7 +2228,9 @@ class HiveFWPanel extends BasePanel {
       .hive-network-contacts {
         display:flex;
         flex-direction:column;
-        max-height:680px;
+        height:100%;
+        min-height:0;
+        max-height:none;
       }
       .hive-network-contacts-head {
         display:flex;
@@ -2471,8 +2473,8 @@ class HiveFWPanel extends BasePanel {
       .hive-network-event:first-of-type { border-top:0; }
       .hive-network-event time { color:var(--secondary-text-color); }
       .hive-network-copy {
-        height:min(90vh,1003px);
-        min-height:792px;
+        height:min(85.5vh,953px);
+        min-height:752px;
       }
       .hive-network-copy .hive-neighbors-three { height:100%; }
 
@@ -8833,7 +8835,7 @@ class HiveFWPanel extends BasePanel {
       empty.textContent="Baseline criado. Novos repeaters, desaparecimentos e alterações de configuração passarão a aparecer aqui.";
       events.appendChild(empty);
     }else{
-      const labels={new:"Novo repeater",missing:"Saiu da janela 48H",config:"Configuração alterada"};
+      const labels={new:"Novo repeater",missing:"Saiu da janela de 7 dias",config:"Configuração alterada"};
       for(const event of recent){
         const row=document.createElement("div");row.className="hive-network-event";
         const time=document.createElement("time");time.textContent=new Date(Number(event.timestamp)).toLocaleString();
@@ -9183,13 +9185,13 @@ class HiveFWPanel extends BasePanel {
     const heading=document.createElement("div");
     const eyebrow=document.createElement("div");
     eyebrow.className="hive-discovery-eyebrow";
-    eyebrow.textContent="PASSIVO · 48H";
+    eyebrow.textContent="PASSIVO";
     const title=document.createElement("div");
     title.className="hive-discovery-title";
     title.textContent="Vizinhos";
     const subtitle=document.createElement("div");
     subtitle.className="hive-discovery-subtitle";
-    subtitle.textContent="Repeaters ouvidos diretamente nas últimas 48H (Zero-Hop)";
+    subtitle.textContent="Repeaters ouvidos diretamente nos últimos 7 dias (Zero-Hop)";
     heading.append(eyebrow,title,subtitle);
 
     const refresh=document.createElement("button");
