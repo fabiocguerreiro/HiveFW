@@ -2392,6 +2392,17 @@ async def ws_get_local_repeater_status(hass, connection, msg):
             "on",
             "yes",
         }
+
+        external_power = None
+        if "ext_power" in custom_vars:
+            external_power = str(custom_vars.get("ext_power", "0")).strip().lower() in {
+                "1",
+                "true",
+                "on",
+                "yes",
+            }
+        battery["external_power"] = external_power
+
         smart_advert = {
             "supported": False,
             "enabled": auto_advert,
