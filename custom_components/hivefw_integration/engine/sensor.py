@@ -493,6 +493,252 @@ REPEATER_SENSORS = [
 ]
 
 
+
+HIVEFW_STATUS_CARD_SENSORS = [
+    ("dashboard_repeater_mode", "Estado · Modo Repeater", "mdi:radio-tower"),
+    ("dashboard_uptime", "Estado · Tempo ligado", "mdi:clock-outline"),
+    ("dashboard_device_clock", "Estado · Relógio do dispositivo", "mdi:clock-check-outline"),
+    ("dashboard_smart_advert", "Estado · Smart Advert", "mdi:broadcast"),
+    ("dashboard_tx_queue", "Estado · Fila TX", "mdi:playlist-edit"),
+    ("dashboard_storage", "Estado · Armazenamento", "mdi:database"),
+    ("dashboard_hardware", "Estado · Equipamento", "mdi:chip"),
+    ("dashboard_protocol", "Estado · Protocolo e Caminho", "mdi:routes"),
+    ("dashboard_capacity", "Estado · Capacidade", "mdi:database-cog"),
+    ("dashboard_repeat_frequencies", "Estado · Frequências Repeater", "mdi:radio"),
+    ("dashboard_rf_health", "Estado · Ruído de fundo", "mdi:waveform"),
+    ("dashboard_airtime", "Estado · Tempo de rádio", "mdi:chart-donut"),
+    ("dashboard_integrity", "Estado · Integridade", "mdi:shield-check-outline"),
+    ("dashboard_network_activity", "Estado · Atividade da rede", "mdi:account-network"),
+    ("dashboard_health", "Estado · Saúde", "mdi:heart-pulse"),
+]
+
+
+class HiveFWStatusCardSensor(CoordinatorEntity, SensorEntity):
+    """Entity mirroring one operational card from the Estado dashboard."""
+
+    _attr_has_entity_name = True
+    _attr_should_poll = False
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(
+        self,
+        coordinator: MeshCoreDataUpdateCoordinator,
+        key: str,
+        name: str,
+        icon: str,
+    ) -> None:
+        super().__init__(coordinator)
+        self.coordinator = coordinator
+        self._key = key
+        self._attr_name = name
+        self._attr_icon = icon
+        public_key_short = coordinator.pubkey[:6] if coordinator.pubkey else ""
+        self._attr_unique_id = "_".join(
+            [coordinator.config_entry.entry_id, key, public_key_short]
+        )
+        self.entity_id = format_entity_id(
+            ENTITY_DOMAIN_SENSOR,
+            public_key_short,
+            key,
+            sanitize_name(coordinator.name or "Unknown"),
+        )
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        return DeviceInfo(**self.coordinator.device_info)
+
+    def _snapshot(self) -> dict[str, Any]:
+        value = getattr(self.coordinator, "_hivefw_status_snapshot", None)
+        return value if isinstance(value, dict) else {}
+
+    def _contacts(self) -> list[dict[str, Any]]:
+        try:
+            return [
+                item for item in self.coordinator.get_all_contacts()
+                if isinstance(item, dict)
+            ]
+        except Exception:
+            return []
+
+    @property
+    def available(self) -> bool:
+        if self._key == "dashboard_network_activity":
+            return self.coordinator.last_update_success
+        return bool(self._snapshot()) and self.coordinator.last_update_success
+
+    @property
+    def native_value(self) -> Any:
+        snap = self._snapshot()
+        key = self._key
+
+        if key == "dashboard_repeater_mode":
+            return "Ativo" if snap.get("repeat") else "Desligado"
+
+        if key == "dashboard_uptime":
+            value = ((snap.get("stats") or {}).get("core") or {}).get("uptime_secs")
+            return round(float(value) / 60.0, 1) if isinstance(value, (int, float)) else None
+
+        if key == "dashboard_device_clock":
+            value = (snap.get("clock") or {}).get("timestamp")
+            if not isinstance(value, (int, float)) or value <= 0:
+                return None
+            return datetime.fromtimestamp(value).isoformat()
+
+        if key == "dashboard_smart_advert":
+            smart = snap.get("smart_advert") or {}
+            if not smart.get("supported"):
+                return "Não suportado"
+            return "Ativo" if smart.get("enabled") else "Desligado"
+
+        if key == "dashboard_tx_queue":
+            return ((snap.get("stats") or {}).get("core") or {}).get("queue_len")
+
+        if key == "dashboard_storage":
+            battery = snap.get("battery") or {}
+            used = battery.get("used_kb")
+            total = battery.get("total_kb")
+            if isinstance(used, (int, float)) and isinstance(total, (int, float)) and total > 0:
+                return round(100.0 * used / total, 1)
+            return None
+
+        if key == "dashboard_hardware":
+            info = snap.get("device_info") or {}
+            return info.get("model") or snap.get("model")
+
+        if key == "dashboard_protocol":
+            info = snap.get("device_info") or {}
+            proto = info.get("protocol_version")
+            mode = info.get("path_hash_mode")
+            if proto is None and mode is None:
+                return None
+            path = f"{int(mode) + 1} byte" if isinstance(mode, (int, float)) else "—"
+            return f"v{proto if proto is not None else '—'} · {path}"
+
+        if key == "dashboard_capacity":
+            info = snap.get("device_info") or {}
+            return info.get("max_contacts")
+
+        if key == "dashboard_repeat_frequencies":
+            freqs = snap.get("allowed_repeat_frequencies") or []
+            if not freqs:
+                return None
+            first = freqs[0] if isinstance(freqs[0], dict) else {}
+            lo = first.get("min")
+            return round(float(lo) / 1000.0, 3) if isinstance(lo, (int, float)) else None
+
+        if key == "dashboard_rf_health":
+            return ((snap.get("stats") or {}).get("radio") or {}).get("noise_floor")
+
+        if key == "dashboard_airtime":
+            radio = (snap.get("stats") or {}).get("radio") or {}
+            vals = [
+                radio.get("airtime_utilization"),
+                radio.get("rx_airtime_utilization"),
+            ]
+            nums = [float(v) for v in vals if isinstance(v, (int, float))]
+            return max(nums) if nums else None
+
+        if key == "dashboard_integrity":
+            return ((snap.get("stats") or {}).get("packets") or {}).get("recv_errors")
+
+        if key == "dashboard_network_activity":
+            now = time.time()
+            def seen_at(item):
+                return max(
+                    float(item.get("lastmod") or 0),
+                    float(item.get("last_advert") or 0),
+                )
+            return sum(
+                1 for item in self._contacts()
+                if seen_at(item) > 0 and now - seen_at(item) <= 86400
+            )
+
+        if key == "dashboard_health":
+            return len(self._health_alerts(snap))
+
+        return None
+
+    def _health_alerts(self, snap: dict[str, Any]) -> list[str]:
+        alerts: list[str] = []
+        stats = snap.get("stats") or {}
+        radio = stats.get("radio") or {}
+        core = stats.get("core") or {}
+        clock = snap.get("clock") or {}
+        noise = radio.get("noise_floor")
+        queue = core.get("queue_len")
+        drift = clock.get("drift_seconds")
+        if isinstance(noise, (int, float)) and noise > -105:
+            alerts.append("noise_floor_alto")
+        if isinstance(queue, (int, float)) and queue > 5:
+            alerts.append("fila_tx")
+        if isinstance(drift, (int, float)) and abs(drift) > 30:
+            alerts.append("clock_drift")
+        return alerts
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        snap = self._snapshot()
+        key = self._key
+
+        if key == "dashboard_uptime":
+            return {
+                "uptime_seconds": ((snap.get("stats") or {}).get("core") or {}).get("uptime_secs")
+            }
+        if key == "dashboard_device_clock":
+            return dict(snap.get("clock") or {})
+        if key == "dashboard_smart_advert":
+            return dict(snap.get("smart_advert") or {})
+        if key == "dashboard_storage":
+            return dict(snap.get("battery") or {})
+        if key == "dashboard_hardware":
+            return dict(snap.get("device_info") or {})
+        if key == "dashboard_protocol":
+            info = snap.get("device_info") or {}
+            return {
+                "protocol_version": info.get("protocol_version"),
+                "path_hash_mode": info.get("path_hash_mode"),
+            }
+        if key == "dashboard_capacity":
+            info = snap.get("device_info") or {}
+            return {
+                "max_contacts": info.get("max_contacts"),
+                "max_channels": info.get("max_channels"),
+            }
+        if key == "dashboard_repeat_frequencies":
+            return {"frequencies": snap.get("allowed_repeat_frequencies") or []}
+        if key == "dashboard_rf_health":
+            return dict(((snap.get("stats") or {}).get("radio") or {}))
+        if key == "dashboard_airtime":
+            return dict(((snap.get("stats") or {}).get("radio") or {}))
+        if key == "dashboard_integrity":
+            return dict(((snap.get("stats") or {}).get("packets") or {}))
+        if key == "dashboard_network_activity":
+            now = time.time()
+            contacts = self._contacts()
+            def seen_at(item):
+                return max(
+                    float(item.get("lastmod") or 0),
+                    float(item.get("last_advert") or 0),
+                )
+            return {
+                "total_contacts": len(contacts),
+                "active_24h": sum(1 for item in contacts if seen_at(item) > 0 and now - seen_at(item) <= 86400),
+                "active_7d": sum(1 for item in contacts if seen_at(item) > 0 and now - seen_at(item) <= 7 * 86400),
+                "with_location": sum(
+                    1 for item in contacts
+                    if item.get("adv_lat") not in (None, 0)
+                    and item.get("adv_lon") not in (None, 0)
+                ),
+            }
+        if key == "dashboard_health":
+            alerts = self._health_alerts(snap)
+            return {
+                "alerts": alerts,
+                "status": "ok" if not alerts else "attention",
+            }
+        return {}
+
+
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
@@ -519,6 +765,18 @@ async def async_setup_entry(
 
     # Add companion prefix sensor (first byte of public key, used in routing paths)
     entities.append(MeshCoreCompanionPrefixSensor(coordinator))
+
+    # Estado dashboard entities: every card backed by local status data also
+    # exists as a normal HA entity attached to the Companion device.
+    for status_key, status_name, status_icon in HIVEFW_STATUS_CARD_SENSORS:
+        entities.append(
+            HiveFWStatusCardSensor(
+                coordinator,
+                status_key,
+                status_name,
+                status_icon,
+            )
+        )
 
     # Add the CLI console transcript sensor only when opted in (default off).
     # execute_command / execute_command_ui with record_to_console record
@@ -2246,7 +2504,7 @@ class MeshCoreDiscoveredSummarySensor(CoordinatorEntity, SensorEntity):
 
     _attr_has_entity_name = True
     _attr_should_poll = False
-    _attr_entity_registry_enabled_default = False
+    _attr_entity_registry_enabled_default = True
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_icon = "mdi:account-search"
