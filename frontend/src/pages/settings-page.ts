@@ -1444,23 +1444,9 @@ export class SettingsPage extends LitElement {
       // this as the single authoritative read for the native Settings page.
       await this._readRepeaterStatus(false, false);
 
-      // SELF_INFO can be stale or incomplete on reconnect. The local Repeater
-      // snapshot explicitly runs APP_START/DEVICE_INFO against the Companion,
-      // so use its radio block as the authoritative value shown in Settings.
-      if (this._deviceConfig && this._repeaterStatus?.radio) {
-        const radio = this._repeaterStatus.radio;
-        this._deviceConfig = {
-          ...this._deviceConfig,
-          frequency: radio.frequency ?? this._deviceConfig.frequency,
-          bandwidth: radio.bandwidth ?? this._deviceConfig.bandwidth,
-          spreading_factor: radio.spreading_factor ?? this._deviceConfig.spreading_factor,
-          coding_rate: radio.coding_rate ?? this._deviceConfig.coding_rate,
-          tx_power: radio.tx_power ?? this._deviceConfig.tx_power,
-          path_hash_mode:
-            this._repeaterStatus.device_info?.path_hash_mode ??
-            this._deviceConfig.path_hash_mode,
-        };
-      }
+      // Radio Setup has one source of truth: get_device_config(), which performs
+      // a fresh Companion APPSTART plus DEVICE_INFO read. Repeater status is
+      // supplemental only (RX boost/ADC/etc.) and must never overwrite RF values.
       try {
         this._localRegions = await getLocalRegions(
           this.hass,
@@ -2242,21 +2228,6 @@ export class SettingsPage extends LitElement {
         );
         await this._readRepeaterStatus(false, true);
 
-        if (this._deviceConfig && this._repeaterStatus?.radio) {
-          const radio = this._repeaterStatus.radio;
-          this._deviceConfig = {
-            ...this._deviceConfig,
-            frequency: radio.frequency ?? this._deviceConfig.frequency,
-            bandwidth: radio.bandwidth ?? this._deviceConfig.bandwidth,
-            spreading_factor: radio.spreading_factor ?? this._deviceConfig.spreading_factor,
-            coding_rate: radio.coding_rate ?? this._deviceConfig.coding_rate,
-            tx_power: radio.tx_power ?? this._deviceConfig.tx_power,
-            path_hash_mode:
-              this._repeaterStatus.device_info?.path_hash_mode ??
-              this._deviceConfig.path_hash_mode,
-          };
-        }
-
         delete this._editValues[key];
         this._editValues = { ...this._editValues };
         this.requestUpdate();
@@ -2287,19 +2258,12 @@ export class SettingsPage extends LitElement {
     if (!this._deviceConfig) return;
 
     const profile = this._repeaterStatus?.repeater_profile;
-    const radio = this._repeaterStatus?.radio;
-    const txPower = Number(radio?.tx_power ?? this._deviceConfig.tx_power ?? 17);
-    const frequency = Number(radio?.frequency ?? this._deviceConfig.frequency ?? 0);
-    const bandwidth = Number(radio?.bandwidth ?? this._deviceConfig.bandwidth ?? 250);
-    const spreadingFactor = Number(
-      radio?.spreading_factor ?? this._deviceConfig.spreading_factor ?? 10
-    );
-    const codingRate = Number(radio?.coding_rate ?? this._deviceConfig.coding_rate ?? 5);
-    const pathHashMode = Number(
-      this._repeaterStatus?.device_info?.path_hash_mode ??
-      this._deviceConfig.path_hash_mode ??
-      0
-    );
+    const txPower = Number(this._deviceConfig.tx_power ?? 17);
+    const frequency = Number(this._deviceConfig.frequency ?? 0);
+    const bandwidth = Number(this._deviceConfig.bandwidth ?? 250);
+    const spreadingFactor = Number(this._deviceConfig.spreading_factor ?? 10);
+    const codingRate = Number(this._deviceConfig.coding_rate ?? 5);
+    const pathHashMode = Number(this._deviceConfig.path_hash_mode ?? 0);
     const rxBoostedGain = Boolean(profile?.rx_boosted_gain ?? false);
     const adcMultiplier = Number(profile?.adc_multiplier ?? 0);
 
@@ -2466,8 +2430,8 @@ export class SettingsPage extends LitElement {
       </div>
 
       <div style="margin-top:12px;padding:8px;background:rgba(0,0,0,0.02);border-radius:6px;font-size:12px;color:var(--secondary-text-color);">
-        Cada alteração é enviada imediatamente e confirmada por leitura direta do Companion.
-        Parâmetros RF que exigem reboot continuam a ser persistidos no rádio no momento da seleção.
+        Frequência, Bandwidth, SF, CR, TX Power e Path Hash são sempre relidos diretamente do Companion após cada alteração.
+        O estado Repeater não substitui estes valores; apenas espelha a configuração RF do Companion.
       </div>
     `;
   }
