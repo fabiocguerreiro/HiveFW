@@ -241,7 +241,7 @@ export interface Contact {
   out_path_hash_mode: number;
   favorite?: boolean;
   tags?: string[];
-  age_bucket?: 'lt1h' | 'lt6h' | 'lt24h' | 'lt7d' | 'stale';
+  age_bucket?: 'lt1h' | 'lt6h' | 'lt24h' | 'lt7d' | 'clock_skew' | 'stale';
   age_seconds?: number | null;
   [key: string]: unknown;
 }
