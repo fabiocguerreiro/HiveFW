@@ -5780,6 +5780,12 @@ async def ws_export_repeater_backup(hass, connection, msg):
                     in {"1", "true", "on", "yes"},
                 "mesh_time_sync": str(custom.get("mt", "0")).strip().lower()
                     in {"1", "true", "on", "yes"},
+                "power_notify": (
+                    str(custom.get("pwr", ""))[:1] == "1"
+                    if str(custom.get("pwr", ""))
+                    else str(custom.get("power_notify", "0")).strip().lower()
+                    in {"1", "true", "on", "yes"}
+                ),
                 "duty_cycle": duty_cycle,
                 "routing": {
                     "flood_max": route_parts[0],
@@ -5986,6 +5992,10 @@ async def ws_restore_repeater_backup(hass, connection, msg):
         scalar_vars = (
             ("auto_advert", "1" if bool(repeater.get("auto_advert")) else "0"),
             ("mt", "1" if bool(repeater.get("mesh_time_sync")) else "0"),
+            (
+                "power_notify",
+                "1" if bool(repeater.get("power_notify", False)) else "0",
+            ),
             ("owner", str(repeater.get("owner_info") or "")),
             ("rxg", "1" if bool(repeater.get("rx_boosted_gain")) else "0"),
             (
