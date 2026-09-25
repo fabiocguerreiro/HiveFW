@@ -420,10 +420,10 @@ export class NeighborsPage extends LitElement {
       <section class="panel column">
         <div class="panel-head">
           <div>
-            <div class="eyebrow">Passivo · Advert Path</div>
+            <div class="eyebrow">PASSIVO</div>
             <h2 class="title">Vizinhos</h2>
             <div class="subtitle">
-              Repeaters cujo último advert chegou diretamente ao HiveFW.
+              Repeaters ouvidos diretamente nos últimos 7 dias (Zero-Hop)
             </div>
           </div>
           <button
