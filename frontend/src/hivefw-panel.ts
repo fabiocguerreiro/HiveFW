@@ -2906,29 +2906,38 @@ class HiveFWPanel extends BasePanel {
   __decorateMetricTiles(hero) {
     const helpByMarker={
       "state":"Modo Repeater do HiveFW. Ativo permite retransmitir tráfego segundo as regras configuradas; desligado mantém o equipamento a funcionar como Companion, sem repetição.",
-      "uptime":"Tempo decorrido desde o último arranque do rádio.",
-      "clock":"Hora interna do dispositivo e desvio estimado face ao Home Assistant.",
-      "smart-advert":"Estado e próxima execução do Smart Advert automático do Repeater.",
-      "queue":"Número de pacotes atualmente em espera na fila TX.",
-      "temperature":"Temperatura reportada pelo dispositivo.",
-      "request-tokens":"Tokens disponíveis no rate limiter de pedidos da integração.",
-      "contacts":"Número de contactos descobertos reportados pelo rádio.",
-      "storage":"Utilização do armazenamento persistente do dispositivo.",
-      "hardware":"Modelo e build de firmware do dispositivo.",
-      "protocol":"Versão do protocolo Companion e tamanho do Path Hash.",
-      "capacity":"Capacidade configurada de contactos e canais do dispositivo.",
-      "repeat-frequencies":"Frequência ou frequências permitidas para operação Repeater.",
-      "rf-health":"Noise Floor e qualidade RF observada pelo rádio.",
-      "airtime-health":"Utilização de airtime RX/TX observada localmente.",
-      "traffic-now":"Taxa atual de mensagens recebidas e transmitidas.",
-      "network-activity":"Resumo de atividade recente dos contactos conhecidos.",
-      "health-alerts":"Resumo de alertas operacionais ativos. Eventos históricos recuperados não contam como falha ativa.",
-      "reliability":"Relação entre pedidos concluídos e falhados.",
-      "integrity":"Indicadores de integridade dos pacotes e erros de receção."
+      "uptime":"Tempo desde o último arranque do rádio. Reinícios, perda de alimentação ou reboot manual fazem este contador voltar a zero.",
+      "clock":"Relógio RTC interno do rádio. O desvio compara a hora reportada pelo dispositivo com a hora atual do Home Assistant; APP/GPS têm prioridade sobre Timekeeper.",
+      "smart-advert":"Estado do Auto/Smart Advert do Repeater. Mostra o tempo até à próxima janela elegível e quantos adverts automáticos foram enviados desde o último arranque.",
+      "queue":"Pacotes que aguardam transmissão na fila TX do rádio. Valores persistentemente altos podem indicar canal ocupado, retransmissões ou tráfego acima da capacidade disponível.",
+      "temperature":"Temperatura reportada pela telemetria do dispositivo. É a leitura do sensor disponível no hardware/firmware e não uma medição calibrada da temperatura ambiente.",
+      "request-tokens":"Créditos disponíveis no limitador local de pedidos da integração. Protege o rádio contra excesso de consultas; não representa airtime LoRa.",
+      "contacts":"Contactos descobertos pelo Companion que ainda podem não estar adicionados à lista persistente. O valor vem da tabela de contactos observados pela integração.",
+      "storage":"Percentagem de armazenamento persistente ocupada no dispositivo, calculada a partir dos KB usados e do total reportado pelo firmware.",
+      "hardware":"Modelo de hardware reportado pelo rádio e identificação/build do firmware quando disponível.",
+      "protocol":"Versão do protocolo Companion usada pelo firmware e tamanho atual do Path Hash. O Path Hash determina quantos bytes identificam cada salto do percurso.",
+      "capacity":"Limites máximos reportados pelo firmware para contactos e canais armazenáveis no Companion.",
+      "repeat-frequencies":"Intervalo ou intervalos de frequência que o firmware autoriza para função Repeater. Não significa transmissão simultânea em todas elas.",
+      "rf-health":"Ruído de fundo medido pelo rádio e, quando disponíveis, RSSI/SNR da receção mais recente. O Noise Floor descreve a energia presente no canal sem um sinal útil específico.",
+      "airtime-health":"Tempo e/ou percentagem de ocupação do rádio em transmissão e receção. Valores elevados significam maior utilização do canal e menor margem para novo tráfego.",
+      "traffic-now":"Taxa recente de pacotes recebidos e enviados, calculada pelas entidades de diagnóstico da integração em mensagens por minuto.",
+      "network-activity":"Atividade dos contactos conhecidos: quantos foram vistos nas últimas 24 h/7 dias, quantos têm localização e quantos estão marcados como favoritos.",
+      "health-alerts":"Resumo dos problemas atualmente detetados a partir de ruído, fila TX, desvio do relógio, erros RX e falhas de pedidos. É um resumo operacional, não um diagnóstico de avaria física.",
+      "reliability":"Percentagem de pedidos concluídos com sucesso face ao total de pedidos concluídos e falhados que a integração registou.",
+      "integrity":"Contadores de erros de receção, pacotes duplicados e eventos de buffer cheio desde o arranque ou último reset das estatísticas do rádio."
     };
 
     for(const tile of hero.querySelectorAll(":scope > .hero-tile")){
       tile.classList.add("hive-metric-uniform");
+
+      // Remove the obsolete inline info control beside the title. Each card
+      // now has exactly one help affordance: HiveFW's top-right information circle.
+      for(const legacy of tile.querySelectorAll(
+        ".hero-tile-head button, .hero-tile-head [role='button'], .hero-tile-head .info-icon, .hero-tile-head .help-icon"
+      )){
+        const label=String(legacy.getAttribute("aria-label")||legacy.getAttribute("title")||legacy.textContent||"").trim().toLowerCase();
+        if(label==="i"||label.includes("info")||label.includes("help")||label.includes("detalh")) legacy.remove();
+      }
       const marker=String(tile.dataset.repeaterExtra||"");
       const title=(tile.querySelector(".hero-tile-head")?.textContent||"Métrica").replace(/\s+/g," ").trim();
       const help=helpByMarker[marker] || `${title}: métrica do dispositivo. Quando existe uma entidade associada, clica no cartão para abrir os detalhes no Home Assistant.`;
