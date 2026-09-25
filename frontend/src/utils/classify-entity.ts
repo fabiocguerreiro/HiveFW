@@ -211,6 +211,14 @@ export function classifyEntity(entity: any): EntityInfo | null {
     return { entity_id: eid, label: 'Request Tokens', icon: 'counter',
              colorScheme: 'neutral', sortOrder: 13 };
   }
+  if (eid.includes('dashboard_health')) {
+    return { entity_id: eid, label: 'Saúde', icon: 'health',
+             colorScheme: 'neutral', sortOrder: 13,
+             staticTooltip:
+               'Resumo do estado operacional local. OK significa que não há alertas ativos; ' +
+               'quando existem alertas, o valor indica quantos estão ativos e os atributos ' +
+               'da entidade identificam as causas.' };
+  }
   if (eid.includes('channel_util')) {
     return { entity_id: eid, label: 'Channel Util', icon: 'chart',
              colorScheme: 'neutral', sortOrder: 10,
