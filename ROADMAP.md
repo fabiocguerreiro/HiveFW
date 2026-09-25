@@ -128,6 +128,7 @@ Plano aprovado para uma implementação futura:
 - [x] Estado/identidade/telemetria;
 - [x] Canais;
 - [x] Canais Observados 48H, incluindo apresentação mobile e exclusão de canais já configurados após validação do MAC real;
+- [x] trace passivo ao clicar num Canal Observado, usando o caminho da última mensagem recebida para mostrar hops, Repeater de entrada e chegada ao nosso Repeater sem gerar tráfego LoRa;
 - [x] Nós em lista + mapa + atividade, com pesquisa/ordenação na coluna da lista e Import/Export separado sobre Atividade;
 - [x] Rede consolidada: Vizinhos 48H zero-hop, Discovery ativo, mapa e Network Analytics; a aba Vizinhos foi retirada;
 - [x] Console integrado em Definições;
