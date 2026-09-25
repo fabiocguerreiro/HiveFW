@@ -81,7 +81,7 @@ class HiveFWPanel extends BasePanel {
     this.__lastTrace = null;
     this.__lastTraceLoadedEntry = null;
     this.__traceRouteLayer = null;
-    this.__peerActivity = { peers: {}, links: {}, edges: {} };
+    this.__peerActivity = { peers: {}, links: {}, edges: {}, ingress: {} };
     this.__peerActivityLoadedEntry = null;
     this.__peerActivityLoading = false;
     this.__topologyVisible = false;
@@ -5701,11 +5701,12 @@ class HiveFWPanel extends BasePanel {
         peers:result?.peers&&typeof result.peers==="object"?result.peers:{},
         links:result?.links&&typeof result.links==="object"?result.links:{},
         edges:result?.edges&&typeof result.edges==="object"?result.edges:{},
+        ingress:result?.ingress&&typeof result.ingress==="object"?result.ingress:{},
       };
       this.__peerActivityLoadedEntry=entryId;
     }catch(error){
       console.warn("HiveFW peer activity load failed",error);
-      this.__peerActivity={peers:{},links:{},edges:{}};
+      this.__peerActivity={peers:{},links:{},edges:{},ingress:{}};
       this.__peerActivityLoadedEntry=entryId;
     }finally{
       this.__peerActivityLoading=false;
@@ -9132,43 +9133,81 @@ class HiveFWPanel extends BasePanel {
     trafficPanel.className="hive-network-panel";
     const ttitle=document.createElement("div");ttitle.className="hive-network-panel-title";
     const tlabel=document.createElement("span");tlabel.textContent="Repeaters principais";
-    const tmeta=document.createElement("span");tmeta.style.color="var(--secondary-text-color)";tmeta.textContent="Entrada / Saída";
+    const tmeta=document.createElement("span");tmeta.style.color="var(--secondary-text-color)";tmeta.textContent="Entrada / Percurso";
     ttitle.append(tlabel,tmeta);trafficPanel.appendChild(ttitle);
 
-    const directional=all.map((neighbor)=>{
-      const signal=this.__networkSignalFor(neighbor);
-      const activity=signal.contact?this.__peerActivityFor(signal.contact):{rx:0,tx:0,linkVolume:0};
-      return {neighbor,contact:signal.contact,activity};
-    });
-    const rxTotal=directional.reduce((sum,item)=>sum+(Number(item.activity.rx)||0),0);
-    const txTotal=directional.reduce((sum,item)=>sum+(Number(item.activity.tx)||0),0);
-    const inbound=directional.filter((item)=>Number(item.activity.rx)>0)
-      .sort((a,b)=>Number(b.activity.rx)-Number(a.activity.rx)).slice(0,10);
-    const outbound=directional.filter((item)=>Number(item.activity.tx)>0)
-      .sort((a,b)=>Number(b.activity.tx)-Number(a.activity.tx)).slice(0,10);
+    // Routing activity must come from the RF path itself. The message
+    // pubkey_prefix identifies the sender/recipient, not the repeater that
+    // forwarded it, so using peer RX/TX here left this card empty.
+    const contactSource=Array.isArray(this.__nodesMapContacts)
+      ? this.__nodesMapContacts
+      : (Array.isArray(this._contacts)?this._contacts:[]);
+    const resolveHash=(rawHash)=>{
+      const hash=String(rawHash||"").trim().replace(/^0x/i,"").toLowerCase();
+      if(!hash)return null;
+      const matches=contactSource.filter((contact)=>{
+        const key=String(contact?.public_key||"").trim().toLowerCase();
+        const prefix=String(contact?.pubkey_prefix||key.slice(0,12)).trim().toLowerCase();
+        return (key&&key.startsWith(hash))||(prefix&&prefix.startsWith(hash));
+      });
+      return matches.length===1?matches[0]:null;
+    };
+    const rowsFromHashes=(source)=>{
+      return Object.entries(source||{}).map(([hash,activity])=>{
+        const contact=resolveHash(hash);
+        const neighbor=all.find((candidate)=>{
+          const signal=this.__networkSignalFor(candidate);
+          return contact&&signal.contact&&this.__nodeId(signal.contact)===this.__nodeId(contact);
+        })||null;
+        return {
+          hash:String(hash).toUpperCase(),
+          activity:activity||{},
+          contact,
+          name:String(
+            contact?.adv_name||
+            contact?.name||
+            neighbor?.name||
+            neighbor?.pubkey_prefix||
+            ("Repeater "+String(hash).toUpperCase())
+          ),
+        };
+      }).filter((item)=>Number(item.activity?.observations)>0)
+        .sort((a,b)=>Number(b.activity.observations)-Number(a.activity.observations))
+        .slice(0,10);
+    };
+
+    const inbound=rowsFromHashes(this.__peerActivity?.ingress);
+    const pathRows=rowsFromHashes(this.__peerActivity?.links);
+    const inboundTotal=inbound.reduce((sum,item)=>sum+(Number(item.activity.observations)||0),0);
+    const pathTotal=pathRows.reduce((sum,item)=>sum+(Number(item.activity.observations)||0),0);
 
     const split=document.createElement("div");split.className="hive-network-activity-split";
-    const renderDirection=(label,items,key,total)=>{
+    const renderDirection=(label,items,total,emptyText)=>{
       const side=document.createElement("div");side.className="hive-network-activity-side";
       const heading=document.createElement("div");heading.className="hive-network-activity-side-title";heading.textContent=label;
       side.appendChild(heading);
       if(!items.length){
         const empty=document.createElement("div");
         empty.style.cssText="color:var(--secondary-text-color);font-size:9px;line-height:1.4;";
-        empty.textContent="Ainda sem dados "+label.toLowerCase()+".";
+        empty.textContent=emptyText;
         side.appendChild(empty);
         return side;
       }
       for(const item of items){
-        const count=Number(item.activity[key])||0;
+        const count=Number(item.activity.observations)||0;
         const pct=total>0?count/total*100:0;
         const row=document.createElement("div");row.className="hive-network-top-row";
-        const name=document.createElement("strong");name.textContent=String(item.neighbor?.name||item.neighbor?.pubkey_prefix||"Repeater");
+        const name=document.createElement("strong");name.textContent=item.name;
         const value=document.createElement("span");value.textContent=String(Math.round(count))+" · "+pct.toFixed(1)+"%";
         row.append(name,value);
+        const detail=[
+          "hash "+item.hash,
+          Number.isFinite(Number(item.activity.avg_rssi))?"RSSI "+Number(item.activity.avg_rssi).toFixed(1)+" dBm":"",
+          Number.isFinite(Number(item.activity.avg_snr))?"SNR "+Number(item.activity.avg_snr).toFixed(1)+" dB":"",
+        ].filter(Boolean).join(" · ");
+        row.title=detail;
         if(item.contact){
           row.style.cursor="pointer";
-          row.title="Abrir este nó no mapa · paths observados: "+String(Math.round(Number(item.activity.linkVolume)||0));
           row.addEventListener("click",()=>{
             this._activeTab="network";this.__hiveNeighborMapMode="contacts";
             this.requestUpdate?.();
@@ -9179,8 +9218,25 @@ class HiveFWPanel extends BasePanel {
       }
       return side;
     };
-    split.append(renderDirection("Entrada",inbound,"rx",rxTotal),renderDirection("Saída",outbound,"tx",txTotal));
+    split.append(
+      renderDirection(
+        "Entrada",
+        inbound,
+        inboundTotal,
+        "Ainda não existem paths recebidos com Repeater de entrada identificado."
+      ),
+      renderDirection(
+        "No percurso",
+        pathRows,
+        pathTotal,
+        "Ainda não existem hashes de Repeaters nos paths RF armazenados."
+      )
+    );
     trafficPanel.appendChild(split);
+    const trafficNote=document.createElement("div");
+    trafficNote.style.cssText="margin-top:8px;color:var(--secondary-text-color);font-size:9px;line-height:1.35;";
+    trafficNote.textContent="Entrada = último Repeater antes do nosso rádio. Percurso = frequência com que cada hash apareceu nos paths recebidos. A saída não é inferida sem telemetria RF que a confirme.";
+    trafficPanel.appendChild(trafficNote);
     panels.append(freshness,signals,trafficPanel);
 
     const events=document.createElement("section");
