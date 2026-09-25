@@ -6038,17 +6038,23 @@ void MyMesh::handleCmdFrame(size_t len) {
       _prefs.mesh_time_sync ? "1" : "0"
     );
 
+#if defined(NRF52_PLATFORM) || defined(HELTEC_LORA_V3)
+    // Keep the 140-byte custom-var frame compact. pwr=<notify><external>,
+    // e.g. pwr:11 means notification ON + external power present.
+    // The write key remains power_notify for a descriptive control surface.
+    char power_state[3];
+    snprintf(
+      power_state,
+      sizeof(power_state),
+      "%u%u",
+      _prefs.isPowerNotifyEn() ? 1U : 0U,
+      board.isExternalPowered() ? 1U : 0U
+    );
+    appendCustomVar("pwr", power_state);
+#else
     appendCustomVar(
       "power_notify",
       _prefs.isPowerNotifyEn() ? "1" : "0"
-    );
-
-#if defined(NRF52_PLATFORM) || defined(HELTEC_LORA_V3)
-    // T114 reads real VBUS from the nRF52 POWER peripheral. Heltec V3 uses
-    // the onboard USB-UART bridge power as a VUSB-presence proxy.
-    appendCustomVar(
-      "ext_power",
-      board.isExternalPowered() ? "1" : "0"
     );
 #endif
 
