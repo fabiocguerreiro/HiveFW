@@ -6180,6 +6180,7 @@ class HiveFWPanel extends BasePanel {
       if(Number.isFinite(localAdvertEpoch)&&localAdvertEpoch>0){
         merged.last_advert=localAdvertEpoch;
         merged.age_seconds=Math.max(0,Math.floor(Date.now()/1000-localAdvertEpoch));
+        merged.age_bucket=merged.age_seconds<3600?"lt1h":merged.age_seconds<21600?"lt6h":merged.age_seconds<86400?"lt24h":merged.age_seconds<7*86400?"lt7d":"stale";
         merged.__hivefw_local_advert_sent=true;
       }
       return merged;
@@ -6200,6 +6201,9 @@ class HiveFWPanel extends BasePanel {
       age_seconds:Number(status?.smart_advert?.last_epoch)>0
         ? Math.max(0,Math.floor(Date.now()/1000-Number(status.smart_advert.last_epoch)))
         : null,
+      age_bucket:Number(status?.smart_advert?.last_epoch)>0
+        ? ((Date.now()/1000-Number(status.smart_advert.last_epoch))<3600?"lt1h":(Date.now()/1000-Number(status.smart_advert.last_epoch))<21600?"lt6h":(Date.now()/1000-Number(status.smart_advert.last_epoch))<86400?"lt24h":(Date.now()/1000-Number(status.smart_advert.last_epoch))<7*86400?"lt7d":"stale")
+        : "stale",
       __hivefw_local:true,
       __hivefw_local_match:false,
       __hivefw_local_advert_sent:true,
@@ -6609,7 +6613,7 @@ class HiveFWPanel extends BasePanel {
       if(!Number.isNaN(date.getTime())){
         const ageSeconds=(Date.now()-date.getTime())/1000;
         rows.push([
-          "Último advert",
+          contact?.__hivefw_local ? "Último advert enviado" : "Último advert",
           date.toLocaleString()+"\nHá "+formatElapsed(ageSeconds)
         ]);
       }
@@ -7803,7 +7807,7 @@ class HiveFWPanel extends BasePanel {
   __renderRadioCard(status) {
     const card = this.__card(
       "Rádio",
-      "Parâmetros RF equivalentes à parte principal do Repeater Setup."
+      "Parâmetros RF reais do Companion, também usados pelo modo Repeater."
     );
 
     const grid = document.createElement("div");
@@ -8378,7 +8382,7 @@ class HiveFWPanel extends BasePanel {
 
   __renderLimitationsCard() {
     const card = this.__card(
-      "Repeater Setup · cobertura atual",
+      "Cobertura atual",
       "Funcionalidades disponíveis sem alterar o firmware do rádio."
     );
     card.classList.add("wide");
