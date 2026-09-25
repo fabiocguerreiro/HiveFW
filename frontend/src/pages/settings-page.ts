@@ -2106,7 +2106,7 @@ export class SettingsPage extends LitElement {
         const regions = Array.isArray(regionsBlock.regions) ? regionsBlock.regions.length : 0;
 
         if (!window.confirm(
-          'Restaurar o backup Repeater vai substituir Owner Info, RX Gain, ADC, routing, RF avançado, RegionMap e ACL persistente.\n\n' +
+          'Restaurar o backup Repeater vai substituir Owner Info, RX Gain, ADC, Notif. Energia, routing, RF avançado, RegionMap e ACL persistente.\n\n' +
           'As passwords Admin/Guest NÃO são exportadas nem alteradas.\n\n' +
           `ACL: ${acl}\nRegiões: ${regions}\n\nPretendes continuar?`,
         )) return;
@@ -2174,7 +2174,7 @@ export class SettingsPage extends LitElement {
           <div class="backup-restore-panel">
             <div style="font-size:13px;font-weight:650;">Repeater</div>
             <div style="font-size:11px;color:var(--secondary-text-color);line-height:1.45;margin:4px 0 9px;">
-              Owner Info, RX Gain, ADC, modo Repeater, Path Hash, Multi ACK, Smart Advert, RTC Mesh, Duty Cycle, routing, RF avançado, RegionMap e ACL.
+              Owner Info, RX Gain, ADC, modo Repeater, Path Hash, Multi ACK, Smart Advert, RTC Mesh, Notif. Energia, Duty Cycle, routing, RF avançado, RegionMap e ACL.
             </div>
             <div style="font-size:10px;color:var(--secondary-text-color);margin-bottom:9px;">
               Passwords Admin/Guest são write-only: nunca entram no backup e são mantidas durante o restore.
