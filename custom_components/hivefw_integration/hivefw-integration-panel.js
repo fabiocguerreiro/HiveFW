@@ -1274,7 +1274,7 @@ let e,t,i,a,o,s,r,n,l,d,c,p,h,u,g,v,m,f,_,b,y,x,w,$,k,S,C,R,M,A,T,I,z,D,N,F,E,O,
               </button>
               <button class="compose-btn" title="Gerir canais" aria-label="Gerir canais"
                 @click=${0}>
-                <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58-.96-1.66-2.39.96a7.1 7.1 0 00-1.62-.94L14.4 2.8h-4.8l-.36 2.54c-.59.24-1.13.56-1.62.94l-2.39-.96-.96 1.66 2.03 1.58A7.2 7.2 0 006.2 12c0 .32.02.64.07.94l-2.03 1.58.96 1.66 2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54h4.8l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96.96-1.66-2.03-1.58c.04-.3.06-.61.06-.94zM12 15.5A3.5 3.5 0 1112 8a3.5 3.5 0 010 7.5z"/></svg>
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 00.12-.61l-1.92-3.32a.49.49 0 00-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 00-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.49.49 0 00-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.07.62-.07.94s.02.64.07.94l-2.03 1.58a.49.49 0 00-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
               </button>
             </div>
           </div>
@@ -1287,7 +1287,7 @@ let e,t,i,a,o,s,r,n,l,d,c,p,h,u,g,v,m,f,_,b,y,x,w,$,k,S,C,R,M,A,T,I,z,D,N,F,E,O,
             <span class="sidebar-title main-section-title">Contactos</span>
             <button class="compose-btn" title="Gerir contactos" aria-label="Gerir contactos"
               @click=${0}>
-              <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58-.96-1.66-2.39.96a7.1 7.1 0 00-1.62-.94L14.4 2.8h-4.8l-.36 2.54c-.59.24-1.13.56-1.62.94l-2.39-.96-.96 1.66 2.03 1.58A7.2 7.2 0 006.2 12c0 .32.02.64.07.94l-2.03 1.58.96 1.66 2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54h4.8l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96.96-1.66-2.03-1.58c.04-.3.06-.61.06-.94zM12 15.5A3.5 3.5 0 1112 8a3.5 3.5 0 010 7.5z"/></svg>
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 00.12-.61l-1.92-3.32a.49.49 0 00-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 00-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.49.49 0 00-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.07.62-.07.94s.02.64.07.94l-2.03 1.58a.49.49 0 00-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
             </button>
           </div>
           <div class="conversation-list" role="listbox" aria-label="Contactos adicionados" @keydown=${0}>
@@ -1566,9 +1566,9 @@ let e,t,i,a,o,s,r,n,l,d,c,p,h,u,g,v,m,f,_,b,y,x,w,$,k,S,C,R,M,A,T,I,z,D,N,F,E,O,
       display: flex;
       flex-direction: column;
     }
-    .channels-section { flex: 7 1 0; }
+    .channels-section { flex: 6 1 0; }
     .contacts-section {
-      flex: 3 1 0;
+      flex: 4 1 0;
       border-top: 1px solid var(--divider-color, #e0e0e0);
     }
     .conversation-list {
@@ -4918,11 +4918,14 @@ let e,t,i,a,o,s,r,n,l,d,c,p,h,u,g,v,m,f,_,b,y,x,w,$,k,S,C,R,M,A,T,I,z,D,N,F,E,O,
         @cancel=${0}>
       </meshcore-confirm-dialog>
 
-    `),[["firmware","Gestão Firmware","Releases, OTA, flash manual e downloads"],["users","Utilizadores","Acesso remoto, passwords e ACL"],["radio","Config. Rádio","Frequência, BW, SF, CR, potência e RX"],["repeater","Config. Repetidor","Modo, adverts, Timekeeper, routing e retransmissão"],["wifi","Wi-Fi","Configuração de rede do Companion"],["location","Localização","GPS, manual ou Home Assistant"],["regions","Regiões & Scopes","RegionMap e flood scopes"],["identity","Identidade","Nome, identidade e chaves do dispositivo"],["backup","Backup & Restore","Cópias Companion e Repeater"],["diagnostics","Diagnóstico","Consola, RX Log, alertas e automações"]].map(([e,t,i])=>Ys(ia||(ia=rs`
+    `),[["firmware","Gestão Firmware","Releases, OTA, flash manual e downloads","mdi:update"],["users","Utilizadores","Acesso remoto, passwords e ACL","mdi:account-group-outline"],["radio","Configuração Rádio","Frequência, BW, SF, CR, potência e RX","mdi:radio-tower"],["repeater","Configuração Repetidor","Modo, adverts, Timekeeper, routing e retransmissão","mdi:access-point-network"],["wifi","Wi-Fi","Configuração de rede do Companion","mdi:wifi-cog"],["location","Localização","GPS, manual ou Home Assistant","mdi:map-marker-outline"],["regions","Regiões & Scopes","RegionMap e flood scopes","mdi:map-outline"],["identity","Identidade","Nome, identidade e chaves do dispositivo","mdi:card-account-details-outline"],["backup","Backup & Restore","Cópias Companion e Repeater","mdi:backup-restore"],["diagnostics","Diagnóstico","Consola, RX Log, alertas e automações","mdi:stethoscope"]].map(([e,t,i,a])=>Ys(ia||(ia=rs`
               <button class="settings-shortcut" @click=${0}>
-                <span class="settings-shortcut-title">${0}</span>
-                <span class="settings-shortcut-desc">${0}</span>
-              </button>`),()=>{this._settingsTopic=e},t,i)),this._settingsTopic?Ys(aa||(aa=rs`
+                <span class="settings-shortcut-icon" aria-hidden="true"><ha-icon .icon=${0}></ha-icon></span>
+                <span class="settings-shortcut-copy">
+                  <span class="settings-shortcut-title">${0}</span>
+                  <span class="settings-shortcut-desc">${0}</span>
+                </span>
+              </button>`),()=>{this._settingsTopic=e},a,t,i)),this._settingsTopic?Ys(aa||(aa=rs`
         <div class="settings-topic-overlay" @click=${0}>
           <div class="settings-topic-dialog topic-${0}" role="dialog" aria-modal="true">
             <div class="settings-topic-header">
@@ -4946,7 +4949,7 @@ let e,t,i,a,o,s,r,n,l,d,c,p,h,u,g,v,m,f,_,b,y,x,w,$,k,S,C,R,M,A,T,I,z,D,N,F,E,O,
               </div>
             </div>
           </div>
-        </div>`),e=>{e.target===e.currentTarget&&(this._settingsTopic=null)},this._settingsTopic,{firmware:"Gestão Firmware",users:"Utilizadores",radio:"Config. Rádio",repeater:"Config. Repetidor",wifi:"Wi-Fi",location:"Localização",regions:"Regiões & Scopes",identity:"Identidade",backup:"Backup & Restore",diagnostics:"Diagnóstico"}[this._settingsTopic],()=>{this._settingsTopic=null},this.selectedDevice?Ys(oa||(oa=rs`
+        </div>`),e=>{e.target===e.currentTarget&&(this._settingsTopic=null)},this._settingsTopic,{firmware:"Gestão Firmware",users:"Utilizadores",radio:"Configuração Rádio",repeater:"Configuração Repetidor",wifi:"Wi-Fi",location:"Localização",regions:"Regiões & Scopes",identity:"Identidade",backup:"Backup & Restore",diagnostics:"Diagnóstico"}[this._settingsTopic],()=>{this._settingsTopic=null},this.selectedDevice?Ys(oa||(oa=rs`
                 <div id="hive-repeater-settings-card" class="device-section" data-hive-native="repeater">
                   <div class="repeater-card-header" style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;">
                     <div class="card-title" style="margin:0;">Repeater Setup</div>
@@ -6497,22 +6500,28 @@ let e,t,i,a,o,s,r,n,l,d,c,p,h,u,g,v,m,f,_,b,y,x,w,$,k,S,C,R,M,A,T,I,z,D,N,F,E,O,
         }
       }
 
-      .settings-shortcuts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;padding:2px}
-      .settings-shortcut{display:flex;flex-direction:column;align-items:flex-start;gap:5px;min-height:92px;padding:16px;border:1px solid var(--divider-color);border-radius:12px;background:var(--card-background-color);color:var(--primary-text-color);cursor:pointer;text-align:left;transition:.15s}
+      .settings-shortcuts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;padding:4px}
+      .settings-shortcut{display:grid;grid-template-columns:48px minmax(0,1fr);align-items:center;column-gap:14px;min-height:112px;padding:20px;border:1px solid var(--divider-color);border-radius:14px;background:var(--card-background-color);color:var(--primary-text-color);cursor:pointer;text-align:left;transition:.15s}
       .settings-shortcut:hover{border-color:var(--primary-color);background:color-mix(in srgb,var(--primary-color) 5%,var(--card-background-color));transform:translateY(-1px)}
-      .settings-shortcut-title{font-size:14px;font-weight:700}.settings-shortcut-desc{font-size:11px;line-height:1.4;color:var(--secondary-text-color)}
+      .settings-shortcut-icon{grid-row:1 / span 2;width:46px;height:46px;display:grid;place-items:center;border-radius:12px;background:color-mix(in srgb,var(--primary-color) 12%,transparent);color:var(--primary-color)}
+      .settings-shortcut-icon ha-icon{--mdc-icon-size:26px}
+      .settings-shortcut-copy{display:flex;flex-direction:column;gap:5px;min-width:0}
+      .settings-shortcut-title{font-size:16px;font-weight:700}.settings-shortcut-desc{font-size:12px;line-height:1.45;color:var(--secondary-text-color)}
       .settings-topic-overlay{position:fixed;inset:0;z-index:10020;display:grid;place-items:center;padding:18px;box-sizing:border-box;background:rgba(0,0,0,.5)}
       .settings-topic-dialog{width:min(1080px,100%);max-height:min(90vh,900px);display:flex;flex-direction:column;overflow:hidden;border-radius:14px;background:var(--primary-background-color);color:var(--primary-text-color);box-shadow:0 14px 42px rgba(0,0,0,.32)}
       .settings-topic-header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 16px;border-bottom:1px solid var(--divider-color);background:var(--card-background-color);flex:0 0 auto}
       .settings-topic-header strong{font-size:16px}.settings-topic-close{width:34px;height:34px;border:0;border-radius:50%;background:transparent;color:var(--secondary-text-color);font-size:20px;cursor:pointer}.settings-topic-close:hover{background:var(--secondary-background-color);color:var(--primary-text-color)}
       .settings-topic-body{overflow:auto;padding:16px;min-height:0}.settings-topic-body .settings-grid{margin:0}
+      .topic-firmware .firmware-manager,.topic-wifi #hive-wifi-portal-card,.topic-location .settings-card-location,.topic-identity .settings-card-identity,.topic-backup .backup-restore-card{width:100%;max-width:none;box-sizing:border-box}
+      .topic-firmware .settings-grid,.topic-wifi .settings-grid,.topic-location .settings-grid,.topic-identity .settings-grid,.topic-backup .settings-grid{grid-template-columns:minmax(0,1fr)!important}
+      .topic-wifi .settings-column,.topic-location .settings-column,.topic-identity .settings-column,.topic-backup .settings-column{display:contents}
       .settings-topic-dialog #hive-repeater-settings-card,.settings-topic-dialog .firmware-manager,.settings-topic-dialog .settings-card-identity,.settings-topic-dialog .backup-restore-card,.settings-topic-dialog #hive-console-settings-card,.settings-topic-dialog #hive-rxlog-card,.settings-topic-dialog #hive-observability-settings-card,.settings-topic-dialog .settings-card-location,.settings-topic-dialog #hive-wifi-portal-card{display:none}
       .topic-firmware .firmware-manager,.topic-identity .settings-card-identity,.topic-backup .backup-restore-card,.topic-location .settings-card-location,.topic-wifi #hive-wifi-portal-card,.topic-diagnostics #hive-console-settings-card,.topic-diagnostics #hive-rxlog-card,.topic-diagnostics #hive-observability-settings-card,.topic-users #hive-repeater-settings-card,.topic-radio #hive-repeater-settings-card,.topic-repeater #hive-repeater-settings-card,.topic-regions #hive-repeater-settings-card{display:block}
       .topic-users [data-hive-repeater-quick],.topic-users [data-hive-owner-info],.topic-users [data-hive-native="companion"],.topic-users [data-hive-routing],.topic-users [data-hive-rf],.topic-users .settings-regions-block{display:none!important}
       .topic-radio [data-hive-repeater-quick],.topic-radio [data-hive-repeater-access],.topic-radio [data-hive-owner-info],.topic-radio [data-hive-routing],.topic-radio [data-hive-rf],.topic-radio .settings-regions-block{display:none!important}
       .topic-repeater [data-hive-repeater-access],.topic-repeater [data-hive-native="companion"],.topic-repeater .settings-regions-block{display:none!important}
       .topic-regions [data-hive-repeater-quick],.topic-regions [data-hive-repeater-access],.topic-regions [data-hive-owner-info],.topic-regions [data-hive-native="companion"],.topic-regions [data-hive-routing],.topic-regions [data-hive-rf]{display:none!important}
-      @media(max-width:870px){.settings-shortcuts{grid-template-columns:1fr 1fr}.settings-topic-overlay{padding:0}.settings-topic-dialog{width:100%;height:100%;max-height:none;border-radius:0}}
+      @media(max-width:870px){.settings-shortcuts{grid-template-columns:1fr}.settings-topic-overlay{padding:0}.settings-topic-dialog{width:100%;height:100%;max-height:none;border-radius:0}}
       @media(max-width:520px){.settings-shortcuts{grid-template-columns:1fr}}
 
       .card-title {
