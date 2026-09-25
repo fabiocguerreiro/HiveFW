@@ -464,6 +464,8 @@ export interface LocalRepeaterStatus {
   neighbor_advert_interval?: number | null;
   mesh_time_sync_supported?: boolean;
   mesh_time_sync?: boolean;
+  power_notify_supported?: boolean;
+  power_notify?: boolean;
   duty_cycle_supported: boolean;
   duty_cycle?: number;
   smart_advert?: {
