@@ -685,7 +685,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             if get_contact_discovery_mode(entry) == MODE_OFF:
                 return
 
-            contact = event.payload
+            # Keep the node-advertised timestamp untouched, but stamp a separate
+            # HA-local receive time. Remote nodes and even the Companion itself can
+            # have a wrong RTC; neither last_advert nor lastmod is authoritative for
+            # "when did this Companion actually hear it?".
+            contact = dict(event.payload)
+            contact["heard_at"] = time.time()
             public_key = contact.get("public_key")
 
             if public_key:
