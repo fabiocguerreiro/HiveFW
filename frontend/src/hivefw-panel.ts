@@ -1977,7 +1977,7 @@ class HiveFWPanel extends BasePanel {
 
       .hive-neighbors-three {
         display:grid;
-        grid-template-columns:repeat(3,minmax(245px,1fr)) minmax(360px,1.35fr);
+        grid-template-columns:repeat(4,minmax(0,1fr));
         gap:12px;
         width:100%;
         height:100%;
@@ -2471,8 +2471,8 @@ class HiveFWPanel extends BasePanel {
       .hive-network-event:first-of-type { border-top:0; }
       .hive-network-event time { color:var(--secondary-text-color); }
       .hive-network-copy {
-        height:min(82vh,912px);
-        min-height:720px;
+        height:min(90vh,1003px);
+        min-height:792px;
       }
       .hive-network-copy .hive-neighbors-three { height:100%; }
 
@@ -2926,6 +2926,31 @@ class HiveFWPanel extends BasePanel {
       "integrity":"Contadores de erros de receção, pacotes duplicados e eventos de buffer cheio desde o arranque ou último reset das estatísticas do rádio."
     };
 
+    const helpByTitle={
+      "Modo Repeater":"Indica se a função Repeater está ligada. Ativo significa que o rádio pode retransmitir tráfego segundo a configuração atual; Off significa que continua apenas como Companion.",
+      "Tempo de rádio":"Resume a utilização RF. TX mostra a percentagem/tempo em transmissão e RX em receção; valores persistentemente altos indicam maior ocupação do canal.",
+      "Integridade":"Mostra erros de receção, duplicados e eventos de fila cheia. Erros/full são sinais de pressão ou problemas de receção; duplicados podem ser normais numa rede flood.",
+      "Tempo ligado":"Tempo desde o último arranque. Um valor baixo sem reinício planeado pode indicar reboot, perda de alimentação ou watchdog.",
+      "Temperatura":"Temperatura reportada pelo hardware. Serve para acompanhar tendência térmica; o valor não representa necessariamente a temperatura ambiente.",
+      "Ruído de fundo":"Nível de ruído RF do canal em dBm. Quanto mais negativo, melhor. RSSI e SNR abaixo ajudam a interpretar a qualidade do último sinal recebido.",
+      "Relógio do dispositivo":"Hora RTC do rádio e respetivo desvio face ao Home Assistant. 'synchronized' indica desvio pequeno; drift elevado sugere necessidade de sincronização.",
+      "Atividade da rede":"Primeiro valor: contactos ativos nas últimas 24 Horas / total conhecido. A linha inferior mostra também atividade a 7 dias, novos contactos, GPS e favoritos.",
+      "Protocolo / Caminho":"Versão do protocolo Companion e tamanho do Path Hash. Mais bytes reduzem colisões de identificação nos caminhos, à custa de mais overhead.",
+      "Identidade":"Nome anunciado pelo dispositivo e modelo de hardware reportado pelo firmware.",
+      "Frequências Repeater":"Frequência ou intervalos que o Repeater está autorizado a repetir. Não significa transmissão simultânea em todas as frequências.",
+      "Fila TX":"Pacotes à espera de transmissão. Zero ou valores baixos são normais; crescimento persistente indica congestionamento ou atraso no acesso ao canal.",
+      "Capacidade":"Contactos usados/máximos e canais usados/máximos. Aproximar-se do limite pode impedir adicionar novos contactos ou canais.",
+      "Armazenamento":"Percentagem de armazenamento persistente usado e relação usado/total em KB. Valores muito altos deixam pouca margem para novos dados.",
+      "Mensagens enviadas":"Total acumulado de mensagens transmitidas desde o arranque/contador atual. As barras distinguem Flood de Direct.",
+      "Mensagens recebidas":"Total acumulado de mensagens recebidas. As barras mostram Flood, Direct e, quando disponível, erros/duplicados para contexto.",
+      "Bateria":"Percentagem estimada e tensão atual. A tensão ajuda a validar a estimativa de percentagem e a acompanhar o estado da alimentação.",
+      "Sinal da última mensagem":"RSSI e SNR da última mensagem recebida. RSSI menos negativo é mais forte; SNR mais alto indica melhor separação do sinal relativamente ao ruído.",
+      "Firmware":"Versão/build atualmente em execução no rádio.",
+      "Ligação":"Endereço e tipo de ligação entre Home Assistant e o Companion. O indicador mostra se essa ligação está ativa.",
+      "Nós conhecidos":"Quantidade de nós/contactos conhecidos pela integração neste momento.",
+      "Smart Advert":"Estado e próxima janela do advert automático. O tempo restante indica quando o próximo envio automático pode ocorrer."
+    };
+
     for(const tile of hero.querySelectorAll(":scope > .hero-tile")){
       tile.classList.add("hive-metric-uniform");
 
@@ -2939,7 +2964,7 @@ class HiveFWPanel extends BasePanel {
       }
       const marker=String(tile.dataset.repeaterExtra||"");
       const title=(tile.querySelector(".hero-tile-head")?.textContent||"Métrica").replace(/\s+/g," ").trim();
-      const help=helpByMarker[marker] || `${title}: métrica do dispositivo. Quando existe uma entidade associada, clica no cartão para abrir os detalhes no Home Assistant.`;
+      const help=helpByMarker[marker] || helpByTitle[title] || `${title}: mostra o valor atual desta métrica. Usa o valor principal e a linha secundária para interpretar o estado; quando existe entidade associada, clica no cartão para abrir os detalhes no Home Assistant.`;
       let info=tile.querySelector(":scope > .hive-metric-info");
       if(!info){
         info=document.createElement("span");
@@ -8577,7 +8602,7 @@ class HiveFWPanel extends BasePanel {
     }
     state.initialized=true;
     state.events=state.events.filter((event)=>now-Number(event.timestamp||0)<=7*86400000).slice(0,80);
-    state.advert_events=state.advert_events.filter((event)=>now-Number(event.timestamp||0)<=48*3600000).slice(-4000);
+    state.advert_events=state.advert_events.filter((event)=>now-Number(event.timestamp||0)<=7*86400000).slice(-12000);
 
     this.__networkHistory=state;
     try{localStorage.setItem(this.__networkHistoryStorageKey(),JSON.stringify(state));}catch{}
@@ -8649,7 +8674,7 @@ class HiveFWPanel extends BasePanel {
 
     const range=document.createElement("div");
     range.className="hive-network-range";
-    for(const value of [6,24,48]){
+    for(const value of [6,24,48,168]){
       const button=document.createElement("button");
       button.type="button";
       button.textContent=value+"H";
@@ -8712,7 +8737,8 @@ class HiveFWPanel extends BasePanel {
       ["< 1h",all.filter((n)=>Number(n.secs_ago||0)<3600).length],
       ["1–6h",all.filter((n)=>Number(n.secs_ago||0)>=3600&&Number(n.secs_ago||0)<21600).length],
       ["6–24h",all.filter((n)=>Number(n.secs_ago||0)>=21600&&Number(n.secs_ago||0)<86400).length],
-      ["24–48h",all.filter((n)=>Number(n.secs_ago||0)>=86400&&Number(n.secs_ago||0)<=172800).length],
+      ["1–3 dias",all.filter((n)=>Number(n.secs_ago||0)>=86400&&Number(n.secs_ago||0)<3*86400).length],
+      ["3–7 dias",all.filter((n)=>Number(n.secs_ago||0)>=3*86400&&Number(n.secs_ago||0)<=7*86400).length],
     ];
     const freshMax=Math.max(1,...freshBuckets.map(([,value])=>value));
     for(const [label,value] of freshBuckets)freshness.appendChild(this.__networkBarRow(label,value,freshMax));
