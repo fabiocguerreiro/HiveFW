@@ -6512,7 +6512,7 @@ async def ws_get_observed_channels(hass, connection, msg):
 
             for index in range(page_count):
                 parts = str(payload.get(f"o{index}", "")).strip().split("|")
-                if len(parts) != 3:
+                if len(parts) < 3:
                     continue
                 channel_hash = parts[0].upper()[:2]
                 try:
@@ -6522,17 +6522,51 @@ async def ws_get_observed_channels(hass, connection, msg):
                 except (TypeError, ValueError):
                     continue
 
-                channels.append(
-                    {
-                        "hash": channel_hash,
-                        "hash_byte": hash_byte,
-                        "secs_ago": secs_ago,
-                        "last_seen": datetime.fromtimestamp(
-                            max(0, int(time.time()) - secs_ago)
-                        ).isoformat(),
-                        "message_count": message_count,
-                    }
-                )
+                item = {
+                    "hash": channel_hash,
+                    "hash_byte": hash_byte,
+                    "secs_ago": secs_ago,
+                    "last_seen": datetime.fromtimestamp(
+                        max(0, int(time.time()) - secs_ago)
+                    ).isoformat(),
+                    "message_count": message_count,
+                }
+
+                # HiveFW route snapshot extension:
+                # hash|secs|count|hash_size|hash_count|path_hex|ingress_prefix
+                if len(parts) >= 7:
+                    try:
+                        path_hash_size = int(parts[3])
+                        path_hash_count = int(parts[4])
+                    except (TypeError, ValueError):
+                        path_hash_size = 0
+                        path_hash_count = 0
+                    path_hex = str(parts[5] or "").strip().upper()
+                    ingress_prefix = str(parts[6] or "").strip().lower()
+                    expected_chars = path_hash_size * path_hash_count * 2
+                    if (
+                        1 <= path_hash_size <= 3
+                        and path_hash_count >= 0
+                        and expected_chars == len(path_hex)
+                        and all(ch in "0123456789ABCDEF" for ch in path_hex)
+                    ):
+                        route_hashes = [
+                            path_hex[pos : pos + path_hash_size * 2]
+                            for pos in range(0, len(path_hex), path_hash_size * 2)
+                        ]
+                        item.update(
+                            {
+                                "route_supported": True,
+                                "path_hash_size": path_hash_size,
+                                "hop_count": path_hash_count,
+                                "route_hashes": route_hashes,
+                                "ingress_prefix": ingress_prefix or None,
+                            }
+                        )
+                    else:
+                        item["route_supported"] = False
+
+                channels.append(item)
 
             offset += page_count
             if offset >= total:
@@ -6670,6 +6704,34 @@ async def ws_get_observed_channels(hass, connection, msg):
         # Configured channels belong to the normal Canais list and must not
         # also appear in Canais Observados 48H.
         channels = [item for item in channels if not item.get("configured")]
+
+        # Resolve the ingress repeater prefix against the normal contact cache.
+        # Intermediate route hashes may be only 1-3 bytes and therefore remain
+        # displayed as hashes unless the firmware can identify them safely.
+        contacts = await _get_contacts_via_service(hass, msg.get("entry_id"))
+        contact_names = {}
+        for contact in contacts or []:
+            if not isinstance(contact, dict):
+                continue
+            public_key = _contact_public_key_hex(contact)
+            prefix = str(
+                contact.get("pubkey_prefix") or public_key[:12] or ""
+            ).strip().lower()[:12]
+            if not prefix:
+                continue
+            contact_names[prefix] = str(
+                contact.get("adv_name")
+                or contact.get("name")
+                or prefix.upper()
+            ).strip()
+
+        for item in channels:
+            ingress_prefix = str(item.get("ingress_prefix") or "").lower()
+            if ingress_prefix:
+                item["ingress_name"] = contact_names.get(
+                    ingress_prefix,
+                    ingress_prefix.upper(),
+                )
 
         # Keep only entries that still correspond to the current observed set.
         coordinator._hivefw_observed_channel_resolution = {
