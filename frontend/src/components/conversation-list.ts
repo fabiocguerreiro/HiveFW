@@ -561,7 +561,23 @@ export class ConversationList extends LitElement {
 
   private _loadAppsChannelPreference() {
     try {
-      const value = window.localStorage.getItem(this._appsStorageKey());
+      const scopedKey = this._appsStorageKey();
+      let value = window.localStorage.getItem(scopedKey);
+
+      // During first paint nodePrefix may not be available yet, so older/current
+      // sessions can have saved the APPS/SOS choice under the default key.
+      // Migrate that value once the real node prefix arrives instead of making
+      // the selected channel appear to vanish after reconnect/render.
+      if ((!value || !value.length) && this.nodePrefix) {
+        const fallbackKey = 'hivefw.apps_sos_channel.default';
+        const fallback = window.localStorage.getItem(fallbackKey);
+        if (fallback && fallback.length) {
+          value = fallback;
+          window.localStorage.setItem(scopedKey, fallback);
+          window.localStorage.removeItem(fallbackKey);
+        }
+      }
+
       this._appsChannelId = value && value.length ? value : null;
     } catch {
       this._appsChannelId = null;
