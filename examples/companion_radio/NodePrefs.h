@@ -165,6 +165,10 @@ private:
     // exactly like the official Repeater preference.
     uint8_t allow_read_only = 0;
     uint8_t auto_advert = 0;
+    // HiveFW Repeater-only notification. When enabled, losing external
+    // power sends exactly one "Falha de Energia ⚡" message to the channel
+    // selected as Canal APPS/SOS. It rearms only after power returns.
+    uint8_t power_notify = 0;
     // Local zero-hop neighbour advert interval, stored exactly like the
     // official SimpleRepeater: minutes / 2. 120 => 240 minutes.
     uint8_t neighbor_advert_interval = 120;
@@ -187,6 +191,7 @@ private:
       def("disable", disable_fwd);
       def("allow_ro", allow_read_only);
       def("auto_adv", auto_advert);
+      def("pwr_notif", power_notify);
       def("nbr_adv", neighbor_advert_interval);
       def("last_adv", last_auto_advert_epoch);
       def("adv_on", auto_advert_enabled_epoch);
@@ -259,6 +264,9 @@ public:
 
   bool isAutoAdvertEn() const { return repeat.auto_advert == 1; }
   void setAutoAdvertEn(bool en) { repeat.auto_advert = en ? 1 : 0; }
+
+  bool isPowerNotifyEn() const { return repeat.power_notify == 1; }
+  void setPowerNotifyEn(bool en) { repeat.power_notify = en ? 1 : 0; }
 
   uint16_t getNeighborAdvertIntervalMinutes() const {
     return (uint16_t)repeat.neighbor_advert_interval * 2U;
