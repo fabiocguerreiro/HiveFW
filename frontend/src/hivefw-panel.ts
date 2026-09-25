@@ -9161,12 +9161,8 @@ class HiveFWPanel extends BasePanel {
         sourcePill.className="hive-neighbor-pill";
         sourcePill.textContent=contact?.added_to_node?"NO RÁDIO":"LOCAL";
         meta.appendChild(sourcePill);
-        const lastmodEpoch=Number(contact?.lastmod ?? contact?.last_modified ?? 0);
-        const rawFallbackAge=contact?.age_seconds;
-        const fallbackAge=rawFallbackAge == null ? Number.NaN : Number(rawFallbackAge);
-        const ageSeconds=lastmodEpoch>0
-          ? Math.max(0,Math.floor(Date.now()/1000-lastmodEpoch))
-          : fallbackAge;
+        const rawAge=contact?.age_seconds;
+        const ageSeconds=rawAge == null ? Number.NaN : Number(rawAge);
         if(Number.isFinite(ageSeconds)){
           const age=document.createElement("span");
           age.textContent=this.__age(ageSeconds);
