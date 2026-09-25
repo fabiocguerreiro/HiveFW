@@ -680,6 +680,11 @@ def _node_age(contact: dict, now: float | None = None) -> tuple[str, int | None]
         return "stale", None
 
     current = now if now is not None else time.time()
+    # Allow tiny RTC drift, but never turn a clearly-future timestamp into
+    # age=0/"now". That hides bad Companion clocks as fresh contacts.
+    if stamp > current + 60:
+        return "clock_skew", None
+
     age = max(0, int(current - stamp))
     if age < 3600:
         return "lt1h", age
