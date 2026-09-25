@@ -2363,6 +2363,8 @@ async def test_mark_read_with_no_messages_no_op(
 class _FakeEventType:
     ERROR = "error_event_type"
     OK = "ok_event_type"
+    SELF_INFO = "self_info_event_type"
+    DEVICE_INFO = "device_info_event_type"
 
 
 class _FakeEvent:
