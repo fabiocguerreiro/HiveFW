@@ -6,10 +6,10 @@ O HiveFW tem três vertentes com nomenclatura fixa:
 - **Integração** — Home Assistant e respetivo frontend HiveFW;
 - **App** — futura aplicação Android HiveFW.
 
-Firmware e Integração vivem atualmente neste repositório, partilham a mesma
-linha de versão e são publicados pela mesma linha de Releases. A App é
-desenvolvida separadamente em `fabiocguerreiro/HiveFW-app` e está prevista
-para futura integração neste repositório quando estiver suficientemente madura.
+Firmware, Integração e App vivem agora no mesmo repositório. Firmware e
+Integração continuam a partilhar a versão canónica `VERSION`; a App vive em
+`app/` e mantém tags/releases `app-v*` próprias. O antigo
+`fabiocguerreiro/HiveFW-app` fica apenas como histórico/rollback.
 
 Ver [docs/project_scope.md](docs/project_scope.md).
 
@@ -18,8 +18,9 @@ Ver [docs/project_scope.md](docs/project_scope.md).
 ### Projeto / manutenção
 
 - [x] nomenclatura canónica Firmware / Integração / App documentada;
-- [x] App Android isolada num repositório próprio durante a fase atual;
-- [ ] integrar a App no repositório principal quando a arquitetura e o ciclo de release estiverem maduros;
+- [x] App Android migrada integralmente para `app/` no repositório principal;
+- [x] workflows de teste, preview APK e release da App adaptados ao monorepo;
+- [x] branches de rollback criados antes da migração da App;
 - [x] firmware e Home Assistant no mesmo repositório;
 - [x] Heltec V3 e Heltec T114 como alvos suportados;
 - [x] integração Home Assistant standalone;
@@ -58,6 +59,9 @@ Ver [docs/upstream-sync.md](docs/upstream-sync.md).
 - [x] APP/GPS com prioridade sobre a fonte Mesh;
 - [x] curva LiPo interpolada para percentagem de bateria;
 - [x] Smart Advert com persistência, slot determinístico e proteção at-most-once.
+- [x] deteção de alimentação externa no T114 por VBUS e no V3 por presença VUSB;
+- [x] `Notif. Energia` persistente no modo Repeater, sincronizada por custom var;
+- [x] envio único `Falha de Energia ⚡` para o Canal APPS/SOS após perda confirmada de alimentação, rearmando apenas quando a energia regressa.
 
 ### Smart Advert atual
 
@@ -143,6 +147,8 @@ Plano aprovado para uma implementação futura:
 - [x] passwords Admin/Guest write-only e limpeza total da ACL;
 - [x] Frequências Repeater permitidas read-only;
 - [x] RTC Mesh opcional;
+- [x] estado de alimentação externa no cartão Bateria e raio no ícone do cabeçalho;
+- [x] controlo `Notif. Energia` na configuração Repeater, sincronizado com o firmware;
 - [x] Backup/Restore Companion separado do Backup/Restore Repeater e renderizado
   nativamente em Definições, sem injeção DOM pelo wrapper;
 - [x] Backup Repeater inclui Owner Info, RX Gain, ADC, Repeat, Path Hash,
@@ -155,7 +161,15 @@ Plano aprovado para uma implementação futura:
 - [ ] validar em hardware o novo Owner Info / RX Gain / ADC / ACL /
   Backup Repeater antes da próxima release.
 
-### Backup & Restore
+#### App Android
+
+- [x] código Flutter/Android integrado em `app/`;
+- [x] Configuração do Repeater lê o estado de alimentação externa;
+- [x] Configuração do Repeater expõe `Notif. Energia` pelo mesmo custom var do firmware/Integração;
+- [x] CI da App executado a partir do monorepo;
+- [ ] validar em hardware o estado VUSB do V3 e VBUS do T114 e o envio real da notificação.
+
+## Backup & Restore
 
 #### Companion
 
