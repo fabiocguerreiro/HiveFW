@@ -407,7 +407,7 @@ class HiveFWPanel extends BasePanel {
       }
       if (
         !this.__repeaterLoading &&
-        (!this.__repeaterStatus || !this.__repeaterStatusLoadedAt || Date.now()-this.__repeaterStatusLoadedAt>2000)
+        (!this.__repeaterStatus || !this.__repeaterStatusLoadedAt || Date.now()-this.__repeaterStatusLoadedAt>30000)
       ) {
         void this.__loadRepeaterStatus();
       }
@@ -2008,7 +2008,11 @@ class HiveFWPanel extends BasePanel {
         min-height:0;
         overflow-y:auto;
         overflow-x:hidden;
-        overscroll-behavior:contain;
+        /* Allow wheel/touch scroll chaining to the Rede page when a nested
+           column reaches its top/bottom. "contain" trapped the gesture here
+           and made the page feel as if scrolling intermittently blocked. */
+        overscroll-behavior-y:auto;
+        overscroll-behavior-x:contain;
         scrollbar-gutter:stable;
         touch-action:pan-y;
         -webkit-overflow-scrolling:touch;
