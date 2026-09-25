@@ -2148,30 +2148,49 @@ async def ws_get_device_config(hass, connection, msg):
         "max_channels": coordinator.max_channels,
     }
 
-    # Refresh SELF_INFO explicitly. BW/SF/CR/frequency live in APPSTART;
-    # relying on coordinator.api.self_info here could leave the Radio Setup
-    # dropdowns showing values from before a radio reconfiguration.
+    # Refresh SELF_INFO + DEVICE_INFO as one serialized snapshot.
+    # meshcore_py matches replies by EventType; without this lock another
+    # background/local query can consume the same SELF_INFO/DEVICE_INFO event
+    # and leave Settings displaying a stale or unrelated snapshot.
+    from meshcore.events import EventType
+
+    commands = coordinator.api.mesh_core.commands
+    request_lock = commands._mesh_request_lock
     self_info = getattr(coordinator.api, "self_info", {}) or {}
     device_info = {}
-    try:
-        self_event = await coordinator.api.mesh_core.commands.send_appstart()
-        self_payload = getattr(self_event, "payload", None)
-        if isinstance(self_payload, dict):
-            self_info = self_payload
-            try:
-                coordinator.api._cache_self_info_event(self_event)
-            except Exception:
-                pass
-    except Exception as ex:
-        _LOGGER.debug("Unable to refresh SELF_INFO for settings: %s", ex)
 
+    await request_lock.acquire()
     try:
-        device_query = await coordinator.api.mesh_core.commands.send_device_query()
-        payload = getattr(device_query, "payload", None)
-        if isinstance(payload, dict):
-            device_info = payload
-    except Exception as ex:
-        _LOGGER.debug("Unable to refresh DEVICE_INFO for settings: %s", ex)
+        try:
+            self_event = await commands.send_appstart()
+            self_payload = getattr(self_event, "payload", None)
+            if (
+                self_event is not None
+                and getattr(self_event, "type", None) != EventType.ERROR
+                and isinstance(self_payload, dict)
+            ):
+                self_info = self_payload
+                try:
+                    coordinator.api._cache_self_info_event(self_event)
+                except Exception:
+                    pass
+        except Exception as ex:
+            _LOGGER.debug("Unable to refresh SELF_INFO for settings: %s", ex)
+
+        try:
+            device_query = await commands.send_device_query()
+            payload = getattr(device_query, "payload", None)
+            if (
+                device_query is not None
+                and getattr(device_query, "type", None) != EventType.ERROR
+                and isinstance(payload, dict)
+            ):
+                device_info = payload
+        except Exception as ex:
+            _LOGGER.debug("Unable to refresh DEVICE_INFO for settings: %s", ex)
+    finally:
+        if request_lock.locked():
+            request_lock.release()
 
     config["frequency"] = self_info.get("radio_freq")
     config["bandwidth"] = self_info.get("radio_bw")
@@ -3612,20 +3631,58 @@ async def ws_set_device_config(hass, connection, msg):
             changed.append("coords")
 
         # Handle radio settings and HiveFW's integrated Repeater toggle.
-        # The standard Companion CMD_SET_RADIO_PARAMS optionally carries the
-        # repeat byte, so this does not require a firmware-specific command.
+        # The standard Companion CMD_SET_RADIO_PARAMS writes the complete RF
+        # tuple even when the UI changes only one field. Therefore never fill
+        # the other fields from coordinator.api.self_info: that cache may
+        # pre-date a radio change and would silently overwrite real settings.
         radio_keys = {"frequency", "bandwidth", "spreading_factor", "coding_rate"}
         radio_or_repeat = radio_keys | {"repeat"}
         if radio_or_repeat & set(settings.keys()):
-            self_info = getattr(coordinator.api, 'self_info', {}) or {}
-            freq = settings.get("frequency", self_info.get("radio_freq"))
-            bw = settings.get("bandwidth", self_info.get("radio_bw"))
-            sf = settings.get("spreading_factor", self_info.get("radio_sf"))
-            cr = settings.get("coding_rate", self_info.get("radio_cr"))
-            repeat = settings.get("repeat")
+            commands = coordinator.api.mesh_core.commands
+            request_lock = commands._mesh_request_lock
+            await request_lock.acquire()
+            try:
+                from meshcore.events import EventType
 
-            if all(v is not None for v in [freq, bw, sf, cr]):
-                result = await coordinator.api.mesh_core.commands.set_radio(
+                self_event = await commands.send_appstart()
+                self_payload = getattr(self_event, "payload", None)
+                if (
+                    self_event is None
+                    or getattr(self_event, "type", None) == EventType.ERROR
+                    or not isinstance(self_payload, dict)
+                ):
+                    reason = _device_config_failure_reason(self_event)
+                    _send_device_config_failure(
+                        connection,
+                        msg["id"],
+                        "radio/repeater read-back",
+                        reason or "invalid SELF_INFO response",
+                        changed,
+                    )
+                    return
+
+                try:
+                    coordinator.api._cache_self_info_event(self_event)
+                except Exception:
+                    pass
+
+                freq = settings.get("frequency", self_payload.get("radio_freq"))
+                bw = settings.get("bandwidth", self_payload.get("radio_bw"))
+                sf = settings.get("spreading_factor", self_payload.get("radio_sf"))
+                cr = settings.get("coding_rate", self_payload.get("radio_cr"))
+                repeat = settings.get("repeat")
+
+                if not all(v is not None for v in [freq, bw, sf, cr]):
+                    _send_device_config_failure(
+                        connection,
+                        msg["id"],
+                        "radio/repeater",
+                        "missing current radio parameters",
+                        changed,
+                    )
+                    return
+
+                result = await commands.set_radio(
                     freq, bw, sf, cr, repeat=repeat
                 )
                 reason = _device_config_failure_reason(result)
@@ -3634,18 +3691,67 @@ async def ws_set_device_config(hass, connection, msg):
                         connection, msg["id"], "radio/repeater", reason, changed
                     )
                     return
+
+                # Verify the complete tuple from a fresh SELF_INFO before
+                # reporting success to the frontend.
+                verify_event = await commands.send_appstart()
+                verify_payload = getattr(verify_event, "payload", None)
+                if (
+                    verify_event is None
+                    or getattr(verify_event, "type", None) == EventType.ERROR
+                    or not isinstance(verify_payload, dict)
+                ):
+                    reason = _device_config_failure_reason(verify_event)
+                    _send_device_config_failure(
+                        connection,
+                        msg["id"],
+                        "radio/repeater verification",
+                        reason or "invalid SELF_INFO response",
+                        changed,
+                    )
+                    return
+
+                try:
+                    coordinator.api._cache_self_info_event(verify_event)
+                except Exception:
+                    pass
+
+                expected = {
+                    "radio_freq": float(freq),
+                    "radio_bw": float(bw),
+                    "radio_sf": int(sf),
+                    "radio_cr": int(cr),
+                }
+                actual = {
+                    "radio_freq": verify_payload.get("radio_freq"),
+                    "radio_bw": verify_payload.get("radio_bw"),
+                    "radio_sf": verify_payload.get("radio_sf"),
+                    "radio_cr": verify_payload.get("radio_cr"),
+                }
+                mismatch = (
+                    actual["radio_freq"] is None
+                    or abs(float(actual["radio_freq"]) - expected["radio_freq"]) > 0.0005
+                    or actual["radio_bw"] is None
+                    or abs(float(actual["radio_bw"]) - expected["radio_bw"]) > 0.0005
+                    or int(actual["radio_sf"]) != expected["radio_sf"]
+                    or int(actual["radio_cr"]) != expected["radio_cr"]
+                )
+                if mismatch:
+                    _send_device_config_failure(
+                        connection,
+                        msg["id"],
+                        "radio/repeater verification",
+                        f"read-back mismatch: requested {expected}, got {actual}",
+                        changed,
+                    )
+                    return
+
                 changed.extend(
                     [k for k in radio_or_repeat if k in settings]
                 )
-            else:
-                _send_device_config_failure(
-                    connection,
-                    msg["id"],
-                    "radio/repeater",
-                    "missing current radio parameters",
-                    changed,
-                )
-                return
+            finally:
+                if request_lock.locked():
+                    request_lock.release()
 
         # Handle path_hash_mode
         if "path_hash_mode" in settings:
