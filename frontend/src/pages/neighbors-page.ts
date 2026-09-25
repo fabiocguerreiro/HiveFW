@@ -295,12 +295,16 @@ export class NeighborsPage extends LitElement {
   private _age(seconds: number): string {
     const value = Math.max(0, Math.floor(seconds || 0));
     if (value < 10) return 'agora';
-    if (value < 60) return String(value) + 's';
+    if (value < 60) return String(value) + ' segundos';
     const minutes = Math.floor(value / 60);
-    if (minutes < 60) return String(minutes) + ' min';
+    if (minutes < 60) return String(minutes) + (minutes === 1 ? ' minuto' : ' minutos');
     const hours = Math.floor(minutes / 60);
-    if (hours < 24) return String(hours) + ' h';
-    return String(Math.floor(hours / 24)) + ' d';
+    if (hours < 24) return String(hours) + (hours === 1 ? ' Hora' : ' Horas');
+    const days = Math.floor(hours / 24);
+    const remainingHours = hours % 24;
+    const dayText = String(days) + (days === 1 ? ' dia' : ' dias');
+    if (!remainingHours) return dayText;
+    return dayText + ' e ' + String(remainingHours) + (remainingHours === 1 ? ' Hora' : ' Horas');
   }
 
   private _latestNeighborAge(): number | null {
