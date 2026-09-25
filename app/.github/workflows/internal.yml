@@ -1,0 +1,75 @@
+name: HiveFW APK preview
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hivefw-preview-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v6
+        with:
+          java-version: "17"
+          distribution: "temurin"
+          cache: gradle
+          cache-dependency-path: |
+            android/**/*.gradle*
+            android/**/gradle-wrapper.properties
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Dependencies
+        run: flutter pub get
+
+      - name: Generate launcher icons
+        run: dart run flutter_launcher_icons
+
+      - name: Analyse
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings
+
+      - name: Tests
+        run: flutter test
+
+      - name: Build installable preview APK
+        run: flutter build apk --debug
+
+      - name: Prepare preview release
+        id: package
+        shell: bash
+        run: |
+          mkdir -p build/dist
+          SHORT_SHA="${GITHUB_SHA::7}"
+          TAG="preview-${SHORT_SHA}"
+          FILE="HiveFW-${TAG}.apk"
+          cp build/app/outputs/flutter-apk/app-debug.apk "build/dist/${FILE}"
+          sha256sum "build/dist/${FILE}" | tee "build/dist/${FILE}.sha256"
+          echo "tag=${TAG}" >> "${GITHUB_OUTPUT}"
+          echo "file=${FILE}" >> "${GITHUB_OUTPUT}"
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: hivefw-preview
+          path: |
+            build/dist/*.apk
+            build/dist/*.sha256
+          if-no-files-found: error

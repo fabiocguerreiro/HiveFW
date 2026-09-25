@@ -1,0 +1,1233 @@
+import 'dart:async';
+import 'dart:io';
+import 'dart:math' as math;
+import 'dart:ui' as ui;
+
+import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:flutter_map_tile_caching/flutter_map_tile_caching.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:go_router/go_router.dart';
+import 'package:latlong2/latlong.dart';
+import 'package:share_plus/share_plus.dart';
+
+import '../../protocol/models.dart';
+import '../../l10n/l10n.dart';
+import '../../providers/gps_sharing_provider.dart';
+import '../../providers/map_visibility_provider.dart';
+import '../../providers/radio_providers.dart';
+import '../../services/discovered_contacts_import.dart';
+import '../../services/gps_sharing_service.dart';
+import '../../services/hivefw_local_data_service.dart';
+import '../../transport/radio_transport.dart' show TransportState;
+
+part 'parts/map_contact_sheets.dart';
+part 'parts/map_cluster.dart';
+part 'parts/map_trace_card.dart';
+
+/// Full-screen map showing all contacts with GPS coordinates and the device's
+/// own position.  Uses OpenStreetMap tiles via flutter_map (no API key needed).
+class MapScreen extends ConsumerStatefulWidget {
+  const MapScreen({super.key});
+
+  @override
+  ConsumerState<MapScreen> createState() => _MapScreenState();
+}
+
+class _MapScreenState extends ConsumerState<MapScreen> {
+  final _mapController = MapController();
+  final _mapRepaintKey = GlobalKey();
+  bool _sharing = false;
+
+  late final TileProvider _tileProvider =
+      kIsWeb
+          ? NetworkTileProvider()
+          : FMTCTileProvider(
+            stores: const {'mapStore': BrowseStoreStrategy.readUpdateCreate},
+          );
+
+  LatLng? _myLocation;
+  bool _loadingLocation = false;
+  bool _importingContacts = false;
+  bool _loadingZeroHop = false;
+  int _zeroHopTotal = 0;
+  Set<String> _zeroHopPrefixes = const {};
+  double _currentZoom = 10.0;
+  StreamSubscription<MapEvent>? _mapSub;
+  bool _mapReady = false;
+  MapFocusRequest? _pendingChatFocus;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _refreshZeroHop());
+  }
+
+  /// Default centre — Portugal
+  static const _defaultCenter = LatLng(39.5, -8.0);
+  static const _defaultZoom = 6.0;
+  static const _detailZoom = 11.0;
+
+  @override
+  void dispose() {
+    _mapSub?.cancel();
+    _mapController.dispose();
+    super.dispose();
+  }
+
+  void _onMapReady() {
+    _mapReady = true;
+    _mapSub = _mapController.mapEventStream.listen((event) {
+      if (mounted) setState(() => _currentZoom = _mapController.camera.zoom);
+    });
+    final focus = _pendingChatFocus ?? ref.read(mapFocusRequestProvider);
+    if (focus != null) _moveToChatFocus(focus);
+  }
+
+  void _moveToChatFocus(MapFocusRequest focus) {
+    _pendingChatFocus = null;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_mapReady) {
+        _pendingChatFocus = focus;
+        return;
+      }
+      _mapController.move(LatLng(focus.latitude, focus.longitude), 15.0);
+      ref.read(mapFocusRequestProvider.notifier).state = null;
+      final label = focus.label;
+      if (label != null && label.isNotEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              '$label · ${focus.latitude.toStringAsFixed(5)}, '
+              '${focus.longitude.toStringAsFixed(5)}',
+            ),
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Clustering
+  // ---------------------------------------------------------------------------
+
+  /// Minimum geographic distance (degrees) to keep two markers in the same
+  /// cluster at the current zoom level.  Roughly 50 screen pixels.
+  double _thresholdDeg(double zoom) => 35.15 / math.pow(2, zoom);
+
+  /// Groups [contacts] into clusters based on geographic proximity at the
+  /// current zoom level.  Uses a greedy single-pass algorithm: the first
+  /// unassigned contact becomes the seed of a new cluster; every subsequent
+  /// contact within threshold distance of that seed joins it.
+  List<_ContactCluster> _computeClusters(List<Contact> contacts) {
+    if (contacts.isEmpty) return [];
+    final threshold = _thresholdDeg(_currentZoom);
+    final clusters = <_ContactCluster>[];
+    final assigned = <int>{};
+
+    for (var i = 0; i < contacts.length; i++) {
+      if (assigned.contains(i)) continue;
+      final seed = contacts[i];
+      final members = [seed];
+      assigned.add(i);
+
+      for (var j = i + 1; j < contacts.length; j++) {
+        if (assigned.contains(j)) continue;
+        final other = contacts[j];
+        final dlat = (seed.latitude! - other.latitude!).abs();
+        final dlng = (seed.longitude! - other.longitude!).abs();
+        if (dlat < threshold && dlng < threshold) {
+          members.add(other);
+          assigned.add(j);
+        }
+      }
+
+      final lat =
+          members.map((m) => m.latitude!).reduce((a, b) => a + b) /
+          members.length;
+      final lng =
+          members.map((m) => m.longitude!).reduce((a, b) => a + b) /
+          members.length;
+      clusters.add(_ContactCluster(members: members, center: LatLng(lat, lng)));
+    }
+    return clusters;
+  }
+
+  String _prefix6(Uint8List key) =>
+      key
+          .take(6)
+          .map((b) => b.toRadixString(16).padLeft(2, '0'))
+          .join()
+          .toUpperCase();
+
+  Future<void> _refreshZeroHop() async {
+    final radio = ref.read(radioServiceProvider);
+    if (radio == null || !radio.isConnected) {
+      if (mounted) {
+        setState(() {
+          _zeroHopTotal = 0;
+          _zeroHopPrefixes = const {};
+        });
+      }
+      return;
+    }
+
+    setState(() => _loadingZeroHop = true);
+    try {
+      final neighbours = await HiveFwLocalDataService(radio).readNeighbours();
+      if (!mounted) return;
+      setState(() {
+        _zeroHopTotal = neighbours.length;
+        _zeroHopPrefixes = neighbours.map((n) => n.prefix).toSet();
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _zeroHopTotal = 0;
+        _zeroHopPrefixes = const {};
+      });
+    } finally {
+      if (mounted) setState(() => _loadingZeroHop = false);
+    }
+  }
+
+  Future<void> _importDiscoveredContacts() async {
+    if (_importingContacts) return;
+    final picked = await FilePicker.pickFiles(
+      type: FileType.any,
+      withData: true,
+    );
+    if (picked == null || picked.files.isEmpty) return;
+
+    final file = picked.files.single;
+    // MeshCore's native export is commonly named *.discovered_contacts
+    // (without .json). Validate the payload itself instead of rejecting a
+    // perfectly valid export because of its filename.
+    final bytes = file.bytes;
+    if (bytes == null || bytes.isEmpty) {
+      _showSnack('Não foi possível ler o ficheiro.');
+      return;
+    }
+
+    setState(() => _importingContacts = true);
+    try {
+      final parsed = DiscoveredContactsImport.parseBytes(bytes);
+      final result =
+          ref
+              .read(contactsProvider.notifier)
+              .importLocalContacts(parsed.contacts);
+
+      // If a Companion is connected, refresh the direct-heard cache so newly
+      // imported GPS contacts can immediately receive ZERO-HOP highlighting.
+      await _refreshZeroHop();
+
+      _showSnack(
+        'Cache local: ${result.imported} importados · '
+        '${result.duplicates} duplicados'
+        '${parsed.invalidEntries > 0 ? ' · inválidos ${parsed.invalidEntries}' : ''}',
+      );
+    } on FormatException catch (e) {
+      _showSnack('Ficheiro inválido: ${e.message}');
+    } catch (_) {
+      _showSnack('Falha ao importar discovered_contacts.');
+    } finally {
+      if (mounted) setState(() => _importingContacts = false);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // GPS helpers
+  // ---------------------------------------------------------------------------
+
+  /// Returns true only when coordinates represent a real GPS fix.
+  /// Rejects null values and the [0, 0] sentinel used when no fix is available.
+  static bool _isValidGps(double? lat, double? lng) =>
+      lat != null && lng != null && !(lat == 0.0 && lng == 0.0);
+
+  /// Lowercase hex of a contact's full 32-byte public key (used as the
+  /// stable map-visibility opt-out key).
+  static String _pubKeyHex(Uint8List key) =>
+      key.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+
+  /// True on platforms where Geolocator works.
+  bool get _locationSupported =>
+      !kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.android ||
+          defaultTargetPlatform == TargetPlatform.iOS ||
+          defaultTargetPlatform == TargetPlatform.macOS);
+
+  Future<void> _locateMe() async {
+    if (!_locationSupported) return;
+    final l10n = context.l10n;
+    setState(() => _loadingLocation = true);
+    try {
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        _showSnack(l10n.mapLocationDisabled);
+        return;
+      }
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied) {
+          _showSnack(l10n.mapLocationDenied);
+          return;
+        }
+      }
+      if (permission == LocationPermission.deniedForever) {
+        _showSnack(l10n.mapLocationDeniedPermanently);
+        return;
+      }
+      final pos = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.medium,
+        ),
+      );
+      final pt = LatLng(pos.latitude, pos.longitude);
+      if (mounted) {
+        setState(() => _myLocation = pt);
+        _mapController.move(pt, _detailZoom);
+      }
+    } catch (_) {
+      _showSnack(l10n.mapLocationError);
+    } finally {
+      if (mounted) setState(() => _loadingLocation = false);
+    }
+  }
+
+  void _fitAll(List<LatLng> points) {
+    if (points.isEmpty) return;
+    if (points.length == 1) {
+      _mapController.move(points.first, _detailZoom);
+      return;
+    }
+    final minLat = points.map((p) => p.latitude).reduce(math.min);
+    final maxLat = points.map((p) => p.latitude).reduce(math.max);
+    final minLng = points.map((p) => p.longitude).reduce(math.min);
+    final maxLng = points.map((p) => p.longitude).reduce(math.max);
+    _mapController.fitCamera(
+      CameraFit.bounds(
+        bounds: LatLngBounds(LatLng(minLat, minLng), LatLng(maxLat, maxLng)),
+        padding: const EdgeInsets.all(52),
+      ),
+    );
+  }
+
+  void _showSnack(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(msg), duration: const Duration(seconds: 3)),
+    );
+  }
+
+  Future<void> _shareMap() async {
+    if (_sharing) return;
+    final l10n = context.l10n;
+    setState(() => _sharing = true);
+    try {
+      // Ensure the latest map frame (tiles + polyline + hop markers) is painted
+      // before capturing the RepaintBoundary.
+      await WidgetsBinding.instance.endOfFrame;
+      final boundary =
+          _mapRepaintKey.currentContext?.findRenderObject()
+              as RenderRepaintBoundary?;
+      if (boundary == null) {
+        _showSnack(l10n.mapCaptureError);
+        return;
+      }
+
+      if (!mounted) return;
+      final dpr = MediaQuery.of(context).devicePixelRatio;
+      final pixelRatio = dpr.clamp(1.5, 3.0);
+      final image = await boundary.toImage(pixelRatio: pixelRatio);
+      final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+      if (byteData == null) {
+        _showSnack(l10n.mapImageError);
+        return;
+      }
+      final pngBytes = byteData.buffer.asUint8List();
+
+      // Write to a real file on disk — apps like Telegram require an actual
+      // file path and freeze/fail when given in-memory XFile.fromData bytes.
+      final tempDir = await getTemporaryDirectory();
+      final file = File(
+        '${tempDir.path}/hivefw_map_${DateTime.now().millisecondsSinceEpoch}.png',
+      );
+      await file.writeAsBytes(pngBytes, flush: true);
+
+      await SharePlus.instance.share(
+        ShareParams(files: [XFile(file.path)], subject: 'Mapa HiveFW'),
+      );
+    } catch (_) {
+      _showSnack(l10n.mapShareError);
+    } finally {
+      if (mounted) setState(() => _sharing = false);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Build
+  // ---------------------------------------------------------------------------
+
+  @override
+  Widget build(BuildContext context) {
+    ref.listen<MapFocusRequest?>(mapFocusRequestProvider, (previous, next) {
+      if (next == null) return;
+      if (_mapReady) {
+        _moveToChatFocus(next);
+      } else {
+        _pendingChatFocus = next;
+      }
+    });
+    // Select only contacts with valid GPS coordinates to avoid rebuilding
+    // when other contact properties change (minimizes tab switching lag).
+    final gpsContacts = ref.watch(
+      contactsProvider.select(
+        (contacts) =>
+            contacts
+                .where((c) => _isValidGps(c.latitude, c.longitude))
+                .toList(),
+      ),
+    );
+    final selfInfo = ref.watch(selfInfoProvider);
+    final traceResult = ref.watch(traceResultProvider);
+    final hidden = ref.watch(mapHiddenContactsProvider);
+    final theme = Theme.of(context);
+
+    // Apply hidden filter
+    final visibleGpsContacts =
+        gpsContacts
+            .where((c) => !hidden.contains(_pubKeyHex(c.publicKey)))
+            .toList();
+
+    final directGpsRepeaters =
+        visibleGpsContacts
+            .where(
+              (c) =>
+                  c.isRepeater &&
+                  _zeroHopPrefixes.contains(_prefix6(c.publicKey)),
+            )
+            .toList();
+
+    // Prefer GPS from radio self-info; fall back to device GPS.
+    // Treat [0, 0] as "no fix" — do not snap the map to null-island.
+    final radio = selfInfo;
+    final selfPos =
+        (radio != null && _isValidGps(radio.latitude, radio.longitude))
+            ? LatLng(radio.latitude!, radio.longitude!)
+            : _myLocation;
+
+    final orientedTraceHops =
+        traceResult != null ? _orderedTraceHops(traceResult, selfPos) : null;
+
+    final allPoints = [
+      ...visibleGpsContacts.map((c) => LatLng(c.latitude!, c.longitude!)),
+      if (selfPos != null) selfPos,
+    ];
+
+    final hasAny = allPoints.isNotEmpty;
+
+    final initialCenter =
+        selfPos ??
+        (visibleGpsContacts.isNotEmpty
+            ? LatLng(
+              visibleGpsContacts.first.latitude!,
+              visibleGpsContacts.first.longitude!,
+            )
+            : _defaultCenter);
+
+    return Stack(
+      children: [
+        // ---- Capturable area (map + overlays, no FABs) ----
+        RepaintBoundary(
+          key: _mapRepaintKey,
+          child: Stack(
+            children: [
+              // ---- Main map ----
+              FlutterMap(
+                mapController: _mapController,
+                options: MapOptions(
+                  initialCenter: initialCenter,
+                  initialZoom: hasAny ? _detailZoom : _defaultZoom,
+                  interactionOptions: const InteractionOptions(
+                    flags:
+                        InteractiveFlag.drag |
+                        InteractiveFlag.pinchZoom |
+                        InteractiveFlag.doubleTapZoom |
+                        InteractiveFlag.scrollWheelZoom,
+                  ),
+                  onMapReady: _onMapReady,
+                ),
+                children: [
+                  TileLayer(
+                    urlTemplate:
+                        'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                    userAgentPackageName: 'pt.hivefw.companion',
+                    tileProvider: _tileProvider,
+                    // On web the browser sets its own User-Agent header;
+                    // a custom one would be blocked by CORS pre-flight.
+                  ),
+                  const RichAttributionWidget(
+                    showFlutterMapAttribution: false,
+                    attributions: [
+                      TextSourceAttribution('HiveFW'),
+                      TextSourceAttribution('© OpenStreetMap contributors'),
+                    ],
+                  ),
+                  // ---- Trace path polyline ----
+                  if (traceResult != null)
+                    PolylineLayer(
+                      polylines: [
+                        Polyline(
+                          points: _tracePoints(orientedTraceHops!, selfPos),
+                          color: theme.colorScheme.primary,
+                          strokeWidth: 3,
+                          borderColor: theme.colorScheme.primaryContainer,
+                          borderStrokeWidth: 1,
+                        ),
+                      ],
+                    ),
+                  // ---- Contact + self markers (below hop labels) ----
+                  // When a trace is active, hide contact/cluster markers so only
+                  // the hop markers are shown alongside the polyline.
+                  MarkerLayer(
+                    markers: [
+                      if (traceResult == null)
+                        for (final cluster in _computeClusters(
+                          visibleGpsContacts,
+                        ))
+                          if (cluster.isSingle)
+                            Marker(
+                              point: cluster.center,
+                              width: 84,
+                              height: 64,
+                              child: GestureDetector(
+                                onTap:
+                                    () => _showContactSheet(
+                                      cluster.members.first,
+                                    ),
+                                child: _buildContactMarker(
+                                  cluster.members.first,
+                                  theme,
+                                  zeroHop:
+                                      cluster.members.first.isRepeater &&
+                                      _zeroHopPrefixes.contains(
+                                        _prefix6(cluster.members.first.publicKey),
+                                      ),
+                                ),
+                              ),
+                            )
+                          else
+                            Marker(
+                              point: cluster.center,
+                              width: 42,
+                              height: 42,
+                              child: GestureDetector(
+                                onTap: () => _onClusterTap(cluster),
+                                child: _buildClusterMarker(cluster, theme),
+                              ),
+                            ),
+                      if (selfPos != null)
+                        Marker(
+                          point: selfPos,
+                          width: 84,
+                          height: 64,
+                          child: _buildSelfMarker(theme, selfInfo?.name),
+                        ),
+                    ],
+                  ),
+                  // ---- Trace hop markers (rendered last = on top of contacts) ----
+                  if (traceResult != null)
+                    MarkerLayer(
+                      markers: [
+                        if (traceResult.targetHasGps)
+                          Marker(
+                            point: LatLng(
+                              traceResult.targetLatitude!,
+                              traceResult.targetLongitude!,
+                            ),
+                            width: 92,
+                            height: 76,
+                            child: _buildTraceTargetMarker(
+                              traceResult.targetName ?? 'Origem',
+                              theme,
+                            ),
+                          ),
+                        for (int hi = 0; hi < orientedTraceHops!.length; hi++)
+                          if (orientedTraceHops[hi].hasGps)
+                            Marker(
+                              point: LatLng(
+                                orientedTraceHops[hi].latitude!,
+                                orientedTraceHops[hi].longitude!,
+                              ),
+                              width: 126,
+                              height: 118,
+                              alignment: Alignment.center,
+                              child: _buildHopMarker(
+                                orientedTraceHops[hi],
+                                theme,
+                                distanceM: _distanceToHop(
+                                  orientedTraceHops,
+                                  hi,
+                                ),
+                                showSnr: hi == orientedTraceHops.length - 1,
+                              ),
+                            ),
+                      ],
+                    ),
+                  SafeArea(
+                    child: Align(
+                      alignment: Alignment.bottomLeft,
+                      child: ColoredBox(
+                        color: Colors.black.withValues(alpha: 0.55),
+                        child: const Padding(
+                          padding: EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 3,
+                          ),
+                          child: Text(
+                            'HiveFW | © OpenStreetMap contributors',
+                            style: TextStyle(fontSize: 10, color: Colors.white),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+
+              if (traceResult == null && _zeroHopTotal > 0)
+                Positioned(
+                  top: 16,
+                  right: 16,
+                  child: Card(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 7,
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (_loadingZeroHop)
+                            const Padding(
+                              padding: EdgeInsets.only(right: 6),
+                              child: SizedBox(
+                                width: 14,
+                                height: 14,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              ),
+                            )
+                          else
+                            const Padding(
+                              padding: EdgeInsets.only(right: 6),
+                              child: Icon(Icons.radar, size: 16),
+                            ),
+                          Text(
+                            'ZERO-HOP $_zeroHopTotal · GPS ${directGpsRepeaters.length}',
+                            style: theme.textTheme.labelMedium,
+                          ),
+                          const SizedBox(width: 4),
+                          SizedBox(
+                            width: 28,
+                            height: 28,
+                            child: IconButton(
+                              padding: EdgeInsets.zero,
+                              tooltip: 'Atualizar zero-hop',
+                              onPressed: _loadingZeroHop ? null : _refreshZeroHop,
+                              icon: const Icon(Icons.refresh, size: 17),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+
+              // ---- No GPS hint ----
+              if (!hasAny)
+                Positioned(
+                  top: 16,
+                  left: 16,
+                  right: 16,
+                  child: Card(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 10,
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.location_off, size: 20),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              context.l10n.mapNoGps,
+                              style: theme.textTheme.bodySmall,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+            ], // ← close inner Stack.children
+          ), // ← close inner Stack
+        ), // ← close RepaintBoundary
+        // ---- Trace result card (outside RepaintBoundary) ----
+        // Keep this outside the captured map so shared images contain only the map.
+        if (traceResult != null)
+          Positioned(
+            top: 16,
+            left: 16,
+            right: 72,
+            child: _TraceResultCard(
+              result: traceResult,
+              hops: orientedTraceHops!,
+              onClear:
+                  () => ref.read(traceResultProvider.notifier).state = null,
+              onFit: () {
+                final pts = _tracePoints(orientedTraceHops, selfPos);
+                if (pts.length > 1) _fitAll(pts);
+              },
+              theme: theme,
+            ),
+          ),
+
+        // ---- FABs (outside RepaintBoundary — not captured in screenshots) ----
+        Positioned(
+          right: 16,
+          bottom: 24,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              FloatingActionButton.small(
+                heroTag: 'map_import_discovered',
+                onPressed: _importingContacts ? null : _importDiscoveredContacts,
+                tooltip: 'Importar discovered_contacts',
+                child:
+                    _importingContacts
+                        ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                        : const Icon(Icons.file_upload_outlined),
+              ),
+              const SizedBox(height: 8),
+              FloatingActionButton.small(
+                heroTag: 'map_share',
+                onPressed: _sharing ? null : _shareMap,
+                tooltip: context.l10n.mapShareMap,
+                child:
+                    _sharing
+                        ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                        : const Icon(Icons.share),
+              ),
+              const SizedBox(height: 8),
+              if (hasAny) ...[
+                FloatingActionButton.small(
+                  heroTag: 'map_fit_all',
+                  onPressed: () => _fitAll(allPoints),
+                  tooltip: context.l10n.mapViewAll,
+                  child: const Icon(Icons.fit_screen),
+                ),
+                const SizedBox(height: 8),
+              ],
+              // Quick "share my GPS to the radio" — only visible when the user
+              // has explicitly enabled GPS sharing in Settings.
+              Consumer(
+                builder: (context, ref, _) {
+                  final settings = ref.watch(gpsSharingProvider);
+                  final connected =
+                      ref.watch(connectionProvider) == TransportState.connected;
+                  if (!settings.isEnabled) return const SizedBox.shrink();
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: FloatingActionButton.small(
+                      heroTag: 'map_share_gps',
+                      backgroundColor: Colors.green.shade700,
+                      foregroundColor: Colors.white,
+                      onPressed:
+                          connected
+                              ? () async {
+                                final svc = ref.read(gpsSharingServiceProvider);
+                                final res = await svc.shareNow();
+                                if (!context.mounted) return;
+                                final l10n = context.l10n;
+                                final msg = switch (res.outcome) {
+                                  GpsShareOutcome.ok => l10n
+                                      .gpsSharingOutcomeOk(
+                                        (res.lat ?? 0).toStringAsFixed(4),
+                                        (res.lon ?? 0).toStringAsFixed(4),
+                                      ),
+                                  GpsShareOutcome.noPermission =>
+                                    l10n.gpsSharingOutcomeNoPerm,
+                                  GpsShareOutcome.serviceDisabled =>
+                                    l10n.gpsSharingOutcomeServiceOff,
+                                  GpsShareOutcome.notConnected =>
+                                    l10n.gpsSharingOutcomeDisconnected,
+                                  _ => l10n.gpsSharingOutcomeFailed,
+                                };
+                                ScaffoldMessenger.of(
+                                  context,
+                                ).showSnackBar(SnackBar(content: Text(msg)));
+                              }
+                              : null,
+                      tooltip: context.l10n.gpsSharingShareNow,
+                      child: const Icon(Icons.upload_outlined),
+                    ),
+                  );
+                },
+              ),
+              // If we already know the position, show a "center" button that
+              // just pans without a new GPS fetch.  If position is unknown,
+              // the button fetches GPS first.
+              FloatingActionButton(
+                heroTag: 'map_locate_me',
+                onPressed:
+                    _loadingLocation
+                        ? null
+                        : selfPos != null
+                        ? () => _mapController.move(selfPos, _detailZoom)
+                        : _locationSupported
+                        ? _locateMe
+                        : null,
+                tooltip:
+                    selfPos != null
+                        ? context.l10n.mapCenterMyPosition
+                        : context.l10n.mapGetGps,
+                child:
+                    _loadingLocation
+                        ? const SizedBox(
+                          width: 24,
+                          height: 24,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                        : Icon(
+                          selfPos != null
+                              ? Icons.gps_fixed
+                              : Icons.gps_not_fixed,
+                        ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Trace helpers
+  // ---------------------------------------------------------------------------
+
+  /// Returns hops ordered so the endpoint nearest to [selfPos] is last.
+  /// This guarantees the local radio connects to the last repeater on map.
+  List<TraceHop> _orderedTraceHops(TraceResult result, LatLng? selfPos) {
+    final hops = List<TraceHop>.from(result.hops);
+    if (selfPos == null || hops.length < 2) return hops;
+    final first = hops.first;
+    final last = hops.last;
+    if (!first.hasGps || !last.hasGps) return hops;
+
+    const dist = Distance();
+    final dFirst = dist.as(
+      LengthUnit.Meter,
+      selfPos,
+      LatLng(first.latitude!, first.longitude!),
+    );
+    final dLast = dist.as(
+      LengthUnit.Meter,
+      selfPos,
+      LatLng(last.latitude!, last.longitude!),
+    );
+
+    // Keep the nearest endpoint as the terminal hop (last), so the
+    // self marker links visually to the last hop, not the first.
+    if (dFirst < dLast) {
+      return hops.reversed.toList(growable: false);
+    }
+    return hops;
+  }
+
+  /// Builds the ordered list of LatLng points for the trace polyline.
+  /// Includes all GPS hops (ordered), then the local radio position at end.
+  List<LatLng> _tracePoints(List<TraceHop> hops, LatLng? selfPos) {
+    final pts = <LatLng>[];
+    for (final hop in hops) {
+      if (hop.hasGps) pts.add(LatLng(hop.latitude!, hop.longitude!));
+    }
+    if (selfPos != null) pts.add(selfPos);
+    return pts;
+  }
+
+  /// Distance from previous GPS hop to hop [index], in meters.
+  /// For the first visible hop there is no previous hop, so returns null.
+  double? _distanceToHop(List<TraceHop> hops, int index) {
+    final hop = hops[index];
+    if (!hop.hasGps) return null;
+
+    LatLng? prevPt;
+    for (int k = index - 1; k >= 0; k--) {
+      final prev = hops[k];
+      if (!prev.hasGps) continue;
+      prevPt = LatLng(prev.latitude!, prev.longitude!);
+      break;
+    }
+
+    if (prevPt == null) return null;
+    return const Distance().as(
+      LengthUnit.Meter,
+      prevPt,
+      LatLng(hop.latitude!, hop.longitude!),
+    );
+  }
+
+  Widget _buildHopMarker(
+    TraceHop hop,
+    ThemeData theme, {
+    double? distanceM,
+    bool showSnr = true,
+  }) {
+    final snr = hop.snrDb.toStringAsFixed(1);
+    final distLabel = distanceM != null ? '  ${_formatDist(distanceM)}' : '';
+    // Layout (top → bottom):
+    //   label (~18px) + dist (~14px) + connector (8px) + icon (36px) + spacer (40px) ≈ 116px.
+    // Spacer height balances the content above the icon so the icon CENTER
+    // is at the Column midpoint = Marker(alignment: Alignment.center) = LatLng.
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      mainAxisAlignment: MainAxisAlignment.center,
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        // Name + SNR pill
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+          decoration: BoxDecoration(
+            color: theme.colorScheme.primary,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: Colors.white, width: 1),
+          ),
+          child: Text(
+            '${hop.name ?? hop.hashHex.substring(0, 4)}${showSnr ? '  $snr dB' : ''}',
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 9,
+              fontWeight: FontWeight.bold,
+            ),
+            maxLines: 1,
+            softWrap: false,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+        // Distance pill (only when GPS available from previous point)
+        if (distanceM != null)
+          Container(
+            margin: const EdgeInsets.only(top: 2),
+            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+            decoration: BoxDecoration(
+              color: Colors.black54,
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Text(
+              distLabel.trim(),
+              style: const TextStyle(color: Colors.white, fontSize: 8),
+            ),
+          ),
+        // Connector line from label to icon
+        Container(width: 2, height: 8, color: theme.colorScheme.primary),
+        // Repeater icon circle — CENTER is at the LatLng geographic point
+        Container(
+          width: 30,
+          height: 30,
+          decoration: BoxDecoration(
+            color: Colors.orange.shade700,
+            shape: BoxShape.circle,
+            border: Border.all(color: Colors.white, width: 2),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x60000000),
+                blurRadius: 4,
+                offset: Offset(0, 2),
+              ),
+            ],
+          ),
+          child: const Center(
+            child: Icon(Icons.cell_tower, color: Colors.white, size: 16),
+          ),
+        ),
+        // Balancing spacer = label + dist-pill + connector height above icon
+        // so the icon center lands at the widget midpoint = LatLng anchor.
+        const SizedBox(height: 34),
+      ],
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Marker widgets
+  // ---------------------------------------------------------------------------
+
+  Widget _buildContactMarker(
+    Contact contact,
+    ThemeData theme, {
+    bool zeroHop = false,
+  }) {
+    return Stack(
+      clipBehavior: Clip.none,
+      alignment: Alignment.center,
+      children: [
+        Container(
+          width: 30,
+          height: 30,
+          decoration: BoxDecoration(
+            color: _contactColor(contact),
+            shape: BoxShape.circle,
+            border: Border.all(color: Colors.white, width: 1.8),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x50000000),
+                blurRadius: 3,
+                offset: Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Center(
+            child: Icon(
+              _contactIconData(contact),
+              color: Colors.white,
+              size: 15,
+            ),
+          ),
+        ),
+        if (zeroHop)
+          Positioned(
+            top: 2,
+            right: 18,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+              decoration: BoxDecoration(
+                color: Colors.orange.shade800,
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: Colors.white, width: 1),
+              ),
+              child: const Text(
+                '0H',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 8,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+          ),
+        Positioned(top: 44, child: _markerNameTag(contact.displayName)),
+      ],
+    );
+  }
+
+  Widget _buildSelfMarker(ThemeData theme, String? selfName) {
+    return Stack(
+      clipBehavior: Clip.none,
+      alignment: Alignment.center,
+      children: [
+        Container(
+          width: 30,
+          height: 30,
+          decoration: BoxDecoration(
+            color: theme.colorScheme.primaryContainer,
+            shape: BoxShape.circle,
+            border: Border.all(color: theme.colorScheme.primary, width: 2.5),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x50000000),
+                blurRadius: 4,
+                offset: Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Center(
+            child: Icon(
+              Icons.navigation,
+              color: theme.colorScheme.primary,
+              size: 15,
+            ),
+          ),
+        ),
+        Positioned(
+          top: 44,
+          child: _markerNameTag(
+            (selfName != null && selfName.trim().isNotEmpty)
+                ? selfName
+                : context.l10n.mapLegendYou,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildTraceTargetMarker(String name, ThemeData theme) {
+    return Stack(
+      clipBehavior: Clip.none,
+      alignment: Alignment.center,
+      children: [
+        Container(
+          width: 28,
+          height: 28,
+          decoration: BoxDecoration(
+            color: Colors.indigo.shade600,
+            shape: BoxShape.circle,
+            border: Border.all(color: Colors.white, width: 2),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x50000000),
+                blurRadius: 4,
+                offset: Offset(0, 2),
+              ),
+            ],
+          ),
+          child: const Center(
+            child: Icon(Icons.person, color: Colors.white, size: 14),
+          ),
+        ),
+        Positioned(top: 42, child: _markerNameTag(name)),
+      ],
+    );
+  }
+
+  Widget _markerNameTag(String text) {
+    final compact = text.trim();
+    const maxChars = 12;
+    final label =
+        compact.length > maxChars
+            ? '${compact.substring(0, maxChars - 1)}...'
+            : compact;
+    return Container(
+      constraints: const BoxConstraints(maxWidth: 80),
+      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.72),
+        borderRadius: BorderRadius.circular(5),
+      ),
+      child: Text(
+        label,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 9,
+          fontWeight: FontWeight.w600,
+          height: 1.0,
+        ),
+      ),
+    );
+  }
+
+  Color _contactColor(Contact c) {
+    if (c.isChat) return Colors.blue.shade600;
+    if (c.isRepeater) {
+      final name = c.name.toUpperCase();
+      if (name.contains('R4')) return Colors.green.shade700; // 433 MHz
+      if (name.contains('R8')) return Colors.deepOrange.shade700; // 868 MHz
+      return Colors.orange.shade700; // unknown band
+    }
+    if (c.isRoom) return Colors.purple.shade600;
+    return Colors.teal.shade600;
+  }
+
+  IconData _contactIconData(Contact c) {
+    if (c.isChat) return Icons.person;
+    if (c.isRepeater) return Icons.cell_tower;
+    if (c.isRoom) return Icons.meeting_room;
+    return Icons.sensors;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Cluster marker widget
+  // ---------------------------------------------------------------------------
+
+  Widget _buildClusterMarker(_ContactCluster cluster, ThemeData theme) {
+    // Use the dominant type color of the cluster members
+    final dominantColor = _contactColor(cluster.members.first);
+    return Container(
+      decoration: BoxDecoration(
+        color: dominantColor,
+        shape: BoxShape.circle,
+        border: Border.all(color: Colors.white, width: 2.5),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x60000000),
+            blurRadius: 6,
+            offset: Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Center(
+        child: Text(
+          '${cluster.members.length}',
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
+            fontSize: 13,
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _onClusterTap(_ContactCluster cluster) {
+    final points =
+        cluster.members.map((c) => LatLng(c.latitude!, c.longitude!)).toList();
+    final allSameLocation = cluster.members.every(
+      (c) =>
+          (c.latitude! - cluster.members.first.latitude!).abs() < 0.0001 &&
+          (c.longitude! - cluster.members.first.longitude!).abs() < 0.0001,
+    );
+
+    if (allSameLocation) {
+      // Can't separate by zooming — show list sheet instead
+      _showClusterSheet(cluster);
+    } else {
+      _fitAll(points);
+    }
+  }
+
+  void _showClusterSheet(_ContactCluster cluster) {
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder:
+          (ctx) => _ClusterListSheet(
+            cluster: cluster,
+            onContactTap: (c) {
+              Navigator.pop(ctx);
+              _showContactSheet(c);
+            },
+          ),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Contact info bottom sheet
+  // ---------------------------------------------------------------------------
+
+  void _showContactSheet(Contact contact) {
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (ctx) => _ContactInfoSheet(contact: contact),
+    );
+  }
+}

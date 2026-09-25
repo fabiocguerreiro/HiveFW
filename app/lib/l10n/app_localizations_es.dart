@@ -1,0 +1,2581 @@
+// ignore: unused_import
+import 'package:intl/intl.dart' as intl;
+import 'app_localizations.dart';
+
+// ignore_for_file: type=lint
+
+/// The translations for Spanish Castilian (`es`).
+class AppLocalizationsEs extends AppLocalizations {
+  AppLocalizationsEs([String locale = 'es']) : super(locale);
+
+  @override
+  String get navChannels => 'Chat';
+
+  @override
+  String get navContacts => 'Nodos';
+
+  @override
+  String get navMap => 'Mapa';
+
+  @override
+  String get navApps => 'Apps';
+
+  @override
+  String get navSettings => 'Dispositivo';
+
+  @override
+  String get commonSave => 'Guardar';
+
+  @override
+  String get commonSaving => 'Guardando...';
+
+  @override
+  String get commonCancel => 'Cancelar';
+
+  @override
+  String get commonClear => 'Limpiar';
+
+  @override
+  String get commonDelete => 'Eliminar';
+
+  @override
+  String get commonClose => 'Cerrar';
+
+  @override
+  String get commonBack => 'Volver';
+
+  @override
+  String get commonRemove => 'Eliminar';
+
+  @override
+  String get commonAdd => 'Añadir';
+
+  @override
+  String get commonEdit => 'Editar';
+
+  @override
+  String get commonShare => 'Compartir';
+
+  @override
+  String get commonCopy => 'Copiar';
+
+  @override
+  String get commonRename => 'Renombrar';
+
+  @override
+  String get commonReset => 'Restablecer';
+
+  @override
+  String get commonJustNow => 'ahora mismo';
+
+  @override
+  String commonMinutesAgo(int minutes) {
+    return 'hace $minutes min';
+  }
+
+  @override
+  String commonHoursAgo(int hours) {
+    return 'hace $hours h';
+  }
+
+  @override
+  String get gpsSharingTitle => 'Compartir GPS';
+
+  @override
+  String get gpsSharingSubtitle =>
+      'Tú decides si tu ubicación se incluye en los anuncios de la radio. Desactivado por defecto.';
+
+  @override
+  String get gpsSharingStatusOff => 'DESACTIVADO';
+
+  @override
+  String get gpsSharingStatusManual => 'MANUAL';
+
+  @override
+  String get gpsSharingStatusAuto => 'AUTOMÁTICO';
+
+  @override
+  String get gpsSharingModeOff => 'Desactivado';
+
+  @override
+  String get gpsSharingModeManual => 'Manual';
+
+  @override
+  String get gpsSharingModeAuto => 'Automático';
+
+  @override
+  String get gpsSharingPrecisionTitle => 'Precisión enviada';
+
+  @override
+  String get gpsSharingPrecisionExact => 'Exacta';
+
+  @override
+  String get gpsSharingPrecisionRough => 'Aproximada';
+
+  @override
+  String get gpsSharingPrecisionVague => 'Vaga';
+
+  @override
+  String get gpsSharingIntervalLabel => 'Intervalo de actualización';
+
+  @override
+  String get gpsSharingShareNow => 'Compartir ahora';
+
+  @override
+  String get gpsSharingClearNow => 'Borrar de la radio';
+
+  @override
+  String get gpsSharingClearedOnRadio => 'Ubicación borrada de la radio.';
+
+  @override
+  String get gpsSharingPrivacyDisclaimer =>
+      'Tu posición se incluirá en los anuncios LoRa de tu radio y puede ser visible para otros nodos. Activa sólo si aceptas compartirla.';
+
+  @override
+  String gpsSharingLastShared(Object ago, Object lat, Object lon) {
+    return 'Compartido $ago — $lat, $lon';
+  }
+
+  @override
+  String gpsSharingOutcomeOk(Object lat, Object lon) {
+    return '✅ Ubicación enviada: $lat, $lon';
+  }
+
+  @override
+  String get gpsSharingOutcomeCleared => 'Ubicación borrada de la radio.';
+
+  @override
+  String get gpsSharingOutcomeDisabled =>
+      'El compartir GPS está desactivado en Ajustes.';
+
+  @override
+  String get gpsSharingOutcomeNoPerm => 'Permiso de ubicación denegado.';
+
+  @override
+  String get gpsSharingOutcomeServiceOff =>
+      'Servicio de ubicación desactivado.';
+
+  @override
+  String get gpsSharingOutcomeNoFix => 'Sin señal GPS disponible.';
+
+  @override
+  String get gpsSharingOutcomeDisconnected =>
+      'Radio desconectada — conecta primero.';
+
+  @override
+  String get gpsSharingOutcomeFailed => 'Falló el envío de ubicación.';
+
+  @override
+  String get gpsSharingOutcomeSkipped =>
+      'Posición sin cambios — envío omitido.';
+
+  @override
+  String get gpsSharingMinMoveLabel => 'Movimiento mínimo';
+
+  @override
+  String get gpsSharingMinMoveAlways => 'Enviar siempre';
+
+  @override
+  String get gpsSharingMinMoveHint =>
+      'En modo automático, solo envía un nuevo fix si te has movido al menos esta distancia desde el último envío. Ahorra tiempo de antena LoRa.';
+
+  @override
+  String get gpsSharingAdvPolicyTitle => 'Difundir ubicación en los anuncios';
+
+  @override
+  String get gpsSharingAdvPolicyNever =>
+      'Desactivado — tus anuncios no incluyen coordenadas.';
+
+  @override
+  String get gpsSharingAdvPolicyAlways =>
+      'Activado — cada anuncio incluye la última ubicación conocida de la radio.';
+
+  @override
+  String gpsSharingAdvPolicyUnknown(Object value) {
+    return 'Política de la radio: byte $value — valor desconocido.';
+  }
+
+  @override
+  String get mapVisibilityShowTitle => 'Mostrar en el mapa';
+
+  @override
+  String get mapVisibilityShowSubtitle =>
+      'Oculta este contacto de tu mapa, incluso si sus anuncios incluyen coordenadas.';
+
+  @override
+  String get cannedMessagesTitle => 'Mensajes rápidos';
+
+  @override
+  String get cannedMessagesSubtitle =>
+      'Biblioteca de respuestas predefinidas para enviar con un toque (o desde el botón SOS del widget).';
+
+  @override
+  String get cannedMessagesAdd => 'Añadir mensaje';
+
+  @override
+  String get cannedMessagesAddTitle => 'Nuevo mensaje rápido';
+
+  @override
+  String get cannedMessagesEditTitle => 'Editar mensaje rápido';
+
+  @override
+  String get cannedMessagesEmpty =>
+      'Sin mensajes guardados. Toca + para añadir.';
+
+  @override
+  String get cannedMessagesReset => 'Restablecer por defecto';
+
+  @override
+  String get cannedMessagesResetTitle => '¿Restablecer mensajes?';
+
+  @override
+  String get cannedMessagesResetConfirm =>
+      'Perderás todos los cambios y volverás a la lista original.';
+
+  @override
+  String get cannedMessagesDeleteTitle => '¿Borrar mensaje?';
+
+  @override
+  String cannedMessagesDeleteConfirm(Object label) {
+    return 'Vas a borrar “$label”.';
+  }
+
+  @override
+  String get cannedMessagesLabelHint => 'Etiqueta (opcional)';
+
+  @override
+  String get cannedMessagesTextHint => 'Texto del mensaje';
+
+  @override
+  String get cannedMessagesEmergencyToggle => 'Mensaje de emergencia';
+
+  @override
+  String get cannedMessagesEmergencyDesc =>
+      'Usado por el botón SOS del widget. Solo uno puede estar marcado.';
+
+  @override
+  String get cannedMessagesPickerTooltip => 'Mensajes rápidos';
+
+  @override
+  String get cannedMessagesPickerTitle => 'Insertar mensaje rápido';
+
+  @override
+  String get cannedMessagesPickerSubtitle =>
+      'Toca para ponerlo en el campo de texto.';
+
+  @override
+  String get commonConfirm => 'Confirmar';
+
+  @override
+  String get commonError => 'Error';
+
+  @override
+  String get commonErrors => 'Errores';
+
+  @override
+  String get commonYes => 'Sí';
+
+  @override
+  String get commonNo => 'No';
+
+  @override
+  String get commonOk => 'Ok';
+
+  @override
+  String get pathHashMigrationNoticeTitle => 'Aviso de red';
+
+  @override
+  String get pathHashMigrationNoticeBody =>
+      'La red cambiará al modo hash de 2 bytes después del 2/7/2026 (2 de julio). La aplicación configurará automáticamente tu radio en esa fecha.';
+
+  @override
+  String get pathHashMigrationAppliedTitle => 'Red actualizada';
+
+  @override
+  String get pathHashMigrationAppliedBody =>
+      'Tu radio ha sido actualizado automáticamente al modo hash de 2 bytes a partir del 2/7/2026.';
+
+  @override
+  String get commonLoading => 'Cargando...';
+
+  @override
+  String get commonSearch => 'Buscar';
+
+  @override
+  String get commonAll => 'Todos';
+
+  @override
+  String get commonUnread => 'No leídos';
+
+  @override
+  String get commonDetails => 'Detalles';
+
+  @override
+  String get commonReply => 'Responder';
+
+  @override
+  String get commonCopyText => 'Copiar texto';
+
+  @override
+  String get commonNoMessages => 'Sin mensajes';
+
+  @override
+  String get commonSendFirstMessage => '¡Envía el primer mensaje!';
+
+  @override
+  String get commonSendMessage => 'Enviar mensaje';
+
+  @override
+  String get commonNoData => 'Sin datos';
+
+  @override
+  String get commonMessageCopied => 'Mensaje copiado';
+
+  @override
+  String get commonSent => 'Transmitido';
+
+  @override
+  String get commonSentByMe => 'Yo';
+
+  @override
+  String get commonPropagating => 'Propagando...';
+
+  @override
+  String get chatBadgePropagatingTooltip => 'Esperando eco de repetidor...';
+
+  @override
+  String get chatBadgeTransmittedTooltip =>
+      'Transmitido — sin eco de repetidor recibido';
+
+  @override
+  String chatBadgeHeardTooltip(int count) {
+    return 'Escuchado por $count repetidor(es)';
+  }
+
+  @override
+  String get commonConnecting => 'Conectando...';
+
+  @override
+  String get commonSearching => 'Buscando...';
+
+  @override
+  String get commonAuthenticated => 'Autenticado';
+
+  @override
+  String get commonDirect => 'Directo';
+
+  @override
+  String get commonFlood => 'Flood';
+
+  @override
+  String get commonBattery => 'Batería';
+
+  @override
+  String get commonStatus => 'Estado';
+
+  @override
+  String get commonPath => 'Ruta';
+
+  @override
+  String get commonTime => 'Hora';
+
+  @override
+  String get commonName => 'Nombre';
+
+  @override
+  String get commonChannel => 'Canal';
+
+  @override
+  String get commonContact => 'Contacto';
+
+  @override
+  String get commonRoom => 'Sala';
+
+  @override
+  String get commonRooms => 'Salas';
+
+  @override
+  String get commonSensor => 'Sensor';
+
+  @override
+  String get commonSensors => 'Sensores';
+
+  @override
+  String get commonRepeater => 'Repetidor';
+
+  @override
+  String get commonRepeaters => 'Repetidores';
+
+  @override
+  String get commonType => 'Tipo';
+
+  @override
+  String get commonHops => 'Saltos';
+
+  @override
+  String get commonFavorites => 'Favoritos';
+
+  @override
+  String get commonTelemetry => 'Telemetría';
+
+  @override
+  String get commonSettings => 'Ajustes';
+
+  @override
+  String get commonRadioDisconnected => 'Radio no conectada';
+
+  @override
+  String get commonConfiguring => 'Configurando...';
+
+  @override
+  String get commonSaveToRadio => 'Guardar en radio';
+
+  @override
+  String get commonReportUrlCopied => 'URL del informe copiada';
+
+  @override
+  String get commonErrorColon => 'Error:';
+
+  @override
+  String get commonNoSpace =>
+      'Sin ranuras disponibles. Elimina un canal primero.';
+
+  @override
+  String get commonUpdated => 'Actualizado:';
+
+  @override
+  String get commonAdd2Radio => 'Añadir a Radio';
+
+  @override
+  String get commonReconfigRadio => 'Reconfigurar en Radio';
+
+  @override
+  String get commonHashtag => 'Hashtag';
+
+  @override
+  String get commonSecretKey => 'Clave secreta';
+
+  @override
+  String get commonReport => 'Informe:';
+
+  @override
+  String get commonClearHistory => 'Borrar historial';
+
+  @override
+  String get commonSingularHop => 'salto';
+
+  @override
+  String get commonPluralHops => 'saltos';
+
+  @override
+  String get homeDisconnectTitle => '¿Desconectar radio?';
+
+  @override
+  String get homeDisconnectContent => 'La conexión con la radio será terminada';
+
+  @override
+  String get homeDisconnect => 'Desconectar';
+
+  @override
+  String get homeExitTitle => '¿Salir de HiveFW Companion?';
+
+  @override
+  String get homeExitContent =>
+      'La conexión con la radio será terminada y la aplicación se cerrará.';
+
+  @override
+  String get homeExit => 'Salir';
+
+  @override
+  String get settingsIdentity => 'Identidad';
+
+  @override
+  String get settingsPublicKey => 'Clave pública';
+
+  @override
+  String get settingsCopyPublicKey => 'Copiar clave pública';
+
+  @override
+  String get settingsShareContact => 'Compartir mi contacto';
+
+  @override
+  String get settingsShareContactDesc => 'Muestra código QR para compartir';
+
+  @override
+  String get settingsConnection => 'Conexión';
+
+  @override
+  String get settingsConnected => 'Conectado';
+
+  @override
+  String get settingsConnectionError => 'Error de conexión';
+
+  @override
+  String get settingsDisconnected => 'Desconectado';
+
+  @override
+  String get settingsAutoReconnect => 'Reconexión automática';
+
+  @override
+  String get settingsAutoReconnectDesc =>
+      'Reconectar automáticamente cuando se pierde la conexión';
+
+  @override
+  String get settingsRadioConfig => 'Configuración de Radio';
+
+  @override
+  String get settingsRadioConfigDesc => 'LoRa, telemetría y dispositivo';
+
+  @override
+  String get settingsReboot => 'Reiniciar';
+
+  @override
+  String get settingsShutdown => 'Apagar';
+
+  @override
+  String get settingsRebootTitle => 'Reiniciar radio';
+
+  @override
+  String get settingsRebootContent =>
+      'Esto reiniciará el firmware de la radio. ¿Estás seguro?';
+
+  @override
+  String get settingsRebootSent =>
+      'Comando de reinicio enviado. Esperando reconexión...';
+
+  @override
+  String get settingsRebootFail => 'Error al enviar comando de reinicio';
+
+  @override
+  String get settingsAppearance => 'Apariencia';
+
+  @override
+  String get settingsTheme => 'Tema';
+
+  @override
+  String get settingsThemeSystem => 'Sistema';
+
+  @override
+  String get settingsThemeLight => 'Claro';
+
+  @override
+  String get settingsThemeDark => 'Oscuro';
+
+  @override
+  String get settingsTextSize => 'Tamaño del texto';
+
+  @override
+  String get settingsTextSizeDesc =>
+      'Ajusta el tamaño global del texto en la app.';
+
+  @override
+  String get settingsAccent => 'Color de acento';
+
+  @override
+  String get settingsAccentDefault => 'Predeterminado (naranja de la marca)';
+
+  @override
+  String get settingsAccentCustom => 'Personalizado';
+
+  @override
+  String get settingsAccentReset => 'Restablecer';
+
+  @override
+  String get settingsMentionColors => 'Colores de mención';
+
+  @override
+  String get settingsSelfMention => 'Mención propia (@[Tú])';
+
+  @override
+  String get settingsOtherMention => 'Mención de otros (@[Nombre])';
+
+  @override
+  String get settingsChooseColor => 'Elegir color';
+
+  @override
+  String get settingsNotifications => 'Notificaciones';
+
+  @override
+  String get settingsEnableNotifications => 'Activar notificaciones';
+
+  @override
+  String get settingsEnableNotificationsDesc =>
+      'Mostrar alertas para nuevos mensajes';
+
+  @override
+  String get settingsNotificationPermissionDenied =>
+      'Permiso de notificación no concedido';
+
+  @override
+  String get settingsAllow => 'Permitir';
+
+  @override
+  String get settingsPrivateMessages => 'Mensajes privados';
+
+  @override
+  String get settingsPrivateMessagesDesc =>
+      'Notificar al recibir un mensaje directo';
+
+  @override
+  String get settingsChannelMessages => 'Mensajes de canal';
+
+  @override
+  String get settingsChannelMessagesDesc => 'Notificar mensajes en canales';
+
+  @override
+  String get settingsChannelMentionsOnly => 'Solo menciones';
+
+  @override
+  String get settingsChannelMentionsOnlyDesc =>
+      'Notificar solo cuando un mensaje del canal mencione tu nombre';
+
+  @override
+  String get settingsBackgroundOnly => 'Solo en segundo plano';
+
+  @override
+  String get settingsBackgroundOnlyDesc =>
+      'Notificar solo cuando la app no esté en primer plano';
+
+  @override
+  String settingsSosDesc(Object gps) {
+    return 'Configura el destino y el mensaje de emergencia. Usa \'$gps\' en el texto para insertar coordenadas.';
+  }
+
+  @override
+  String get settingsSosTarget => 'Destino SOS';
+
+  @override
+  String get settingsSosTargetChannel => 'Canal';
+
+  @override
+  String get settingsSosTargetPrivateContact => 'Contacto privado';
+
+  @override
+  String get settingsSosChannelLabel => 'Canal de envío';
+
+  @override
+  String get settingsSosGeneralChannel => '#0 General';
+
+  @override
+  String get settingsSosDestinationContact => 'Contacto de destino';
+
+  @override
+  String get settingsSosNoContactsAvailable => 'No hay contactos disponibles';
+
+  @override
+  String get settingsSosTapToSearchContact => 'Toca para buscar un contacto';
+
+  @override
+  String get settingsSosClearContact => 'Limpiar contacto';
+
+  @override
+  String get settingsSosMessage => 'Mensaje SOS';
+
+  @override
+  String settingsSosMessageHint(Object gps) {
+    return 'Ej.: SOS - necesito ayuda! \'$gps\'';
+  }
+
+  @override
+  String get settingsSosIncludeGps => 'Incluir coordenadas GPS del teléfono';
+
+  @override
+  String get settingsSosIncludeGpsDesc =>
+      'Si no hay GPS o permiso, el mensaje se envía sin coordenadas.';
+
+  @override
+  String get settingsSosSendNow => 'Enviar SOS ahora';
+
+  @override
+  String get settingsSosSent => 'SOS enviado';
+
+  @override
+  String get settingsSosRadioNotConnected => 'La radio no está conectada';
+
+  @override
+  String get settingsSosMissingContact =>
+      'Contacto SOS no configurado/encontrado';
+
+  @override
+  String get settingsSosSendFailed => 'Error al enviar SOS';
+
+  @override
+  String settingsSosSendFailedDetail(Object detail) {
+    return 'Error SOS: $detail';
+  }
+
+  @override
+  String get settingsSosSearchContact => 'Buscar contacto SOS';
+
+  @override
+  String get settingsSosSearchHint => 'Nombre o ID corto';
+
+  @override
+  String get settingsSosNoContactFound => 'No se encontraron contactos';
+
+  @override
+  String get settingsSosUnnamedChannel => '(sin nombre)';
+
+  @override
+  String get settingsSosHoldDuration => 'Mantener para enviar (segundos)';
+
+  @override
+  String get settingsSosHoldDurationDesc =>
+      'Mantén el botón SOS pulsado este tiempo antes de enviar. Evita envíos accidentales.';
+
+  @override
+  String get settingsSosHoldToSend => 'Mantén para enviar SOS';
+
+  @override
+  String get cannedMessagesSosHint =>
+      'Mantén el chip SOS para enviar con la configuración definida';
+
+  @override
+  String get settingsPruneTitle => 'Limpieza de Contactos';
+
+  @override
+  String get settingsPruneDesc =>
+      'Eliminar contactos inactivos de la memoria de la radio';
+
+  @override
+  String get settingsPruneDaysLabel => 'Días de Inactividad';
+
+  @override
+  String get settingsPruneDaysDesc =>
+      'Los contactos sin contacto durante más de X días se eliminarán';
+
+  @override
+  String get settingsPruneDaysUnit => 'días';
+
+  @override
+  String get settingsPruneTypesTitle => 'Tipos de Contacto a Eliminar';
+
+  @override
+  String get settingsPruneChatsTitle => 'Chats / Personales';
+
+  @override
+  String get settingsPruneChatsDesc => 'Eliminar contactos de chat (0x01)';
+
+  @override
+  String get settingsPruneRepeatersTitle => 'Repetidores';
+
+  @override
+  String get settingsPruneRepeatersDesc =>
+      'Eliminar contactos de repetidor (0x02)';
+
+  @override
+  String get settingsPruneRoomsTitle => 'Salas';
+
+  @override
+  String get settingsPruneRoomsDesc => 'Eliminar contactos de sala (0x03)';
+
+  @override
+  String get settingsPruneSensorsTitle => 'Sensores';
+
+  @override
+  String get settingsPruneSensorsDesc => 'Eliminar contactos de sensor (0x04)';
+
+  @override
+  String get settingsPruneRestoreDefaults => 'Restaurar Predeterminados';
+
+  @override
+  String get settingsPublicKeyCopied => 'Clave pública copiada';
+
+  @override
+  String get settingsShutdownUnavailable =>
+      'Shutdown no está disponible en este firmware';
+
+  @override
+  String get settingsOwnQrCodeTitle => 'Mi Código QR';
+
+  @override
+  String get settingsEditNameTitle => 'Editar Nombre';
+
+  @override
+  String get settingsNodeNameLabel => 'Nombre del nodo';
+
+  @override
+  String get settingsNodeNameHint => 'Ej: CT1XXX-MC';
+
+  @override
+  String get settingsPrivateKeyCopy => 'Copia de clave privada';
+
+  @override
+  String get settingsPrivateKeyDesc =>
+      'Tu clave privada te identifica en la red. Guarda una copia segura antes de cambiar de dispositivo.';
+
+  @override
+  String get settingsSaveFromRadio => 'Guardar desde radio';
+
+  @override
+  String get settingsPasteKey => 'Pegar clave';
+
+  @override
+  String get settingsShareCopy => 'Compartir copia';
+
+  @override
+  String get settingsRestoreToRadio => 'Restaurar en radio';
+
+  @override
+  String get settingsDeleteLocalCopy => 'Eliminar copia local';
+
+  @override
+  String get settingsRestorePrivateKeyTitle => 'Restaurar clave privada';
+
+  @override
+  String get settingsRestorePrivateKeyContent =>
+      'Esta operación reemplazará la clave privada actual de la radio. La nueva identidad se aplica inmediatamente — la clave pública en la app se actualizará.\n\n¿Estás seguro?';
+
+  @override
+  String get settingsDeleteBackupTitle => 'Eliminar copia de seguridad';
+
+  @override
+  String get settingsKeySavedSuccess => 'Clave privada guardada con éxito.';
+
+  @override
+  String get settingsKeyImportedSuccess =>
+      'Clave restaurada con éxito. Clave pública actualizada.';
+
+  @override
+  String get settingsKeyExportFailed =>
+      'Exportación fallida. El firmware puede no tener soporte activado.';
+
+  @override
+  String get settingsKeyRestoreFailed =>
+      'Restauración fallida. El firmware puede no tener soporte activado.';
+
+  @override
+  String get settingsDeleteBackupContent =>
+      'La copia de clave privada guardada en este dispositivo será eliminada. La radio no se ve afectada.';
+
+  @override
+  String get settingsKeyCopied => 'Clave privada copiada';
+
+  @override
+  String get settingsKeyCopySaved => 'Copia guardada en este dispositivo.';
+
+  @override
+  String get settingsCopyKeyTooltip => 'Copiar clave completa';
+
+  @override
+  String get settingsKeyConnectToBackup =>
+      'Conecta la radio para hacer una copia de seguridad de la clave.';
+
+  @override
+  String get settingsKeyShareSubject => 'HiveFW Companion — copia de clave privada';
+
+  @override
+  String get settingsPasteKeyTitle => 'Pegar clave privada';
+
+  @override
+  String get settingsPasteKeyHint =>
+      'Pega aquí la clave privada de una copia anterior (128 caracteres hex).';
+
+  @override
+  String get settingsKeyHexLabel => 'Clave privada (hex)';
+
+  @override
+  String get settingsKeyInvalidHex =>
+      'Clave inválida — debe tener exactamente 128 caracteres hexadecimales.';
+
+  @override
+  String get commonContinue => 'Continuar';
+
+  @override
+  String get settingsAbout => 'Acerca de';
+
+  @override
+  String get settingsAppName => 'HiveFW Companion';
+
+  @override
+  String get settingsAppSubtitle => 'Companion móvil para HiveFW';
+
+  @override
+  String get settingsCredit =>
+      'Código fuente inicial creado por Paulo Pereira aka GZ7d0';
+
+  @override
+  String get settingsVersion => 'Versión';
+
+  @override
+  String get settingsProtocol => 'Protocolo';
+
+  @override
+  String get settingsProtocolName => 'Companion Radio Protocol v3';
+
+  @override
+  String get settingsLicense => 'Licencia';
+
+  @override
+  String get settingsLicenseMIT => 'MIT';
+
+  @override
+  String get contactsAll => 'Todos';
+
+  @override
+  String get contactsFavorites => 'Favoritos';
+
+  @override
+  String get contactsCompanions => 'Compañeros';
+
+  @override
+  String get contactsRepeaters => 'Repetidores';
+
+  @override
+  String get contactsSensors => 'Sensores';
+
+  @override
+  String get contactsSearchHint => 'Buscar contactos...';
+
+  @override
+  String get contactsSendAdvert => 'Enviar Anuncio';
+
+  @override
+  String get contactsAdvertZeroHop => 'Anuncio · Zero Hop';
+
+  @override
+  String get contactsAdvertFlood => 'Anuncio · Flood';
+
+  @override
+  String get contactsAdvertSentZeroHop => 'Anuncio Zero Hop enviado';
+
+  @override
+  String get contactsAdvertSentFlood => 'Anuncio Flood enviado';
+
+  @override
+  String get contactsSort => 'Ordenar';
+
+  @override
+  String get contactsSortNameAZ => 'Nombre (A-Z)';
+
+  @override
+  String get contactsSortLastHeard => 'Escuchado recientemente';
+
+  @override
+  String get contactsSortLastMessage => 'Último mensaje';
+
+  @override
+  String get contactsMoreOptions => 'Más opciones';
+
+  @override
+  String get contactsDiscover => 'Descubrir contactos';
+
+  @override
+  String get contactsMultiSelect => 'Seleccionar múltiples';
+
+  @override
+  String get contactsEmptyCompanions => 'Sin compañeros en la red';
+
+  @override
+  String get contactsEmptyRepeaters => 'Sin repetidores en la red';
+
+  @override
+  String get contactsEmptyRooms => 'Sin salas en la red';
+
+  @override
+  String get contactsEmptySensors => 'Sin sensores en la red';
+
+  @override
+  String get contactsEmpty => 'Sin contactos';
+
+  @override
+  String get contactsEmptyFavorites => 'Sin favoritos';
+
+  @override
+  String get contactsEmptyHint =>
+      'Los contactos aparecen cuando la radio los descubre';
+
+  @override
+  String get contactsSelected => 'seleccionado(s)';
+
+  @override
+  String get contactsRemoveSelected => 'Eliminar seleccionados';
+
+  @override
+  String get contactsCancelSelection => 'Cancelar selección';
+
+  @override
+  String get contactsAddContact => 'Añadir contacto';
+
+  @override
+  String get contactsAddInstruction =>
+      'Envía un anuncio para que otros nodos te descubran automáticamente, o añade manualmente con la clave pública';
+
+  @override
+  String get contactsSendAdvertAuto =>
+      'Enviar Anuncio (descubrimiento automático)';
+
+  @override
+  String get contactsReadQR => 'Leer código QR';
+
+  @override
+  String get contactsOrManual => 'o añadir manualmente';
+
+  @override
+  String get contactsPublicKeyLabel => 'Clave pública (hex, 64 chars)';
+
+  @override
+  String get contactsDisplayName => 'Nombre de visualización';
+
+  @override
+  String get contactsTypeChat => 'Chat';
+
+  @override
+  String get contactsTypeRepeater => 'Repetidor';
+
+  @override
+  String get contactsTypeRoom => 'Sala';
+
+  @override
+  String get contactsAdding => 'Añadiendo...';
+
+  @override
+  String get contactsSeen => 'Visto:';
+
+  @override
+  String get contactsRenameTitle => 'Renombrar contacto';
+
+  @override
+  String get contactsAnnouncedName => 'Nombre anunciado:';
+
+  @override
+  String get contactsCustomName => 'Nombre personalizado';
+
+  @override
+  String get contactsSaveToRadioTitle => 'Guardar contacto en radio';
+
+  @override
+  String get contactsTypeCompanion => 'Tipo: Compañero';
+
+  @override
+  String contactsSavedToRadio(String name) {
+    return '$name guardado en radio';
+  }
+
+  @override
+  String get contactsSaveToRadioError => 'Error al guardar contacto en radio';
+
+  @override
+  String get contactsSaveTimeout => 'Timeout: la radio no respondió';
+
+  @override
+  String get contactsRemoveTitle => '¿Eliminar contacto(s)?';
+
+  @override
+  String get contactsRemovedPrefix => 'Eliminados';
+
+  @override
+  String get contactsRemoveErrorSuffix => 'error(es)';
+
+  @override
+  String get contactsRemoveError => 'Error al eliminar contactos';
+
+  @override
+  String get contactsRemoveFromListSuffix => 'de la lista de contactos?';
+
+  @override
+  String get contactsRemoveRadioError => 'Error al eliminar en radio (código';
+
+  @override
+  String get contactsRemoveTimeout =>
+      'Timeout: la radio no respondió a la eliminación';
+
+  @override
+  String get contactsRemoveFavorites => 'Eliminar de favoritos';
+
+  @override
+  String get contactsAddFavorites => 'Añadir a favoritos';
+
+  @override
+  String get contactsShareQR => 'Compartir vía QR';
+
+  @override
+  String get contactsPrivateMessage => 'Mensaje privado';
+
+  @override
+  String get contactsJoinRoom => 'Entrar en sala';
+
+  @override
+  String get contactsRemoteAdmin => 'Admin remoto';
+
+  @override
+  String get contactsManagePath => 'Gestionar ruta';
+
+  @override
+  String get contactsCurrentPath => 'Ruta actual:';
+
+  @override
+  String get contactsRemoveContact => 'Eliminar contacto';
+
+  @override
+  String get contactsAdminLabel => 'Admin:';
+
+  @override
+  String get contactsIdLabel => 'ID:';
+
+  @override
+  String get contactsHopsLabel => 'Saltos:';
+
+  @override
+  String get contactsAuth => 'Autenticación';
+
+  @override
+  String get contactsPassword => 'Contraseña (opcional)';
+
+  @override
+  String get contactsPasswordHint => 'Dejar en blanco si no hay contraseña';
+
+  @override
+  String get contactsJoin => 'Entrar';
+
+  @override
+  String get contactsStatusSent => 'Solicitud de estado enviada...';
+
+  @override
+  String get contactsStatusSending => 'Enviando:';
+
+  @override
+  String get contactsRemoteActions => 'Acciones Remotas';
+
+  @override
+  String get contactsFloodAdvert => 'Anuncio Flood';
+
+  @override
+  String get contactsFloodAdvertDesc =>
+      'Fuerza al nodo a enviar un anuncio flood';
+
+  @override
+  String get contactsZeroHopAdvert => 'Anuncio Zero-Hop';
+
+  @override
+  String get contactsZeroHopAdvertDesc => 'Anuncio solo a vecinos directos';
+
+  @override
+  String get contactsSyncClock => 'Sincronizar reloj';
+
+  @override
+  String get contactsSyncClockDesc => 'Envía el timestamp actual al nodo';
+
+  @override
+  String get contactsStartOTA => 'Iniciar OTA';
+
+  @override
+  String get contactsStartOTADesc =>
+      'Inicia actualización OTA — NRF DFU / ESP32';
+
+  @override
+  String get contactsConfirmOTATitle => 'Confirmar OTA';
+
+  @override
+  String get contactsConfirmOTAContent =>
+      'La radio entrará en modo de actualización OTA y quedará temporalmente inaccesible';
+
+  @override
+  String get contactsConfirmOTAQuestion => '¿Estás seguro?';
+
+  @override
+  String get contactsStats => 'Estadísticas';
+
+  @override
+  String get contactsUptime => 'Uptime';
+
+  @override
+  String get contactsSnrLast => 'SNR (último)';
+
+  @override
+  String get contactsRssiLast => 'RSSI (último)';
+
+  @override
+  String get contactsNoise => 'Ruido';
+
+  @override
+  String get contactsRxTx => 'RX / TX';
+
+  @override
+  String get contactsFloodRxTx => 'Flood RX/TX';
+
+  @override
+  String get contactsDirectRxTx => 'Directo RX/TX';
+
+  @override
+  String get contactsAirtimeTx => 'Tiempo en aire (TX)';
+
+  @override
+  String get contactsAirtimeRx => 'Tiempo en aire (RX)';
+
+  @override
+  String get contactsDuplicates => 'Duplicados';
+
+  @override
+  String get contactsNotSavedHint =>
+      'Este contacto fue escuchado pero no está guardado en la radio';
+
+  @override
+  String get channelsCreatePrivate => 'Crear Canal Privado';
+
+  @override
+  String get channelsCreatePrivateDesc => 'Protegido con una clave secreta';
+
+  @override
+  String get channelsJoinPrivate => 'Unirse a Canal Privado';
+
+  @override
+  String get channelsJoinPrivateDesc =>
+      'Introduce manualmente una clave secreta';
+
+  @override
+  String get channelsJoinPublic => 'Unirse al Canal Público';
+
+  @override
+  String get channelsJoinPublicDesc =>
+      'Cualquier persona puede unirse a este canal';
+
+  @override
+  String get channelsJoinHashtag => 'Unirse a Canal Hashtag';
+
+  @override
+  String get channelsJoinHashtagDesc =>
+      'Cualquier persona puede unirse a canales hashtag';
+
+  @override
+  String get channelsReadQR => 'Leer código QR';
+
+  @override
+  String get channelsReadQRDesc => 'Escanear el código QR de un canal';
+
+  @override
+  String get channelsSlotPosition => 'Posición del canal';
+
+  @override
+  String get channelsSlot => 'Ranura';
+
+  @override
+  String get channelsSlotInUse => '(en uso)';
+
+  @override
+  String get channelsChannelName => 'Nombre del canal';
+
+  @override
+  String get channelsHashtagName => 'Nombre del hashtag (sin #)';
+
+  @override
+  String get channelsHashtagHint => 'ej: meshcore  →  canal #meshcore';
+
+  @override
+  String get channelsNameHintGeneral => 'ej: General';
+
+  @override
+  String get channelsNameHintPrivate => 'ej: Mi Red';
+
+  @override
+  String get channelsSecretKey => 'Clave secreta (32 caracteres hex)';
+
+  @override
+  String get channelsSecretKeyHint => 'ej: 8b3387e9c5cdea6ac9e5edbaa115cd72';
+
+  @override
+  String get channelsPublicKey => 'Clave pública conocida';
+
+  @override
+  String get channelsDerivedKey => 'Clave derivada del hashtag';
+
+  @override
+  String get channelsRandomKey => 'Clave generada aleatoriamente';
+
+  @override
+  String get channelsPublicKeyInfo =>
+      'Esta clave es pública e idéntica en todos los dispositivos MeshCore';
+
+  @override
+  String get channelsHashtagKeyInfo =>
+      'Cualquier persona que entre en el mismo hashtag tendrá esta clave automáticamente';
+
+  @override
+  String get channelsRandomKeyInfo =>
+      'Guarda esta clave o comparte el código QR para invitar a otros';
+
+  @override
+  String get channelsRegenerateKey => 'Regenerar clave';
+
+  @override
+  String get channelsEmpty => 'Sin canales';
+
+  @override
+  String get channelsEmptyHint =>
+      'Los canales configurados en la radio aparecen aquí';
+
+  @override
+  String get channelsRefresh => 'Actualizar Canales';
+
+  @override
+  String get channelsAllRead => 'Todo leído';
+
+  @override
+  String get channelsAllReadHint => 'Sin mensajes no leídos en canales';
+
+  @override
+  String get channelsSeeAll => 'Ver todos los canales';
+
+  @override
+  String get channelsMsgSuffix => 'msg';
+
+  @override
+  String get channelsOptionsFabTooltip => 'Opciones del canal';
+
+  @override
+  String get channelsClearHistoryConfirm =>
+      '¿Eliminar todos los mensajes de este canal? Esta acción no puede deshacerse';
+
+  @override
+  String get channelsEditSheet => 'Editar canal';
+
+  @override
+  String get channelsQRTitle => 'Código QR del canal';
+
+  @override
+  String get channelsShowQR => 'Mostrar código QR del canal';
+
+  @override
+  String get channelsQRDesc =>
+      'Comparte este código QR para dar acceso al canal';
+
+  @override
+  String get channelsShareText => 'Compartir texto';
+
+  @override
+  String get channelsShareQR => 'Compartir QR';
+
+  @override
+  String get channelsRemovePublicTitle => '¿Eliminar Canal Público?';
+
+  @override
+  String get channelsRemovePublicWarning =>
+      'Estás a punto de eliminar el Canal Público. Este es el canal principal compartido por la comunidad MeshCore. ¿Estás seguro?';
+
+  @override
+  String get channelsRemoveAnyway => 'Eliminar de todas formas';
+
+  @override
+  String get channelsRemoveTitle => 'Eliminar canal';
+
+  @override
+  String get channelsRemoveConfirm => '¿Estás seguro de que quieres eliminar';
+
+  @override
+  String get channelsRemoveWarning => 'Esta acción no puede deshacerse.';
+
+  @override
+  String get channelsMuteTitle => 'Canal silenciado';
+
+  @override
+  String get channelsUnmuteTitle => 'Notificaciones activas';
+
+  @override
+  String get channelsMuteSubtitleOn =>
+      'Sin alertas — el indicador de no leídos sigue visible';
+
+  @override
+  String get channelsMuteSubtitleOff =>
+      'Recibe notificaciones e indicador de no leídos';
+
+  @override
+  String get channelsMuteLabel => 'silenciado';
+
+  @override
+  String get chatMuteChannel => 'Silenciar canal';
+
+  @override
+  String get chatUnmuteChannel => 'Reactivar notificaciones';
+
+  @override
+  String get chatNoMessages => 'Sin mensajes en este canal';
+
+  @override
+  String get chatSendFirstMessage => '¡Envía el primer mensaje!';
+
+  @override
+  String get chatInputHint => 'Mensaje al canal...';
+
+  @override
+  String get chatRepeater => 'Repetidor';
+
+  @override
+  String get chatRepeaters => 'Repetidores';
+
+  @override
+  String get chatMsgCount => 'mensajes';
+
+  @override
+  String get chatHeard => 'Escuchado';
+
+  @override
+  String get chatOnce => 'vez';
+
+  @override
+  String get chatTimes => 'veces por repetidores';
+
+  @override
+  String get chatViaRepeaters => 'Recibido vía repetidores';
+
+  @override
+  String get chatAuthenticatedMessage => 'Autenticado';
+
+  @override
+  String get chatMsgDetails => 'Detalles del mensaje';
+
+  @override
+  String get chatRetry => 'Reenviar';
+
+  @override
+  String get chatFailed => 'Fallido';
+
+  @override
+  String get chatPathLabel => 'Ruta';
+
+  @override
+  String get chatHeardCount => 'Escuchado';
+
+  @override
+  String get chatTimesCount => 'veces';
+
+  @override
+  String get chatPathExplanation =>
+      'Cada ruta representa una vez que tu radio escuchó el mensaje de vuelta';
+
+  @override
+  String get chatPathInstruction => 'Toca una ruta para ver la ruta completa';
+
+  @override
+  String get chatNoPathData =>
+      'Los datos de ruta no están disponibles. Reconecta la radio para registrar nuevas rutas';
+
+  @override
+  String get chatViewOnMap => 'Ver en mapa';
+
+  @override
+  String get chatYourRadio => 'Tu radio';
+
+  @override
+  String get chatLastRepeater => 'Último repetidor';
+
+  @override
+  String get chatYouSent => 'Enviaste el mensaje';
+
+  @override
+  String get chatSentMessage => 'Envió el mensaje';
+
+  @override
+  String get chatReceived => 'Recibió el mensaje';
+
+  @override
+  String get chatHopLabel => 'Salto';
+
+  @override
+  String get chatHopOrderFarthest => 'más lejano';
+
+  @override
+  String get chatRepeated => 'Repitió';
+
+  @override
+  String get chatHashtagChannel =>
+      'Canal Hashtag — cualquier persona con el nombre puede unirse';
+
+  @override
+  String get chatKeyLabel => 'Clave:';
+
+  @override
+  String get chatCreateJoinChannel => 'Crear y unirse al canal';
+
+  @override
+  String get chatNoChannelSlots => 'Sin espacio disponible para nuevos canales';
+
+  @override
+  String get chatDeleteMessage => 'Eliminar mensaje';
+
+  @override
+  String get chatMenuOptions => 'Opciones del canal';
+
+  @override
+  String get chatNewMessages => 'Mensajes nuevos';
+
+  @override
+  String get chatPingButton => '!ping';
+
+  @override
+  String get chatViewResultOnline => 'ver resultado online';
+
+  @override
+  String get connectTitle => 'HiveFW';
+
+  @override
+  String get connectReconnect => 'Reconectar';
+
+  @override
+  String get connectContinueOffline => 'Continuar sin conexión';
+
+  @override
+  String get connectSearchDevices => 'Buscar Dispositivos';
+
+  @override
+  String get connectSearching => 'Buscando...';
+
+  @override
+  String get connectBrowserNote =>
+      'El navegador mostrará un selector de dispositivos Bluetooth';
+
+  @override
+  String get connectScanningMessage => 'Buscando Companions HiveFW / MeshCore...';
+
+  @override
+  String get connectTapHint => 'Toca en \"Buscar\" para encontrar dispositivos';
+
+  @override
+  String get connectSectionBluetooth => 'BLUETOOTH';
+
+  @override
+  String get connectSectionSerial => 'USB / SERIE';
+
+  @override
+  String get connectDeviceBLE => '(Bluetooth LE)';
+
+  @override
+  String get connectDeviceUSB => '(Serie USB — Companion)';
+
+  @override
+  String get connectDeviceKISS => '(KISS TNC)';
+
+  @override
+  String get connectDeviceWebUSB => 'Web USB — Companion';
+
+  @override
+  String get connectDeviceWebKISS => 'Web USB — KISS TNC';
+
+  @override
+  String get connectWebUsbButton => 'Conectar vía USB (Web Serial)';
+
+  @override
+  String get connectWebUsbScanning => 'Seleccionando puerto USB...';
+
+  @override
+  String get connectWebUsbHint =>
+      'Compatible con Chrome y Edge. El navegador mostrará un selector de puertos USB.';
+
+  @override
+  String get connectWebUsbExpiredMessage =>
+      'Puerto USB no disponible (página recargada). Seleccione el dispositivo nuevamente.';
+
+  @override
+  String get connectWebUsbAction => 'Conectar vía USB';
+
+  @override
+  String get connectStepConnecting => 'Conectando...';
+
+  @override
+  String get connectStepWaiting => 'Esperando radio...';
+
+  @override
+  String get connectStepDeviceInfo => 'Información del dispositivo';
+
+  @override
+  String get connectStepContacts => 'Contactos';
+
+  @override
+  String get connectStepChannels => 'Canales';
+
+  @override
+  String get connectStepDone => 'Completado';
+
+  @override
+  String get connectBluetoothOffTitle => 'Bluetooth desactivado';
+
+  @override
+  String get connectBluetoothOffMessage =>
+      'El Bluetooth está desactivado. ¿Deseas activarlo para conectar con el Companion HiveFW?';
+
+  @override
+  String get connectBluetoothEnable => 'Activar';
+
+  @override
+  String get connectBluetoothDeniedTitle => 'Activación de Bluetooth rechazada';
+
+  @override
+  String get connectBluetoothDeniedMessage =>
+      'Por favor activa el Bluetooth en los Ajustes del sistema';
+
+  @override
+  String get connectBluetoothOff =>
+      'Bluetooth desactivado. Activa el Bluetooth para buscar dispositivos';
+
+  @override
+  String get connectBluetoothPermission =>
+      'Permisos Bluetooth necesarios para buscar dispositivos';
+
+  @override
+  String get connectOpenSettings => 'Ajustes';
+
+  @override
+  String get connectFailTitle => 'Error al conectar con el dispositivo';
+
+  @override
+  String get connectLastFailTitle =>
+      'Error al conectar con el último dispositivo';
+
+  @override
+  String get connectCancelledMessage => 'Conexión al radio cancelada';
+
+  @override
+  String get discoverTitle => 'Descubrir';
+
+  @override
+  String get discoverSubtitle => 'Anuncios Recientes';
+
+  @override
+  String get discoverSearchHint => 'Buscar contactos descubiertos...';
+
+  @override
+  String get discoverEmpty => 'Ningún contacto encontrado';
+
+  @override
+  String get discoverEmptyHint => 'Intenta una búsqueda diferente';
+
+  @override
+  String get discoverNone => 'Ningún contacto descubierto';
+
+  @override
+  String get discoverNoneHint =>
+      'Los contactos aparecen mientras transmiten en la red';
+
+  @override
+  String get discoverCleanTooltip => 'Limpar contactos só locais';
+
+  @override
+  String get discoverCleanSheetTitle => 'Limpar contactos só locais';
+
+  @override
+  String get discoverCleanSheetSubtitle =>
+      'Escolhe quais contactos descobertos remover. Os contactos guardados no rádio são sempre mantidos.';
+
+  @override
+  String get discoverCleanOption48h => 'Não ouvidos há 48 horas';
+
+  @override
+  String get discoverCleanOption7d => 'Não ouvidos há 7 dias';
+
+  @override
+  String get discoverCleanOption30d => 'Não ouvidos há 30 dias';
+
+  @override
+  String get discoverCleanOptionNever => 'Nunca ouvidos (sem advert)';
+
+  @override
+  String get discoverCleanOptionAll => 'Todos os contactos só locais';
+
+  @override
+  String get discoverCleanTitle => 'Limpar contactos descobertos?';
+
+  @override
+  String discoverCleanBody(int n) {
+    String _temp0 = intl.Intl.pluralLogic(
+      n,
+      locale: localeName,
+      other: '$n contactos',
+      one: '1 contacto',
+    );
+    return 'Vai remover $_temp0 que não estão guardados no rádio. Os contactos guardados no rádio são mantidos.';
+  }
+
+  @override
+  String get discoverCleanNothing =>
+      'Todos os contactos descobertos estão guardados no rádio. Nada para limpar.';
+
+  @override
+  String discoverCleanDone(int n) {
+    String _temp0 = intl.Intl.pluralLogic(
+      n,
+      locale: localeName,
+      other: 'Removidos $n contactos',
+      one: 'Removido 1 contacto',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get discoverSaveToRadio => 'Guardar en radio';
+
+  @override
+  String get discoverSendMessage => 'Enviar mensaje';
+
+  @override
+  String get discoverJoinRoom => 'Entrar en sala';
+
+  @override
+  String get discoverAddAndSave => 'Añadir y guardar';
+
+  @override
+  String get discoverAnnouncedName => 'Nombre Anunciado';
+
+  @override
+  String get discoverHeard => 'Escuchado';
+
+  @override
+  String get discoverNever => 'Nunca';
+
+  @override
+  String get discoverNoName => 'Sin nombre';
+
+  @override
+  String get discoverTypeCompanion => 'Compañero';
+
+  @override
+  String get discoverTypeUnknown => 'Desconocido';
+
+  @override
+  String get discoverPathNear => 'Cercano';
+
+  @override
+  String get discoverJustNow => 'Ahora';
+
+  @override
+  String discoverMinutesAgo(int min) {
+    return 'hace ${min}m';
+  }
+
+  @override
+  String discoverHoursAgo(int hours) {
+    return 'hace ${hours}h';
+  }
+
+  @override
+  String discoverDaysAgo(int days) {
+    return 'hace ${days}d';
+  }
+
+  @override
+  String get appsTelemetryTitle => 'Telemetría';
+
+  @override
+  String get appsTelemetrySubtitle => 'Batería, RF y contadores';
+
+  @override
+  String get appsRxLogTitle => 'RX Log';
+
+  @override
+  String get appsRxLogSubtitle => 'Captura y exporta PCAP';
+
+  @override
+  String get appsQrTitle => 'Lector QR';
+
+  @override
+  String get appsQrSubtitle => 'Escanear código QR';
+
+  @override
+  String get mapNoGps =>
+      'Sin datos GPS. Toca en \"Localizar\" o espera contactos con coordenadas';
+
+  @override
+  String get mapShareMap => 'Compartir mapa';
+
+  @override
+  String get mapViewAll => 'Ver todos';
+
+  @override
+  String get mapCenterMyPosition => 'Centrar en mi posición';
+
+  @override
+  String get mapGetGps => 'Obtener ubicación GPS';
+
+  @override
+  String get mapLocationDisabled => 'Servicio de ubicación desactivado';
+
+  @override
+  String get mapLocationDenied => 'Permiso de ubicación denegado';
+
+  @override
+  String get mapLocationDeniedPermanently =>
+      'Permiso de ubicación denegado permanentemente';
+
+  @override
+  String get mapLocationError => 'Error al obtener ubicación GPS';
+
+  @override
+  String get mapCaptureError => 'No se pudo capturar el mapa';
+
+  @override
+  String get mapImageError => 'Error al generar imagen del mapa';
+
+  @override
+  String get mapShareError => 'Error al compartir el mapa';
+
+  @override
+  String get mapNodesAtLocation => 'nodos en esta ubicación';
+
+  @override
+  String get mapMinimizeList => 'Minimizar lista';
+
+  @override
+  String get mapShowMore => 'Mostrar +';
+
+  @override
+  String get mapHops => 'salto(s)';
+
+  @override
+  String get mapFinal => 'Final:';
+
+  @override
+  String get mapLegendTitle => 'Leyenda';
+
+  @override
+  String get mapLegendCompanion => 'Compañero';
+
+  @override
+  String get mapLegendRepeater => 'Repetidor';
+
+  @override
+  String get mapLegendRoom => 'Sala';
+
+  @override
+  String get mapLegendSensor => 'Sensor';
+
+  @override
+  String get mapLegendYou => 'Tú';
+
+  @override
+  String get mapAttribution => 'HiveFW';
+
+  @override
+  String get mapAttributionOSM => '© OpenStreetMap contributors';
+
+  @override
+  String get mapPathPrefix => 'Ruta ·';
+
+  @override
+  String get privateNoMessages => 'Sin mensajes';
+
+  @override
+  String get privateSendFirstMessage => '¡Envía el primer mensaje!';
+
+  @override
+  String privateMessageTo(String name) {
+    return 'Mensaje para $name...';
+  }
+
+  @override
+  String privateTracingRoute(String name) {
+    return 'Trazando ruta hacia $name';
+  }
+
+  @override
+  String get privateRouteFailed =>
+      'No se pudo descubrir la ruta — inténtalo de nuevo';
+
+  @override
+  String get privateRouteNoResponse =>
+      'Sin respuesta de ruta — inténtalo de nuevo';
+
+  @override
+  String get privateRouteFound => 'Ruta encontrada —';
+
+  @override
+  String get privateDirectRoute => 'Ruta directa (sin repetidores)';
+
+  @override
+  String get privateReceivedOnRadio => 'Recibido en radio';
+
+  @override
+  String get privateConfirmed => 'Confirmado';
+
+  @override
+  String get privatePending => 'Pendiente';
+
+  @override
+  String get privateSentVia => 'Enviado vía';
+
+  @override
+  String get privateTraceRoute => 'Trazar ruta';
+
+  @override
+  String get privateManagePath => 'Gestionar ruta';
+
+  @override
+  String get privateContactLabel => 'Contacto';
+
+  @override
+  String get qrTitle => 'Leer código QR';
+
+  @override
+  String get qrUnavailable => 'Escáner QR no disponible en esta plataforma';
+
+  @override
+  String get qrUnavailableHint => 'Usa un dispositivo Android o iOS';
+
+  @override
+  String get qrHint => 'Apunta hacia un código QR de HiveFW / MeshCore';
+
+  @override
+  String get radioSettingsTitle => 'Configuración de Radio';
+
+  @override
+  String get radioSettingsDevice => 'Dispositivo';
+
+  @override
+  String get radioSettingsModel => 'Modelo';
+
+  @override
+  String get radioSettingsFirmware => 'Firmware';
+
+  @override
+  String get radioSettingsStorage => 'Almacenamiento';
+
+  @override
+  String get radioSettingsChannels => 'Canales';
+
+  @override
+  String get radioSettingsContacts => 'Contactos';
+
+  @override
+  String get radioSettingsDiscovered => 'Contactos locales';
+
+  @override
+  String get radioSettingsAppVersion => 'Versión de App';
+
+  @override
+  String get radioSettingsLoRa => 'Parámetros LoRa';
+
+  @override
+  String get radioSettingsFrequency => 'Frecuencia (MHz)';
+
+  @override
+  String get radioSettingsFreqLabel => 'Frecuencia';
+
+  @override
+  String get radioSettingsFrequencyHint => 'Ej: 868.1250';
+
+  @override
+  String get radioSettingsBandwidth => 'Ancho de banda';
+
+  @override
+  String get radioSettingsSpreadingFactor => 'Spreading Factor';
+
+  @override
+  String get radioSettingsCodingRate => 'Coding Rate';
+
+  @override
+  String get radioSettingsTxPower => 'Potencia TX';
+
+  @override
+  String get radioSettingsMax => 'Máx:';
+
+  @override
+  String get radioSettingsDbm => 'dBm';
+
+  @override
+  String get radioSettingsFrequencyRequired => 'Introduce la frecuencia';
+
+  @override
+  String get radioSettingsFrequencyInvalid =>
+      'Frecuencia inválida (150–2500 MHz)';
+
+  @override
+  String get radioSettingsBandwidthRequired => 'Selecciona el ancho de banda';
+
+  @override
+  String get radioSettingsSFRequired => 'Selecciona el spreading factor';
+
+  @override
+  String get radioSettingsCRRequired => 'Selecciona el coding rate';
+
+  @override
+  String get radioSettingsPowerRequired => 'Introduce la potencia';
+
+  @override
+  String get radioSettingsPowerInvalid => 'Potencia inválida (1–30 dBm)';
+
+  @override
+  String get radioSettingsActiveConfig => 'Configuración Activa';
+
+  @override
+  String get radioSettingsSaved => 'Configuración guardada';
+
+  @override
+  String get radioSettingsPrivKeyCopied => 'Clave privada copiada';
+
+  @override
+  String get radioSettingsResetValues => 'Restablecer valores actuales';
+
+  @override
+  String get radioSettingsExperimentalTitle => 'Experimental';
+
+  @override
+  String get radioSettingsExperimentalWarning =>
+      'Usar com cuidado — estas opções afectam a compatibilidade no ar com outros nós.';
+
+  @override
+  String get radioSettingsPathHashMode => 'Tamaño del hash de ruta';
+
+  @override
+  String get radioSettingsPathHashModeDesc =>
+      'Número de bytes utilizados por salto en la ruta de encaminamiento. Valores mayores reducen la probabilidad de colisión entre nodos distantes. Requiere firmware v1.14.0+. Predeterminado: 1 byte.';
+
+  @override
+  String get radioSettingsPathHashMode1 => '1 byte';
+
+  @override
+  String get radioSettingsPathHashMode2 => '2 bytes';
+
+  @override
+  String get radioSettingsPathHashModeCaptionDefault =>
+      '1 byte por salto — predeterminado, compatible con todos los firmwares.';
+
+  @override
+  String get radioSettingsPathHashModeCaptionExperimental =>
+      'Experimental — solo los nodos con firmware v10+ encaminarán este paquete correctamente.';
+
+  @override
+  String get radioSettingsPathHashModeUnsupported =>
+      'No compatible con este firmware.';
+
+  @override
+  String get radioSettingsPathHashModeSaved =>
+      'Tamaño del hash de ruta actualizado';
+
+  @override
+  String get radioSettingsPathHashModeFailed =>
+      'Error al actualizar el tamaño del hash de ruta';
+
+  @override
+  String get radioSettingsAutoAddTitle => 'Adición automática de contactos';
+
+  @override
+  String get radioSettingsAutoAddDesc =>
+      'Cuando un nodo envía un advert y la radio está en modo manual, añadir automáticamente como:';
+
+  @override
+  String get radioSettingsAutoAddAll => 'Auto Añadir Todos';
+
+  @override
+  String get radioSettingsAutoAddAllDesc =>
+      'Cuando está activo, todos los adverts recibidos se añadirán a los contactos.';
+
+  @override
+  String get radioSettingsAutoAddSelected => 'Auto Añadir Seleccionados';
+
+  @override
+  String get radioSettingsAutoAddSelectedDesc =>
+      'Cuando está activo, solo los tipos de contacto seleccionados a continuación se añadirán automáticamente.';
+
+  @override
+  String get radioSettingsAutoAddCompanion => 'Compañero (Chat)';
+
+  @override
+  String get radioSettingsAutoAddRepeater => 'Repetidor';
+
+  @override
+  String get radioSettingsAutoAddRoom => 'Sala (Room)';
+
+  @override
+  String get radioSettingsAutoAddSensor => 'Sensor';
+
+  @override
+  String get radioSettingsOverwriteOldest => 'Sobrescribir Más Antiguo';
+
+  @override
+  String get radioSettingsOverwriteOldestDesc =>
+      'Cuando está activo, los contactos más antiguos sin favorito son reemplazados por nuevos cuando la lista está llena.';
+
+  @override
+  String get radioSettingsAutoAddMaxHops => 'Saltos Máximos de Auto Adición';
+
+  @override
+  String get radioSettingsAutoAddMaxHopsDesc =>
+      'Los contactos solo se añadirán automáticamente si el camino del advert tiene el mismo o menos saltos que el límite. Dejar en blanco para sin límite.';
+
+  @override
+  String get radioSettingsAutoAddMaxHopsHint => 'Saltos (0-63)';
+
+  @override
+  String get radioSettingsPullToRefresh => 'Deslizar para Actualizar';
+
+  @override
+  String get radioSettingsPullToRefreshDesc =>
+      'Cuando está activo, puedes deslizar hacia abajo para actualizar la lista de contactos.';
+
+  @override
+  String get radioSettingsShowPublicKeys => 'Mostrar Claves Públicas';
+
+  @override
+  String get radioSettingsShowPublicKeysDesc =>
+      'Cuando está activo, las claves públicas se mostrarán en la lista de contactos.';
+
+  @override
+  String get radioSettingsBandPresetsTitle => 'Preajustes de Banda';
+
+  @override
+  String get roomJoinTitle => 'Entrar en sala';
+
+  @override
+  String get roomJoinInstruction =>
+      'Esta sala puede requerir contraseña. Déjala en blanco si es pública.';
+
+  @override
+  String get roomPasswordLabel => 'Contraseña (opcional)';
+
+  @override
+  String get roomPasswordHint => 'Dejar en blanco si no hay contraseña';
+
+  @override
+  String get roomJoinFailed => 'Falló — verifica la contraseña';
+
+  @override
+  String get roomJoining => 'Conectando...';
+
+  @override
+  String get roomJoinError =>
+      'No se pudo entrar en la sala. Verifica la contraseña e inténtalo de nuevo.';
+
+  @override
+  String get roomReplyStrip => 'Sala';
+
+  @override
+  String roomMessageHint(String name) {
+    return 'Mensaje para sala $name...';
+  }
+
+  @override
+  String get roomMessageFallback => 'Escribe un mensaje...';
+
+  @override
+  String get roomTelemetryData => 'Datos de telemetría';
+
+  @override
+  String get rxLogTitle => 'RX Log';
+
+  @override
+  String get rxLogExportPcap => 'Exportar PCAPNG';
+
+  @override
+  String get rxLogClearLog => 'Limpiar log';
+
+  @override
+  String get rxLogPacketCount => 'paquetes capturados';
+
+  @override
+  String get rxLogClearTitle => 'Limpiar RX Log';
+
+  @override
+  String get rxLogClearConfirm => '¿Eliminar todos los paquetes capturados?';
+
+  @override
+  String get rxLogEmpty => 'RX Log vacío - nada que exportar';
+
+  @override
+  String get rxLogExportFail => 'Error al exportar PCAPNG';
+
+  @override
+  String get rxLogPacketAdvert => 'Advert';
+
+  @override
+  String get rxLogPacketGroupText => 'Group Text';
+
+  @override
+  String get rxLogPacketPrivateText => 'Private Text';
+
+  @override
+  String get rxLogPacketPath => 'Path';
+
+  @override
+  String get rxLogPacketControl => 'Control';
+
+  @override
+  String get rxLogPacketTypePrefix => 'Tipo';
+
+  @override
+  String get rxLogEmptyTitle => 'Sin paquetes RX';
+
+  @override
+  String get rxLogEmptyHint =>
+      'Cuando la radio reciba tráfico mesh, los paquetes aparecerán aquí.';
+
+  @override
+  String get telemetryBattery => 'Batería';
+
+  @override
+  String get telemetryNetStats => 'Estadísticas de Red';
+
+  @override
+  String get telemetryRadioState => 'Radio — Estado';
+
+  @override
+  String get telemetryRadioWaiting => 'Esperando estadísticas de radio...';
+
+  @override
+  String get telemetryRadioRF => 'Radio — RF';
+
+  @override
+  String get telemetryRFWaiting => 'Esperando estadísticas de RF...';
+
+  @override
+  String get telemetryPacketCounters => 'Radio — Contadores de Paquetes';
+
+  @override
+  String get telemetryCountersWaiting => 'Esperando contadores de paquetes...';
+
+  @override
+  String get telemetrySensors => 'Sensores (Telemetría)';
+
+  @override
+  String get telemetryNoData => 'No se recibió telemetría.';
+
+  @override
+  String get telemetrySamplesSuffix => 'muestras';
+
+  @override
+  String get telemetryNow => 'Ahora';
+
+  @override
+  String get telemetryHistoryHint =>
+      'El historial aparece tras la primera lectura de batería.';
+
+  @override
+  String get telemetryRX => 'RX';
+
+  @override
+  String get telemetryTX => 'TX';
+
+  @override
+  String get telemetryHeard => 'Escuchados';
+
+  @override
+  String get telemetryCardPrefix => 'Telemetría —';
+
+  @override
+  String get telemetryUptime => 'Uptime';
+
+  @override
+  String get telemetryTxQueue => 'Cola TX';
+
+  @override
+  String get telemetryErrorsPrefix => 'Errores:';
+
+  @override
+  String get telemetryRSSI => 'RSSI';
+
+  @override
+  String get telemetryNoise => 'Ruido';
+
+  @override
+  String get telemetrySNR => 'SNR';
+
+  @override
+  String get telemetryAirtimeTX => 'Airtime TX';
+
+  @override
+  String get telemetryAirtimeRX => 'Airtime RX';
+
+  @override
+  String get telemetryErrors => 'Errores';
+
+  @override
+  String get telemetryRXTotal => 'RX Total';
+
+  @override
+  String get telemetryTXTotal => 'TX Total';
+
+  @override
+  String get telemetryErrorsRX => 'Errores RX';
+
+  @override
+  String get telemetryFloodTX => 'Flood TX';
+
+  @override
+  String get telemetryFloodRX => 'Flood RX';
+
+  @override
+  String get telemetryDirectTX => 'Directo TX';
+
+  @override
+  String get telemetryDirectRX => 'Directo RX';
+
+  @override
+  String get signalNone => 'Sin señal (sin paquetes en los últimos 5 min)';
+
+  @override
+  String get signalWeak => 'Señal muy débil';
+
+  @override
+  String get signalFair => 'Señal débil';
+
+  @override
+  String get signalGood => 'Buena señal';
+
+  @override
+  String get signalExcellent => 'Señal excelente';
+
+  @override
+  String get urlOpenTitle => '¿Abrir enlace externo?';
+
+  @override
+  String get urlOpenConfirm => 'Abrir';
+
+  @override
+  String get topologyScreenTitle => 'Topología de Red';
+
+  @override
+  String get topologyTabGraph => 'Grafo';
+
+  @override
+  String get topologyTabTimeline => 'Cronología';
+
+  @override
+  String get topologyEmptyTitle => 'Sin datos de topología';
+
+  @override
+  String get topologyEmptyHint =>
+      'Conéctate a una radio para\nvisualizar la red';
+
+  @override
+  String get topologySelf => 'Yo';
+
+  @override
+  String get topologyResetView => 'Restablecer vista';
+
+  @override
+  String get topologySnrGood => 'SNR ≥ 5 dB';
+
+  @override
+  String get topologySnrMid => 'SNR 0–5 dB';
+
+  @override
+  String get topologySnrBad => 'SNR < 0 dB';
+
+  @override
+  String get topologyLabelId => 'ID';
+
+  @override
+  String get topologyLabelPath => 'Ruta';
+
+  @override
+  String get topologyLabelSeen => 'Visto';
+
+  @override
+  String topologySecondsAgo(int s) {
+    return 'hace ${s}s';
+  }
+
+  @override
+  String topologyMinutesAgo(int min) {
+    return 'hace ${min}min';
+  }
+
+  @override
+  String topologyHoursAgo(int h) {
+    return 'hace ${h}h';
+  }
+
+  @override
+  String topologyDaysAgo(int d) {
+    return 'hace ${d}d';
+  }
+
+  @override
+  String topologyWeeksAgo(int w) {
+    return 'hace $w sem.';
+  }
+
+  @override
+  String get topologyFilterRecent => 'Mostrar apenas contactos no rádio';
+
+  @override
+  String get topologyFilterAll => 'Mostrar todos (incl. locais)';
+
+  @override
+  String get topologyToggleLabels => 'Mostrar/ocultar etiquetas';
+
+  @override
+  String topologyNodesShown(int shown, int total) {
+    return '$shown/$total nós';
+  }
+
+  @override
+  String get topologyHopDirect => 'Direto';
+
+  @override
+  String get topologyHop1 => '1 salto';
+
+  @override
+  String get topologyHop2 => '2 saltos';
+
+  @override
+  String get topologyHopFlood => 'Flood / 3+';
+
+  @override
+  String get topologyTabPaths => 'Caminhos';
+
+  @override
+  String get topologyPathsEmptyTitle => 'Sem dados de rota';
+
+  @override
+  String get topologyPathsEmptyHint =>
+      'Faz um trace a partir de um\ncontacto para ver o caminho';
+
+  @override
+  String topologyPathsCount(int n) {
+    String _temp0 = intl.Intl.pluralLogic(
+      n,
+      locale: localeName,
+      other: '$n caminhos',
+      one: '1 caminho',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get repeaterTitle => 'Gestionar Repetidor';
+
+  @override
+  String get repeaterConfig => 'Configuración Remota';
+
+  @override
+  String get repeaterApply => 'Aplicar';
+
+  @override
+  String get repeaterNodeName => 'Nombre del nodo';
+
+  @override
+  String get repeaterTxPower => 'Potencia TX';
+
+  @override
+  String get repeaterForwarding => 'Reenvío de paquetes';
+
+  @override
+  String get repeaterForwardingDesc =>
+      'Activar o desactivar el reenvío de paquetes';
+
+  @override
+  String get repeaterAdvertInterval => 'Intervalo anuncio local';
+
+  @override
+  String get repeaterAdvertZeroHop => 'Anuncio Auto (Zero Hop)';
+
+  @override
+  String get repeaterAdvertFlood => 'Anuncio Auto (Flood)';
+
+  @override
+  String get repeaterIntervalMinutes => 'Intervalo (minutos)';
+
+  @override
+  String get repeaterIntervalHours => 'Intervalo (horas)';
+
+  @override
+  String get repeaterMinimalTrafficHint =>
+      'Para usar tráfico mínimo de malla, utilice los iconos de actualizar para solicitar solo la información que necesita.';
+
+  @override
+  String get repeaterValueNotLoaded => '—';
+
+  @override
+  String get repeaterFloodMax => 'Flood máximo (saltos)';
+
+  @override
+  String get repeaterClearStats => 'Limpiar Estadísticas';
+
+  @override
+  String get repeaterClearStatsDesc =>
+      'Reinicia contadores de paquetes y errores';
+
+  @override
+  String get repeaterNoStats =>
+      'Autentícate y pulsa \"Actualizar\" para obtener las estadísticas.';
+
+  @override
+  String get repeaterFetchStats => 'Actualizar';
+
+  @override
+  String get repeaterAuthenticated => 'Autenticado';
+
+  @override
+  String get repeaterTabStatus => 'Estado';
+
+  @override
+  String get repeaterTabCommandLine => 'Línea de comandos';
+
+  @override
+  String get repeaterTabSettings => 'Ajustes';
+
+  @override
+  String get repeaterCmdHint => 'Enviar un comando...';
+
+  @override
+  String get repeaterCmdEmpty =>
+      'Sin comandos enviados. Use el campo de abajo para enviar comandos CLI directamente.';
+
+  @override
+  String get repeaterCmdClear => 'Limpiar historial';
+
+  @override
+  String get repeaterMenuHelp => 'Ayuda de Comandos';
+
+  @override
+  String get repeaterMenuClearHistory => 'Borrar Historial de Comandos';
+
+  @override
+  String get repeaterHelpTitle => 'Ayuda';
+
+  @override
+  String get repeaterHelpSubtitle => 'Comandos del Repetidor';
+
+  @override
+  String get repeaterHelpFirmwareNote =>
+      'Algunos comandos requieren firmware reciente.';
+
+  @override
+  String get repeaterHelpSearchHint => 'Buscar';
+
+  @override
+  String get dataExportTitle => 'Exportar Datos';
+
+  @override
+  String get dataExportContactsTitle => 'Contactos';
+
+  @override
+  String dataExportContactsDesc(int count) {
+    return '$count contactos guardados';
+  }
+
+  @override
+  String get dataExportMessagesTitle => 'Mensajes';
+
+  @override
+  String get dataExportMessagesDesc =>
+      'Todas las conversaciones — privadas y canales';
+
+  @override
+  String get dataExportKmlTitle => 'Datos de Mapa';
+
+  @override
+  String dataExportKmlDesc(int count) {
+    return '$count contactos con GPS';
+  }
+
+  @override
+  String get dataExportNote =>
+      'Los archivos se exportan directamente a la hoja de compartir.\nNingún dato sale del dispositivo sin tu confirmación.';
+
+  @override
+  String get dataExportNoContacts => 'Sin contactos para exportar';
+
+  @override
+  String get dataExportNoMessages => 'Sin mensajes para exportar';
+
+  @override
+  String get dataExportNoGps => 'Sin contactos con coordenadas GPS';
+
+  @override
+  String get dataExportFailed => 'Error al exportar';
+
+  @override
+  String get appsDataExportTitle => 'Exportar Datos';
+
+  @override
+  String get appsDataExportSubtitle =>
+      'Exporta contactos, mensajes y datos de mapa';
+}
