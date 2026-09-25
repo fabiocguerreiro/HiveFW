@@ -695,13 +695,13 @@ class MeshCoreContactDiagnosticBinarySensor(CoordinatorEntity, BinarySensorEntit
         if not self._contact_data:
             return False
             
-        # Check last advertisement time for contact status
-        last_advert = self._contact_data.get("last_advert", 0)
-        if last_advert > 0:
-            # Calculate time since last advert
-            time_since = time.time() - last_advert
-            # If less than 12 hour, consider fresh/active
-            if time_since < 3600*12:
+        # Freshness is based only on the HA-local time at which the
+        # Companion delivered NEW_CONTACT. Remote/Companion RTC values can be
+        # arbitrarily wrong and must not affect online/fresh state.
+        heard_at = float(self._contact_data.get("heard_at", 0) or 0)
+        if heard_at > 0:
+            time_since = time.time() - heard_at
+            if time_since < 3600 * 12:
                 return True
         
         return False
@@ -754,7 +754,12 @@ class MeshCoreContactDiagnosticBinarySensor(CoordinatorEntity, BinarySensorEntit
         if icon_file:
             attributes["entity_picture"] = f"/api/hivefw/static/{icon_file}"
         
-        # Format last advertisement time if available
+        # Keep both clocks explicit: heard_at is authoritative recency;
+        # last_advert is only the timestamp announced by the remote node.
+        heard_at = float(self._contact_data.get("heard_at", 0) or 0)
+        if heard_at > 0:
+            attributes["heard_at_formatted"] = datetime.fromtimestamp(heard_at).isoformat()
+
         last_advert = self._contact_data.get("last_advert", 0)
         if last_advert > 0:
             last_advert_time = datetime.fromtimestamp(last_advert)
