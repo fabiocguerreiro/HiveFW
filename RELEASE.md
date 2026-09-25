@@ -1,6 +1,10 @@
 # Releasing HiveFW
 
-Firmware e integração Home Assistant partilham agora uma única versão.
+**Firmware** e **Integração** partilham uma única versão. Neste documento, Integração significa o Home Assistant **e o respetivo frontend HiveFW**.
+
+A **App** Android HiveFW é atualmente um projeto separado em `fabiocguerreiro/HiveFW-app` e não participa nesta linha de releases enquanto permanecer nesse repositório. A futura integração da App no monorepo terá de definir explicitamente se passa a partilhar este ciclo de versão.
+
+Ver [docs/project_scope.md](docs/project_scope.md).
 
 ## Fonte de versão
 
