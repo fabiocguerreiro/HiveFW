@@ -1178,6 +1178,22 @@ void MyMesh::noteObservedForwardedChannel(
       if (observed.message_count < 0xFFFF) observed.message_count++;
       observed.sample_len = sample_len;
       memcpy(observed.sample, mac_and_data, sample_len);
+
+      const uint8_t path_hash_size = packet->getPathHashSize();
+      const uint8_t path_hash_count = packet->getPathHashCount();
+      const uint8_t path_byte_len = packet->getPathByteLen();
+      observed.path_hash_size =
+        (path_hash_size >= 1 && path_hash_size <= 3) ? path_hash_size : 0;
+      observed.path_hash_count =
+        observed.path_hash_size > 0 ? path_hash_count : 0;
+      memset(observed.path_bytes, 0, sizeof(observed.path_bytes));
+      if (
+        observed.path_hash_size > 0 &&
+        path_byte_len > 0 &&
+        path_byte_len <= sizeof(observed.path_bytes)
+      ) {
+        memcpy(observed.path_bytes, packet->path, path_byte_len);
+      }
       return;
     }
 
@@ -1199,6 +1215,30 @@ void MyMesh::noteObservedForwardedChannel(
   observed_channels[slot].message_count = 1;
   observed_channels[slot].sample_len = sample_len;
   memcpy(observed_channels[slot].sample, mac_and_data, sample_len);
+
+  const uint8_t path_hash_size = packet->getPathHashSize();
+  const uint8_t path_hash_count = packet->getPathHashCount();
+  const uint8_t path_byte_len = packet->getPathByteLen();
+  observed_channels[slot].path_hash_size =
+    (path_hash_size >= 1 && path_hash_size <= 3) ? path_hash_size : 0;
+  observed_channels[slot].path_hash_count =
+    observed_channels[slot].path_hash_size > 0 ? path_hash_count : 0;
+  memset(
+    observed_channels[slot].path_bytes,
+    0,
+    sizeof(observed_channels[slot].path_bytes)
+  );
+  if (
+    observed_channels[slot].path_hash_size > 0 &&
+    path_byte_len > 0 &&
+    path_byte_len <= sizeof(observed_channels[slot].path_bytes)
+  ) {
+    memcpy(
+      observed_channels[slot].path_bytes,
+      packet->path,
+      path_byte_len
+    );
+  }
 }
 
 bool MyMesh::allowPacketForward(
@@ -6589,13 +6629,64 @@ void MyMesh::handleCmdFrame(size_t len) {
     remaining -= written;
 
     uint8_t page_count = 0;
-    for (int n = offset; n < observed_count && page_count < 4; n++) {
+    // Route snapshots can be up to MAX_PATH_SIZE bytes. Return one observed
+    // channel per frame so the full route fits inside the existing 140-byte
+    // CUSTOM_VARS payload without truncating older fields.
+    for (int n = offset; n < observed_count && page_count < 1; n++) {
       const uint32_t secs_ago =
         now >= sorted[n]->heard_timestamp ? now - sorted[n]->heard_timestamp : 0;
+
+      char path_hex[MAX_PATH_SIZE * 2 + 1];
+      path_hex[0] = '\0';
+      const uint8_t path_byte_len =
+        sorted[n]->path_hash_size > 0
+          ? sorted[n]->path_hash_size * sorted[n]->path_hash_count
+          : 0;
+      if (path_byte_len > 0 && path_byte_len <= MAX_PATH_SIZE) {
+        mesh::Utils::toHex(path_hex, sorted[n]->path_bytes, path_byte_len);
+      }
+
+      char ingress_prefix[13];
+      ingress_prefix[0] = '\0';
+      if (
+        sorted[n]->path_hash_size > 0 &&
+        sorted[n]->path_hash_count > 0 &&
+        path_byte_len <= MAX_PATH_SIZE
+      ) {
+        const uint8_t* ingress_hash =
+          &sorted[n]->path_bytes[
+            (sorted[n]->path_hash_count - 1) * sorted[n]->path_hash_size
+          ];
+        for (int r = 0; r < MAX_REPEATER_NEIGHBOURS; ++r) {
+          if (
+            repeater_neighbours[r].heard_timestamp > 0 &&
+            repeater_neighbours[r].id.isHashMatch(
+              ingress_hash,
+              sorted[n]->path_hash_size
+            )
+          ) {
+            mesh::Utils::toHex(
+              ingress_prefix,
+              repeater_neighbours[r].id.pub_key,
+              6
+            );
+            break;
+          }
+        }
+      }
+
       written = snprintf(
-        dp, remaining, ",o%u:%02X|%lu|%u",
-        page_count, (unsigned)sorted[n]->hash,
-        (unsigned long)secs_ago, (unsigned)sorted[n]->message_count
+        dp,
+        remaining,
+        ",o%u:%02X|%lu|%u|%u|%u|%s|%s",
+        page_count,
+        (unsigned)sorted[n]->hash,
+        (unsigned long)secs_ago,
+        (unsigned)sorted[n]->message_count,
+        (unsigned)sorted[n]->path_hash_size,
+        (unsigned)sorted[n]->path_hash_count,
+        path_hex,
+        ingress_prefix
       );
       if (written < 0 || (size_t)written >= remaining) break;
       dp += written;
