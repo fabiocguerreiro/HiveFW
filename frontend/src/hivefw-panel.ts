@@ -2151,6 +2151,29 @@ class HiveFWPanel extends BasePanel {
         border:2px solid white;
         box-shadow:0 1px 4px rgba(0,0,0,.35);
       }
+      .hive-signal-bars {
+        width:20.5px;
+        height:18px;
+        display:flex;
+        align-items:flex-end;
+        justify-content:space-between;
+        flex:0 0 auto;
+      }
+      .hive-signal-bars > span {
+        width:4px;
+        border-radius:1.5px 1.5px 0 0;
+        background:color-mix(in srgb,var(--hive-signal-color,#757575) 22%,transparent);
+      }
+      .hive-signal-bars > span:nth-child(1){height:4.5px}
+      .hive-signal-bars > span:nth-child(2){height:9px}
+      .hive-signal-bars > span:nth-child(3){height:13.5px}
+      .hive-signal-bars > span:nth-child(4){height:18px}
+      .hive-signal-bars[data-bars="1"] > span:nth-child(-n+1),
+      .hive-signal-bars[data-bars="2"] > span:nth-child(-n+2),
+      .hive-signal-bars[data-bars="3"] > span:nth-child(-n+3),
+      .hive-signal-bars[data-bars="4"] > span:nth-child(-n+4) {
+        background:var(--hive-signal-color,#757575);
+      }
       .hive-discovery-empty {
         padding:22px 14px;
         border:1px dashed var(--divider-color);
@@ -9302,6 +9325,27 @@ class HiveFWPanel extends BasePanel {
     }
   }
 
+  __signalBarsForSnr(snrValue) {
+    const snr=Number(snrValue);
+    const bars=document.createElement("span");
+    bars.className="hive-signal-bars";
+    let count=0;
+    let color="#757575";
+    let label="Sinal indisponível";
+    if(Number.isFinite(snr)){
+      if(snr>=0){count=4;color="#4caf50";label="Sinal excelente";}
+      else if(snr>=-5){count=3;color="#8bc34a";label="Sinal bom";}
+      else if(snr>=-10){count=2;color="#ff9800";label="Sinal razoável";}
+      else{count=1;color="#f44336";label="Sinal fraco";}
+    }
+    bars.dataset.bars=String(count);
+    bars.style.setProperty("--hive-signal-color",color);
+    bars.title=Number.isFinite(snr)?label+" · SNR "+snr.toFixed(1)+" dB":label;
+    bars.setAttribute("aria-label",bars.title);
+    for(let i=0;i<4;i++)bars.appendChild(document.createElement("span"));
+    return bars;
+  }
+
   __renderHiveNeighbors(container) {
     container.replaceChildren();
 
@@ -9455,22 +9499,9 @@ class HiveFWPanel extends BasePanel {
       const rssiValue=document.createElement("small");
       snrValue.textContent=Number.isFinite(snr)?"SNR "+snr.toFixed(1)+" dB":"SNR —";
       rssiValue.textContent=Number.isFinite(rssi)?"RSSI "+Math.round(rssi)+" dBm":"RSSI —";
-      const dot=document.createElement("span");
-      dot.className="hive-discovery-signal-dot";
-      if(Number.isFinite(snr)){
-        const quality=snr>=-5
-          ? {color:"#2e7d32",label:"Sinal bom"}
-          : snr>=-12
-            ? {color:"#f9a825",label:"Sinal médio"}
-            : {color:"#c62828",label:"Sinal fraco"};
-        dot.style.background=quality.color;
-        dot.title=quality.label;
-      }else{
-        dot.style.background="#757575";
-        dot.title="Qualidade do sinal indisponível";
-      }
+      const bars=this.__signalBarsForSnr(snr);
       values.append(snrValue,rssiValue);
-      signal.append(values,dot);
+      signal.append(values,bars);
       row.append(info,signal);
       const lat=Number(neighbor.latitude),lon=Number(neighbor.longitude);
       if(Number.isFinite(lat)&&Number.isFinite(lon)){
@@ -9734,8 +9765,7 @@ class HiveFWPanel extends BasePanel {
       const reqValue = document.createElement("small");
       const snrValue = document.createElement("span");
       const rssiValue = document.createElement("small");
-      const signalDot = document.createElement("span");
-      signalDot.className = "hive-discovery-signal-dot";
+      const signalBars = this.__signalBarsForSnr(snr);
 
       reqValue.textContent = item.request_snr != null && Number.isFinite(Number(item.request_snr))
         ? "REQ(" + Number(item.request_snr).toFixed(1) + " dB)"
@@ -9746,30 +9776,13 @@ class HiveFWPanel extends BasePanel {
       rssiValue.textContent = Number.isFinite(rssi)
         ? "RSSI " + Math.round(rssi) + " dBm"
         : "RSSI —";
-
-      if (Number.isFinite(snr)) {
-        const quality = snr >= -5
-          ? { color:"#2e7d32", label:"Sinal bom" }
-          : snr >= -12
-            ? { color:"#f9a825", label:"Sinal médio" }
-            : { color:"#c62828", label:"Sinal fraco" };
-        signalDot.style.background = quality.color;
-        signalDot.title = quality.label;
-        signal.setAttribute(
-          "aria-label",
-          quality.label + " · " + snrValue.textContent + " · " + rssiValue.textContent
-        );
-      } else {
-        signalDot.style.background = "#757575";
-        signalDot.title = "Qualidade do sinal indisponível";
-        signal.setAttribute(
-          "aria-label",
-          snrValue.textContent + " · " + rssiValue.textContent
-        );
-      }
+      signal.setAttribute(
+        "aria-label",
+        signalBars.getAttribute("aria-label")+" · "+snrValue.textContent+" · "+rssiValue.textContent
+      );
 
       signalValues.append(reqValue, snrValue, rssiValue);
-      signal.append(signalValues, signalDot);
+      signal.append(signalValues, signalBars);
       row.append(info, signal);
       row.addEventListener("click", () => {
         this.__hiveNeighborMapMode = "discovery";
