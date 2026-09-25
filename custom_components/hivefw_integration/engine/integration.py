@@ -694,6 +694,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             public_key = contact.get("public_key")
 
             if public_key:
+                coordinator._contact_heard_at[public_key] = contact["heard_at"]
                 _LOGGER.info(f"Discovered new contact: {contact.get('adv_name', 'Unknown')} ({public_key[:12]})")
 
                 # Refresh insertion order: delete + re-insert moves active contacts to back of FIFO
@@ -728,6 +729,53 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             EventType.NEW_CONTACT,
             handle_new_contact
         )
+
+        async def _persist_discovered_heard_times() -> None:
+            """Coalesce frequent advert timestamp writes into one store save."""
+            await asyncio.sleep(5)
+            try:
+                await coordinator._store.async_save(coordinator._discovered_contacts)
+            except Exception as ex:
+                _LOGGER.error("Error saving discovered contact receive times: %s", ex)
+            finally:
+                coordinator._heard_at_save_task = None
+
+        async def handle_advertisement(event):
+            """Stamp every repeated advert with the HA-local receive time.
+
+            MeshCore sends NEW_CONTACT only the first time a manual/discovered
+            node appears. Subsequent adverts use ADVERTISEMENT (0x80) with just
+            the public key, so recency must be refreshed from this event too.
+            """
+            if not event or not isinstance(event.payload, dict):
+                return
+
+            public_key = str(event.payload.get("public_key") or "").strip().lower()
+            if len(public_key) != 64:
+                return
+
+            heard_at = time.time()
+            coordinator._contact_heard_at[public_key] = heard_at
+
+            discovered = coordinator._discovered_contacts.get(public_key)
+            if isinstance(discovered, dict):
+                discovered["heard_at"] = heard_at
+                task = getattr(coordinator, "_heard_at_save_task", None)
+                if task is None or task.done():
+                    coordinator._heard_at_save_task = asyncio.create_task(
+                        _persist_discovered_heard_times()
+                    )
+
+            coordinator.mark_contact_dirty(public_key[:12])
+            updated_data = dict(coordinator.data) if coordinator.data else {}
+            updated_data["contacts"] = coordinator.get_all_contacts()
+            coordinator.async_set_updated_data(updated_data)
+
+        coordinator.api.mesh_core.subscribe(
+            EventType.ADVERTISEMENT,
+            handle_advertisement,
+        )
+        _LOGGER.info("ADVERTISEMENT receive-time subscriber registered")
 
         # Subscribe to MESSAGES_WAITING for instant message delivery.
         # The companion firmware sends this push notification when messages
