@@ -106,6 +106,7 @@ def _make_coordinator(**attrs) -> MagicMock:
     coord.api = MagicMock()
     coord.api.connected = True
     coord.api.mesh_core = MagicMock()
+    coord.api.mesh_core.commands._mesh_request_lock = asyncio.Lock()
     coord.config_entry = MagicMock(entry_id="meshcore_entry")
     coord.config_entry.data = {}
     coord.data = {}
@@ -868,21 +869,51 @@ async def test_ws_get_managed_devices_error_no_coordinator(
 async def test_ws_get_device_config_happy(
     hass: HomeAssistant, coordinator: MagicMock
 ) -> None:
+    # Cached values are deliberately stale: the handler must prefer the fresh
+    # SELF_INFO/DEVICE_INFO snapshot read directly from the radio.
     coordinator.api.self_info = {
-        "radio_freq": 869,
-        "radio_bw": 250,
-        "radio_sf": 11,
-        "radio_cr": 5,
-        "tx_power": 22,
-        "adv_lat": 32.7,
-        "adv_lon": -117.1,
+        "radio_freq": 433.175,
+        "radio_bw": 125.0,
+        "radio_sf": 12,
+        "radio_cr": 8,
+        "tx_power": 10,
     }
-    coordinator.config_entry.data = {"connection_type": "tcp", "tcp_host": "h", "tcp_port": 5000}
+    coordinator.api.mesh_core.commands.send_appstart = AsyncMock(
+        return_value=_FakeEvent(
+            object(),
+            {
+                "radio_freq": 869.618,
+                "radio_bw": 62.5,
+                "radio_sf": 7,
+                "radio_cr": 6,
+                "tx_power": 22,
+                "adv_lat": 32.7,
+                "adv_lon": -117.1,
+            },
+        )
+    )
+    coordinator.api.mesh_core.commands.send_device_query = AsyncMock(
+        return_value=_FakeEvent(object(), {"path_hash_mode": 2, "repeat": 1})
+    )
+    coordinator.api._cache_self_info_event = MagicMock()
+    coordinator.config_entry.data = {
+        "connection_type": "tcp",
+        "tcp_host": "h",
+        "tcp_port": 5000,
+    }
+
     conn = _Connection()
     await _call_ws(ws_api.ws_get_device_config, hass, conn, {"id": 1})
     config = conn.results[0][1]
-    assert config["frequency"] == 869
+
+    assert config["frequency"] == 869.618
+    assert config["bandwidth"] == 62.5
+    assert config["spreading_factor"] == 7
+    assert config["coding_rate"] == 6
+    assert config["tx_power"] == 22
+    assert config["path_hash_mode"] == 2
     assert config["connection_address"] == "h:5000"
+    coordinator.api._cache_self_info_event.assert_called_once()
 
 
 async def test_ws_get_device_config_error_no_coordinator(
@@ -4003,6 +4034,17 @@ async def test_ws_set_device_config_radio_error_surfaces_failure(
         "radio_sf": 11,
         "radio_cr": 5,
     }
+    coordinator.api.mesh_core.commands.send_appstart = AsyncMock(
+        return_value=_FakeEvent(
+            _FakeEventType.SELF_INFO,
+            {
+                "radio_freq": 915.0,
+                "radio_bw": 250.0,
+                "radio_sf": 11,
+                "radio_cr": 5,
+            },
+        )
+    )
     coordinator.api.mesh_core.commands.set_radio = AsyncMock(
         return_value=_FakeEvent(_FakeEventType.ERROR, {"error": "busy"})
     )
@@ -4020,6 +4062,103 @@ async def test_ws_set_device_config_radio_error_surfaces_failure(
     assert code == "command_failed"
     assert "radio" in message
     assert "busy" in message
+
+
+async def test_ws_set_device_config_radio_uses_fresh_tuple_and_verifies_readback(
+    hass: HomeAssistant,
+    coordinator: MagicMock,
+    patched_event_type,
+) -> None:
+    """Changing one RF field preserves the other values read fresh from radio."""
+    coordinator.api.self_info = {
+        "radio_freq": 433.175,
+        "radio_bw": 125.0,
+        "radio_sf": 12,
+        "radio_cr": 8,
+    }
+    fresh = {
+        "radio_freq": 433.375,
+        "radio_bw": 62.5,
+        "radio_sf": 9,
+        "radio_cr": 6,
+    }
+    verified = {
+        "radio_freq": 433.500,
+        "radio_bw": 62.5,
+        "radio_sf": 9,
+        "radio_cr": 6,
+    }
+    coordinator.api.mesh_core.commands.send_appstart = AsyncMock(
+        side_effect=[
+            _FakeEvent(_FakeEventType.SELF_INFO, fresh),
+            _FakeEvent(_FakeEventType.SELF_INFO, verified),
+            _FakeEvent(_FakeEventType.SELF_INFO, verified),
+        ]
+    )
+    coordinator.api.mesh_core.commands.set_radio = AsyncMock(
+        return_value=_FakeEvent(_FakeEventType.OK, {})
+    )
+    coordinator.api._cache_self_info_event = MagicMock()
+
+    conn = _Connection()
+    await _call_ws(
+        ws_api.ws_set_device_config,
+        hass,
+        conn,
+        {"id": 1, "settings": {"frequency": 433.500}},
+    )
+
+    assert conn.errors == []
+    assert conn.results[0][1]["success"] is True
+    coordinator.api.mesh_core.commands.set_radio.assert_awaited_once_with(
+        433.500,
+        62.5,
+        9,
+        6,
+        repeat=None,
+    )
+    assert coordinator.api.mesh_core.commands.send_appstart.await_count == 3
+
+
+async def test_ws_set_device_config_radio_rejects_readback_mismatch(
+    hass: HomeAssistant,
+    coordinator: MagicMock,
+    patched_event_type,
+) -> None:
+    """A SET_RADIO ACK is not success until SELF_INFO confirms the tuple."""
+    fresh = {
+        "radio_freq": 433.375,
+        "radio_bw": 62.5,
+        "radio_sf": 9,
+        "radio_cr": 6,
+    }
+    coordinator.api.mesh_core.commands.send_appstart = AsyncMock(
+        side_effect=[
+            _FakeEvent(_FakeEventType.SELF_INFO, fresh),
+            _FakeEvent(
+                _FakeEventType.SELF_INFO,
+                {**fresh, "radio_freq": 433.375},
+            ),
+        ]
+    )
+    coordinator.api.mesh_core.commands.set_radio = AsyncMock(
+        return_value=_FakeEvent(_FakeEventType.OK, {})
+    )
+
+    conn = _Connection()
+    await _call_ws(
+        ws_api.ws_set_device_config,
+        hass,
+        conn,
+        {"id": 1, "settings": {"frequency": 433.500}},
+    )
+
+    assert conn.results == []
+    assert len(conn.errors) == 1
+    _, code, message = conn.errors[0]
+    assert code == "command_failed"
+    assert "verification" in message
+    assert "read-back mismatch" in message
 
 
 async def test_ws_set_device_config_path_hash_mode_ok_counts_success(
