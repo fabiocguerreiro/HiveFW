@@ -543,6 +543,7 @@ class MessageStore:
         peers: dict[str, dict] = {}
         links: dict[str, dict] = {}
         edges: dict[str, dict] = {}
+        ingress: dict[str, dict] = {}
 
         for entity_id in self._message_index:
             messages = await self._load_for_search(entity_id)
@@ -592,6 +593,39 @@ class MessageStore:
                         for raw_hash in nodes
                         if str(raw_hash or "").strip()
                     ]
+
+                    # The final path hash is the repeater that handed the
+                    # received packet directly to our Companion. Count it
+                    # separately so the Network page can show real ingress
+                    # repeaters instead of mistaking the message sender for
+                    # a routing repeater.
+                    if normalized_nodes and not message.get("outgoing", False):
+                        ingress_hash = normalized_nodes[-1]
+                        ingress_item = ingress.setdefault(
+                            ingress_hash,
+                            {
+                                "observations": 0,
+                                "rssi_sum": 0.0,
+                                "rssi_count": 0,
+                                "snr_sum": 0.0,
+                                "snr_count": 0,
+                            },
+                        )
+                        ingress_item["observations"] += 1
+                        try:
+                            ingress_rssi = float(observation.get("rssi"))
+                        except (TypeError, ValueError):
+                            ingress_rssi = None
+                        if ingress_rssi is not None:
+                            ingress_item["rssi_sum"] += ingress_rssi
+                            ingress_item["rssi_count"] += 1
+                        try:
+                            ingress_snr = float(observation.get("snr"))
+                        except (TypeError, ValueError):
+                            ingress_snr = None
+                        if ingress_snr is not None:
+                            ingress_item["snr_sum"] += ingress_snr
+                            ingress_item["snr_count"] += 1
 
                     for raw_hash in normalized_nodes:
                         hop_hash = raw_hash
@@ -669,6 +703,20 @@ class MessageStore:
             for key in ("rssi_sum", "rssi_count", "snr_sum", "snr_count"):
                 link.pop(key, None)
 
+        for ingress_item in ingress.values():
+            ingress_item["avg_rssi"] = (
+                round(ingress_item["rssi_sum"] / ingress_item["rssi_count"], 1)
+                if ingress_item["rssi_count"]
+                else None
+            )
+            ingress_item["avg_snr"] = (
+                round(ingress_item["snr_sum"] / ingress_item["snr_count"], 1)
+                if ingress_item["snr_count"]
+                else None
+            )
+            for key in ("rssi_sum", "rssi_count", "snr_sum", "snr_count"):
+                ingress_item.pop(key, None)
+
         for edge in edges.values():
             edge["avg_rssi"] = (
                 round(edge["rssi_sum"] / edge["rssi_count"], 1)
@@ -683,7 +731,7 @@ class MessageStore:
             for key in ("rssi_sum", "rssi_count", "snr_sum", "snr_count"):
                 edge.pop(key, None)
 
-        return {"peers": peers, "links": links, "edges": edges}
+        return {"peers": peers, "links": links, "edges": edges, "ingress": ingress}
 
     async def search(
         self,
