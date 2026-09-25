@@ -2700,7 +2700,6 @@ class HiveFWPanel extends BasePanel {
       "hive:protocol",
       "hive:hardware",
       "hive:repeat-frequencies",
-      "hive:health-alerts",
       "hive:queue",
 
       "hive:capacity",
@@ -4176,6 +4175,9 @@ class HiveFWPanel extends BasePanel {
           position:absolute!important;right:9px!important;bottom:12px!important;
           top:auto!important;margin:0!important;z-index:2;
         }
+        .hero-tile-head meshcore-info-tip{
+          display:none!important;
+        }
         .hero-tile-head{
           font-size:10px!important;
           letter-spacing:.035em!important;
@@ -4576,14 +4578,9 @@ class HiveFWPanel extends BasePanel {
         healthEntityId=healthEntityId||successMetric.entityId||failMetric.entityId;
       }
     }
-    if(!healthEntityId)healthEntityId=noiseMetric.entityId||recvErrorRate.entityId||successMetric.entityId||null;
-    hero.appendChild(makeTile(
-      "Saúde",
-      alerts.length?alerts.length+" alerta"+(alerts.length===1?"":"s"):"OK",
-      alerts.length?"· "+alerts.slice(0,2).join(" · "):"· sem alertas locais",
-      alerts.length?Math.min(alerts.length,5):0,0,5,alerts.length?"warn":"good","health-alerts",
-      clickEntityId(healthEntityId)
-    ));
+    // Saúde is exposed as a normal Home Assistant diagnostic entity and is
+    // rendered with the lower status/sensor rows instead of duplicating it as
+    // a cockpit card.
 
         for(const row of nroot.querySelectorAll(".sensor-item")){
       const label=(row.querySelector(".si-label")?.textContent||"").trim().toLowerCase();
