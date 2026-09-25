@@ -144,7 +144,7 @@ export class SettingsPage extends LitElement {
   @state() private _guestPasswordDraft = '';
   @state() private _repeaterAccessBusy: 'admin' | 'guest' | 'acl' | 'acl-entry' | null = null;
   @state() private _repeaterReadBusy = false;
-  @state() private _repeaterQuickBusy: 'repeat' | 'auto_advert' | 'mesh_time_sync' | null = null;
+  @state() private _repeaterQuickBusy: 'repeat' | 'auto_advert' | 'mesh_time_sync' | 'power_notify' | null = null;
   @state() private _aclNewPublicKey = '';
   @state() private _aclNewPermissions: 1 | 2 | 3 = 1;
   @state() private _backupBusy:
@@ -2948,7 +2948,7 @@ export class SettingsPage extends LitElement {
   }
 
   private async _applyRepeaterQuickSetting(
-    key: 'repeat' | 'auto_advert' | 'mesh_time_sync',
+    key: 'repeat' | 'auto_advert' | 'mesh_time_sync' | 'power_notify',
     value: boolean,
   ) {
     if (!this.hass || !this._repeaterStatus?.supported || this._repeaterQuickBusy) return;
@@ -2958,7 +2958,9 @@ export class SettingsPage extends LitElement {
         ? Boolean(this._repeaterStatus.repeat)
         : key === 'auto_advert'
           ? Boolean(this._repeaterStatus.auto_advert)
-          : Boolean(this._repeaterStatus.mesh_time_sync);
+          : key === 'mesh_time_sync'
+            ? Boolean(this._repeaterStatus.mesh_time_sync)
+            : Boolean(this._repeaterStatus.power_notify);
 
     this._repeaterQuickBusy = key;
 
@@ -2979,7 +2981,9 @@ export class SettingsPage extends LitElement {
           ? 'Modo Repetidor'
           : key === 'auto_advert'
             ? 'Auto Advert'
-            : 'Sincronização RTC via Mesh';
+            : key === 'mesh_time_sync'
+              ? 'Sincronização RTC via Mesh'
+              : 'Notif. Energia';
       this._showStatusMessage(
         `${label}: ${value ? 'ativado' : 'desativado'}.`,
         'success',
@@ -3012,6 +3016,9 @@ export class SettingsPage extends LitElement {
     const neighborAdvertInterval = Number(status.neighbor_advert_interval ?? 240);
     const meshTimeSupported = Boolean(status.mesh_time_sync_supported);
     const meshTimeSync = Boolean(status.mesh_time_sync);
+    const powerNotifySupported = Boolean(status.power_notify_supported);
+    const powerNotify = Boolean(status.power_notify);
+    const externalPower = status.battery?.external_power;
     const multiAcks = Number(this._editValues['multi_acks'] ?? status.radio.multi_acks ?? 0);
     const rxDelay = Number(this._editValues['rx_delay'] ?? status.tuning.rx_delay ?? 0);
     const routing = status.routing;
@@ -3135,6 +3142,36 @@ export class SettingsPage extends LitElement {
           />
           ${meshTimeSupported
             ? (meshTimeSync ? 'Ativo' : 'Desligado')
+            : 'Não suportada'}
+        </label>
+      </div>
+
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;padding:10px 12px;border-radius:8px;background:var(--secondary-background-color);">
+        <div>
+          <div style="font-size:13px;font-weight:600;">Notif. Energia</div>
+          <div style="font-size:11px;color:var(--secondary-text-color);margin-top:2px;line-height:1.45;">
+            ${externalPower === true
+              ? '⚡ Alimentação externa presente. '
+              : externalPower === false
+                ? 'Em bateria. '
+                : ''}
+            Envia uma única mensagem “Falha de Energia ⚡” para o Canal APPS/SOS quando a alimentação externa falhar. Rearma quando a energia regressar.
+          </div>
+        </div>
+        <label style="display:flex;align-items:center;gap:8px;font-size:12px;">
+          <input
+            type="checkbox"
+            .checked=${powerNotify}
+            ?disabled=${!repeat || !powerNotifySupported || this._repeaterQuickBusy !== null}
+            @change=${(e: Event) => {
+              void this._applyRepeaterQuickSetting(
+                'power_notify',
+                (e.target as HTMLInputElement).checked,
+              );
+            }}
+          />
+          ${powerNotifySupported
+            ? (powerNotify ? 'Ativo' : 'Desligado')
             : 'Não suportada'}
         </label>
       </div>
