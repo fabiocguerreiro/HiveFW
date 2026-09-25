@@ -1,6 +1,8 @@
 # HiveFW Documentation
 
-HiveFW reúne o firmware Companion + Repeater e a integração Home Assistant no mesmo projeto.
+HiveFW reúne o **Firmware** Companion + Repeater e a **Integração** Home Assistant no mesmo projeto. A futura **App** Android HiveFW é atualmente desenvolvida num repositório separado e está prevista para futura integração no repositório principal.
+
+Terminologia canónica: [Firmware, Integração e App](project_scope.md).
 
 ## Hardware oficialmente suportado
 
@@ -11,6 +13,7 @@ O repositório foi deliberadamente reduzido a estes dois alvos. Se no futuro for
 
 ## Guias
 
+- [Vertentes do projeto: Firmware, Integração e App](project_scope.md)
 - [Hardware suportado](supported_hardware.md)
 - [Provisioning Wi-Fi do Heltec V3](hivefw_wifi_provisioning.md)
 - [Migração para o repositório unificado](repository_migration.md)
