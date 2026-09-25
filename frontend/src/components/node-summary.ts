@@ -1626,9 +1626,8 @@ export class NodeSummary extends LitElement {
     const eid = info.entity_id;
     const so = info.sortOrder;
 
-    // Radio fault flags (boolean problem sensors) live under Status, which
-    // is not skipped for companion devices.
-    if (info.booleanProblem) return 'Status';
+    // Radio fault flags and the HiveFW aggregate Saúde entity live under Status.
+    if (info.booleanProblem || eid.includes('dashboard_health')) return 'Status';
 
     // Power group dropped. Battery (1) is hero-filtered; voltages (2) go
     // to Status (battery_voltage is hero-filtered, leaving Ch1 Voltage etc.).
