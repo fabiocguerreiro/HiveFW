@@ -143,7 +143,7 @@ export class ContactCard extends LitElement {
           <div class="contact-name">${c.favorite ? '★ ' : ''}${c.adv_name}</div>
           <div class="contact-prefix">${c.pubkey_prefix}</div>
           <div class="contact-meta">
-            ${c.lastmod ? `Last heard ${new Date(c.lastmod * 1000).toLocaleString()}` : ''}
+            ${c.heard_at ? `Ouvido ${new Date(c.heard_at * 1000).toLocaleString()}` : 'Sem registo local de receção'}
           </div>
           ${tags.length
             ? html`<div class="contact-tags">
