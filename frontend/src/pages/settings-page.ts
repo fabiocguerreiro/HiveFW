@@ -625,8 +625,84 @@ export class SettingsPage extends LitElement {
       .topic-radio [data-hive-repeater-quick],.topic-radio [data-hive-repeater-access],.topic-radio [data-hive-owner-info],.topic-radio [data-hive-routing],.topic-radio [data-hive-rf],.topic-radio .settings-regions-block{display:none!important}
       .topic-repeater [data-hive-repeater-access],.topic-repeater [data-hive-native="companion"],.topic-repeater .settings-regions-block{display:none!important}
       .topic-regions [data-hive-repeater-quick],.topic-regions [data-hive-repeater-access],.topic-regions [data-hive-owner-info],.topic-regions [data-hive-native="companion"],.topic-regions [data-hive-routing],.topic-regions [data-hive-rf]{display:none!important}
-      @media(max-width:870px){.settings-shortcuts{grid-template-columns:1fr}.settings-topic-overlay{padding:0}.settings-topic-dialog{width:100%;height:100%;max-height:none;border-radius:0}}
-      @media(max-width:520px){.settings-shortcuts{grid-template-columns:1fr}}
+      @media(max-width:870px){
+        .settings-shortcuts{grid-template-columns:1fr}
+        .settings-topic-overlay{padding:0;place-items:stretch}
+        .settings-topic-dialog{
+          width:100vw;
+          height:100dvh;
+          min-width:0;
+          max-width:none;
+          max-height:none;
+          border-radius:0;
+          overflow:hidden;
+        }
+        .settings-topic-header{
+          position:sticky;
+          top:0;
+          z-index:5;
+          padding:12px 14px;
+        }
+        .settings-topic-body{
+          width:100%;
+          min-width:0;
+          max-width:100%;
+          padding:12px;
+          overflow-y:auto;
+          overflow-x:hidden;
+          box-sizing:border-box;
+          -webkit-overflow-scrolling:touch;
+        }
+        .settings-topic-body .settings-grid,
+        .settings-topic-body .repeater-setup-grid,
+        .settings-topic-body .repeater-region-form,
+        .settings-topic-body .managed-device-list,
+        .settings-topic-body .backup-restore-grid,
+        .settings-topic-body .firmware-actions-grid,
+        .settings-topic-body [style*="grid-template-columns"]{
+          grid-template-columns:minmax(0,1fr)!important;
+        }
+        .settings-topic-body [style*="display:flex"]{
+          flex-wrap:wrap;
+          max-width:100%;
+        }
+        .settings-topic-body .device-section,
+        .settings-topic-body [data-hive-repeater-access],
+        .settings-topic-body [data-hive-routing],
+        .settings-topic-body [data-hive-rf],
+        .settings-topic-body [data-hive-owner-info]{
+          width:100%!important;
+          min-width:0!important;
+          max-width:100%!important;
+          box-sizing:border-box!important;
+          padding:12px!important;
+        }
+        .settings-topic-body input:not([type="checkbox"]):not([type="radio"]),
+        .settings-topic-body select,
+        .settings-topic-body textarea{
+          width:100%!important;
+          min-width:0!important;
+          max-width:100%!important;
+          box-sizing:border-box!important;
+        }
+        .settings-topic-body button{
+          max-width:100%;
+        }
+        .settings-topic-body pre,
+        .settings-topic-body table{
+          max-width:100%;
+          overflow:auto;
+        }
+        .location-mode-grid{grid-template-columns:1fr 1fr!important}
+        .location-picker-map{height:min(52dvh,420px)}
+      }
+      @media(max-width:520px){
+        .settings-shortcuts{grid-template-columns:1fr}
+        .settings-topic-body{padding:10px}
+        .location-mode-grid{grid-template-columns:1fr!important}
+        .settings-topic-body .section-row{gap:8px}
+        .settings-topic-body .device-section{padding:10px!important}
+      }
 
       .location-mode-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:16px}
       .location-mode-button{padding:12px;border:1px solid var(--divider-color);border-radius:10px;background:var(--secondary-background-color);color:var(--primary-text-color);cursor:pointer;text-align:left}
@@ -1458,7 +1534,7 @@ export class SettingsPage extends LitElement {
           <div class="settings-shortcuts">
             ${[
               ['firmware','Gestão Firmware','Releases, OTA, flash manual e downloads','mdi:update'],
-              ['users','Utilizadores','Acesso remoto, passwords e ACL','mdi:account-group-outline'],
+              ['users','Utilizadores','Perfis de acesso, credenciais e utilizadores autorizados','mdi:account-group-outline'],
               ['radio','Configuração Rádio','Frequência, BW, SF, CR, potência e RX','mdi:radio-tower'],
               ['repeater','Configuração Repetidor','Modo, adverts, Timekeeper, routing e retransmissão','mdi:access-point-network'],
               ['wifi','Wi-Fi','Configuração de rede do Companion','mdi:wifi-cog'],
@@ -1468,7 +1544,10 @@ export class SettingsPage extends LitElement {
               ['backup','Backup & Restore','Cópias Companion e Repeater','mdi:backup-restore'],
               ['diagnostics','Diagnóstico','Consola, RX Log, alertas e automações','mdi:stethoscope'],
             ].map(([id,title,desc,icon])=>html`
-              <button class="settings-shortcut" @click=${()=>{this._settingsTopic=id as SettingsTopic;}}>
+              <button class="settings-shortcut" @click=${()=>{
+                this._settingsTopic=id as SettingsTopic;
+                if(id==='radio') void this._loadDeviceConfig();
+              }}>
                 <span class="settings-shortcut-icon" aria-hidden="true"><ha-icon .icon=${icon}></ha-icon></span>
                 <span class="settings-shortcut-copy">
                   <span class="settings-shortcut-title">${title}</span>
@@ -1495,7 +1574,12 @@ export class SettingsPage extends LitElement {
               ${this.selectedDevice ? html`
                 <div id="hive-repeater-settings-card" class="device-section" data-hive-native="repeater">
                   <div class="repeater-card-header" style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;">
-                    <div class="card-title" style="margin:0;">Repeater Setup</div>
+                    <div class="card-title" style="margin:0;">${({
+                      users:'Utilizadores e acessos',
+                      radio:'Configuração Rádio do Companion',
+                      repeater:'Configuração do Repetidor',
+                      regions:'Regiões & Scopes',
+                    } as Record<string,string>)[this._settingsTopic || ''] || ''}</div>
                     <button class="action-btn" style="white-space:nowrap;" ?disabled=${this._repeaterReadBusy||this._saving} @click=${()=>this._readRepeaterStatus(true,true)}>
                       ${this._repeaterReadBusy?'A ler…':'↻ Ler configuração'}
                     </button>
@@ -3098,13 +3182,13 @@ export class SettingsPage extends LitElement {
           data-hive-repeater-access>
           <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:10px;">
             <div>
-              <div style="font-size:13px;font-weight:600;">Acesso remoto</div>
+              <div style="font-size:13px;font-weight:600;">Perfis de acesso</div>
               <div style="font-size:11px;color:var(--secondary-text-color);margin-top:2px;line-height:1.45;">
-                Credenciais do servidor Repeater. As passwords são write-only: o HiveFW apenas indica se estão configuradas.
+                Gestão de quem pode aceder remotamente ao HiveFW. As credenciais permanecem protegidas e nunca são mostradas depois de guardadas.
               </div>
             </div>
             <div style="font-size:11px;color:var(--secondary-text-color);white-space:nowrap;">
-              ACL: ${status.server_auth?.acl_count ?? '—'}
+              Utilizadores: ${status.server_auth?.acl_count ?? '—'}
             </div>
           </div>
 
@@ -3112,7 +3196,7 @@ export class SettingsPage extends LitElement {
             <div style="display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 10px;align-items:end;">
               <div>
                 <label class="form-label">
-                  Admin password
+                  Password de Administrador
                   <span style="margin-left:6px;font-size:10px;color:${status.server_auth.admin_password_set ? 'var(--success-color, #2e7d32)' : 'var(--secondary-text-color)'};">
                     ${status.server_auth.admin_password_set ? 'configurada' : 'não configurada'}
                   </span>
@@ -3149,7 +3233,7 @@ export class SettingsPage extends LitElement {
 
               <div>
                 <label class="form-label">
-                  Guest password
+                  Password de Convidado
                   <span style="margin-left:6px;font-size:10px;color:${status.server_auth.guest_password_set ? 'var(--success-color, #2e7d32)' : 'var(--secondary-text-color)'};">
                     ${status.server_auth.guest_password_set ? 'configurada' : 'não configurada'}
                   </span>
@@ -3189,7 +3273,7 @@ export class SettingsPage extends LitElement {
 
             <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:12px;padding-top:10px;border-top:1px solid var(--divider-color);">
               <div style="font-size:11px;color:var(--secondary-text-color);line-height:1.4;">
-                Admin permite remote CLI e gestão completa. Guest permite operações limitadas ao perfil Guest.
+                Administrador tem controlo completo. Convidado tem acesso limitado. Os utilizadores autorizados abaixo podem receber um perfil próprio.
               </div>
               <button
                 class="danger-button"
@@ -3215,9 +3299,9 @@ export class SettingsPage extends LitElement {
             id="hive-companion-settings-card"
             data-hive-native="companion"
             style="margin:0 0 10px;padding:12px;border:1px solid var(--divider-color);border-radius:8px;background:var(--secondary-background-color);">
-            <div style="font-size:13px;font-weight:600;margin-bottom:4px;">Rádio Setup</div>
+            <div style="font-size:13px;font-weight:600;margin-bottom:4px;">Parâmetros do rádio</div>
             <div style="font-size:11px;color:var(--secondary-text-color);line-height:1.45;margin-bottom:10px;">
-              Parâmetros RF base do HiveFW. O modo Repeater usa esta mesma configuração do Companion.
+              Configuração RF real do Companion. O modo Repeater espelha estes mesmos parâmetros; cada alteração é aplicada imediatamente e confirmada por nova leitura do rádio.
             </div>
             ${this._renderRadioSettings()}
           </div>
@@ -3424,9 +3508,9 @@ export class SettingsPage extends LitElement {
       <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--divider-color);">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;">
           <div>
-            <div style="font-size:12px;font-weight:600;">ACL persistente</div>
+            <div style="font-size:12px;font-weight:600;">Utilizadores autorizados</div>
             <div style="font-size:10px;color:var(--secondary-text-color);margin-top:2px;">
-              Read Only, Read Write e Admin são identidades guardadas. Guest é transitório e não é persistido.
+              Perfis guardados no dispositivo. Os detalhes técnicos da identidade continuam disponíveis para administração avançada.
             </div>
           </div>
           <span style="font-size:11px;color:var(--secondary-text-color);">
@@ -3451,13 +3535,13 @@ export class SettingsPage extends LitElement {
                     <div style="font:11px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;overflow-wrap:anywhere;">
                       ${entry.pubkey_prefix.toUpperCase()}
                       <div style="margin-top:10px;padding-top:10px;border-top:1px dashed var(--divider-color);">
-          <div style="font-size:11px;font-weight:600;margin-bottom:6px;">Adicionar identidade</div>
+          <div style="font-size:11px;font-weight:600;margin-bottom:6px;">Adicionar utilizador autorizado</div>
           <div style="display:grid;grid-template-columns:minmax(180px,1fr) minmax(120px,150px) auto;gap:7px;align-items:center;">
             <input
               class="form-input"
               type="text"
               maxlength="64"
-              placeholder="Public key completa (64 hex)"
+              placeholder="Chave do utilizador (64 hex)"
               .value=${this._aclNewPublicKey}
               ?disabled=${this._repeaterAccessBusy !== null}
               @input=${(e: Event) => {
@@ -3476,9 +3560,9 @@ export class SettingsPage extends LitElement {
                 this._aclNewPermissions =
                   Number((e.target as HTMLSelectElement).value) as 1 | 2 | 3;
               }}>
-              <option value="1">Read Only</option>
-              <option value="2">Read Write</option>
-              <option value="3">Admin</option>
+              <option value="1">Consulta</option>
+              <option value="2">Utilizador</option>
+              <option value="3">Administrador</option>
             </select>
             <button
               class="action-btn"
@@ -3502,9 +3586,9 @@ export class SettingsPage extends LitElement {
                         Number((e.target as HTMLSelectElement).value);
                       this._editValues = { ...this._editValues };
                     }}>
-                    <option value="1">Read Only</option>
-                    <option value="2">Read Write</option>
-                    <option value="3">Admin</option>
+                    <option value="1">Consulta</option>
+                    <option value="2">Utilizador</option>
+                    <option value="3">Administrador</option>
                   </select>
                   <button
                     class="action-btn"
@@ -3524,7 +3608,7 @@ export class SettingsPage extends LitElement {
           </div>
         ` : html`
           <div style="font-size:11px;color:var(--secondary-text-color);">
-            Nenhuma identidade persistida na ACL.
+            Ainda não existem utilizadores autorizados guardados.
           </div>
         `}
       </div>
@@ -3534,7 +3618,7 @@ export class SettingsPage extends LitElement {
   private async _addRepeaterAclEntry() {
     const key = this._aclNewPublicKey.trim().toLowerCase();
     if (!/^[0-9a-f]{64}$/.test(key)) {
-      this._showStatusMessage('ACL: public key inválida.', 'error');
+      this._showStatusMessage('Utilizador: chave inválida.', 'error');
       return;
     }
     await this._setRepeaterAclEntry(key, this._aclNewPermissions);
@@ -3569,7 +3653,7 @@ export class SettingsPage extends LitElement {
       this._editValues = { ...this._editValues };
       await this._readRepeaterStatus(false, false);
       this._showStatusMessage(
-        permissions === 0 ? 'Entrada ACL removida.' : 'Permissão ACL atualizada.',
+        permissions === 0 ? 'Utilizador removido.' : 'Perfil do utilizador atualizado.',
         'success',
       );
     } catch (error) {
@@ -3581,10 +3665,10 @@ export class SettingsPage extends LitElement {
 
   private _confirmRemoveRepeaterAclEntry(publicKey: string, prefix: string) {
     this._confirmAction = {
-      title: 'Remover identidade da ACL',
+      title: 'Remover utilizador autorizado',
       message:
         `Remover ${prefix.toUpperCase()} da ACL persistente do Repeater? ` +
-        'Esta operação não altera as passwords Admin/Guest.',
+        'Esta operação não altera as passwords de Administrador/Convidado.',
       onConfirm: () => this._setRepeaterAclEntry(publicKey, 0),
     };
     this._confirmDialogOpen = true;
