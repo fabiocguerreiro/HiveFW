@@ -20,11 +20,11 @@ Firmware e Integração vivem no repositório principal `fabiocguerreiro/HiveFW`
 
 ## App
 
-**App** é a futura aplicação HiveFW para Android.
+**App** é a aplicação HiveFW para Android/Flutter.
 
-Atualmente é desenvolvida isoladamente no repositório `fabiocguerreiro/HiveFW-app`. O seu desenvolvimento e releases são independentes do Firmware e da Integração enquanto permanecer nesse repositório.
+O código canónico vive em `app/` dentro de `fabiocguerreiro/HiveFW`. A migração para o monorepo foi feita a partir de `fabiocguerreiro/HiveFW-app` no snapshot `f83f3f34aa1616d2f4e67f11aa7ce5d5f2322746`; o repositório antigo permanece apenas como histórico/rollback.
 
-Está previsto que, quando estiver suficientemente madura, a App possa ser integrada no repositório principal HiveFW. Até essa migração acontecer, alterações à App devem permanecer no seu repositório próprio e não devem ser confundidas com alterações à Integração Home Assistant.
+A App partilha agora o mesmo repositório, revisão de código e contexto de desenvolvimento das outras duas vertentes. Mantém, no entanto, o seu ciclo de build/release através de tags `app-v*`, separado da versão canónica `VERSION` usada por Firmware + Integração.
 
 ## Regra de interpretação
 
