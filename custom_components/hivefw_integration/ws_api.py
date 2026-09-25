@@ -1592,7 +1592,7 @@ async def ws_get_node_counts(hass, connection, msg):
 
 # ─── meshcore/clear_discovered_contacts ─────────────────────────────
 # Clears discovered contacts. If days_threshold is provided, only
-# contacts whose lastmod exceeds that age are removed; otherwise all
+# contacts whose HA-local heard_at exceeds that age are removed; otherwise all
 # discovered contacts are removed.
 
 
