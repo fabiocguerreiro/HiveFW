@@ -213,12 +213,19 @@ class _HiveFwRepeaterSettingsScreenState
     final rxGain = _radio['rxg'] == '1';
     final adcMilli = int.tryParse(_radio['adc_m'] ?? '');
     final meshTime = _base['mt'] == '1';
-    final powerNotifySupported = _base.containsKey('power_notify');
-    final powerNotify = _base['power_notify'] == '1';
+    final compactPower = (_base['pwr'] ?? '').trim();
+    final powerNotifySupported =
+        compactPower.isNotEmpty || _base.containsKey('power_notify');
+    final powerNotify =
+        compactPower.isNotEmpty
+            ? compactPower[0] == '1'
+            : _base['power_notify'] == '1';
     final externalPower =
-        !_base.containsKey('ext_power')
-            ? null
-            : _base['ext_power'] == '1';
+        compactPower.length >= 2
+            ? compactPower[1] == '1'
+            : !_base.containsKey('ext_power')
+                ? null
+                : _base['ext_power'] == '1';
 
     return Scaffold(
       appBar: AppBar(
