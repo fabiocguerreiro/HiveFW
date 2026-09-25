@@ -5050,7 +5050,7 @@ void MyMesh::begin(bool has_display) {
   _prefs.direct_tx_delay_factor = constrain(_prefs.direct_tx_delay_factor, 0, 2.0f);
   _prefs.cad_enabled = constrain(_prefs.cad_enabled, 0, 1);
   _prefs.mesh_time_sync = constrain(_prefs.mesh_time_sync, 0, 1);
-  _prefs.repeat.power_notify = constrain(_prefs.repeat.power_notify, 0, 1);
+  _prefs.setPowerNotifyEn(_prefs.isPowerNotifyEn());
   _prefs.adc_multiplier = constrain(_prefs.adc_multiplier, 0.0f, 10.0f);
   _prefs.airtime_factor = constrain(_prefs.airtime_factor, 0, 9.0f);
   _prefs.freq = constrain(_prefs.freq, 150.0f, 2500.0f);
