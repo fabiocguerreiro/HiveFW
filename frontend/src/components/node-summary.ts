@@ -216,6 +216,11 @@ export class NodeSummary extends LitElement {
       font-size: 10px;
       color: var(--secondary-text-color);
     }
+    .battery-charge-state {
+      font-size: 9px;
+      line-height: 1.2;
+      color: var(--secondary-text-color);
+    }
     .hero-tile-value .compact {
       font-size: 14px;
       font-weight: 500;
@@ -1026,6 +1031,11 @@ export class NodeSummary extends LitElement {
             ? html`<span class="secondary">· ${voltageVal.toFixed(3)} V</span>`
             : nothing}
         </div>
+        ${this.repeaterStatus?.battery.external_power === true
+          ? html`<div class="battery-charge-state">⚡ Alimentação externa / carga</div>`
+          : this.repeaterStatus?.battery.external_power === false
+            ? html`<div class="battery-charge-state">Em bateria</div>`
+            : nothing}
         <meshcore-stat-bar
           .value=${pct}
           .min=${0}
