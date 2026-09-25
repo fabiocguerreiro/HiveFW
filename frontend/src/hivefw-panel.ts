@@ -9030,6 +9030,41 @@ class HiveFWPanel extends BasePanel {
     }
   }
 
+  async __refreshNetworkContacts(button) {
+    if(!this.hass || this.__nodesMapLoading)return;
+    const original=button?.textContent||"↻";
+    if(button){
+      button.disabled=true;
+      button.textContent="…";
+      button.title="A atualizar contactos…";
+    }
+    try{
+      this.__nodesMapContacts=null;
+      this.__nodesMapLoadedEntry=null;
+      this.__nodesMapSignature="";
+      await this.__loadNodesMapContacts();
+
+      const contactHost=this.__networkOverlay?.querySelector(".hive-network-contacts");
+      if(contactHost)this.__renderNetworkContacts(contactHost);
+
+      const analytics=this.__networkOverlay?.querySelector(".hive-network-analytics");
+      if(analytics)this.__renderHiveNetworkAnalytics(analytics);
+
+      const mapHost=this.__networkOverlay?.querySelector(".hive-neighbors-map");
+      if(mapHost&&this.__hiveNeighborMapMode==="contacts"){
+        await this.__renderHiveNeighborDiscoveryMap(mapHost);
+      }
+    }catch(error){
+      console.warn("HiveFW contact refresh failed",error);
+    }finally{
+      if(button?.isConnected){
+        button.disabled=false;
+        button.textContent=original;
+        button.title="Atualizar contactos";
+      }
+    }
+  }
+
   __renderNetworkContacts(container) {
     container.replaceChildren();
     const rawSource=Array.isArray(this.__nodesMapContacts)?[...this.__nodesMapContacts]:[];
@@ -9084,6 +9119,14 @@ class HiveFWPanel extends BasePanel {
       }
     });
 
+    const refreshContacts=document.createElement("button");
+    refreshContacts.type="button";
+    refreshContacts.className="hive-network-contact-search-button";
+    refreshContacts.textContent="↻";
+    refreshContacts.title="Atualizar contactos";
+    refreshContacts.setAttribute("aria-label","Atualizar contactos");
+    refreshContacts.addEventListener("click",()=>void this.__refreshNetworkContacts(refreshContacts));
+
     const gear=document.createElement("button");
     gear.type="button";
     gear.className="hive-network-contact-gear";
@@ -9093,7 +9136,7 @@ class HiveFWPanel extends BasePanel {
       this.__networkContactsMenuOpen=!this.__networkContactsMenuOpen;
       this.__renderNetworkContacts(container);
     });
-    tools.append(search,gear);
+    tools.append(search,refreshContacts,gear);
 
     if(this.__networkContactsMenuOpen){
       const menu=document.createElement("div");
