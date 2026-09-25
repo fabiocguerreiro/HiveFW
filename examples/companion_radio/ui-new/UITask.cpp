@@ -671,6 +671,7 @@ class HomeScreen : public UIScreen {
 #if ENV_INCLUDE_GPS == 1
     COMP_MENU_SYNC_GPS,
 #endif
+    COMP_MENU_SYNC_TIMEKEEPER,
     COMP_MENU_DISCOVERY,
     COMP_MENU_DISCOVERED,
     COMP_MENU_COUNT
@@ -7190,6 +7191,7 @@ public:
 #if ENV_INCLUDE_GPS == 1
         "SINCRONIZAR VIA GPS",
 #endif
+        "SINCRONIZAR VIA TIMEKEEPER",
         "DESCOBRIR REPETIDORES",
         "REPETIDORES DESCOBERTOS"
       };
@@ -14571,6 +14573,36 @@ public:
         }
 
 #endif
+
+        // --------------------------------------------------
+        // SINCRONIZAR VIA TIMEKEEPER
+        //
+        // Alterna a mesma preferência mesh_time_sync usada pela
+        // "Sincronização RTC via Mesh" no Companion/integração.
+        // O Timekeeper continua a ser uma fonte secundária:
+        // Companion/app e GPS mantêm prioridade.
+        // --------------------------------------------------
+
+        if (_companion_menu == COMP_MENU_SYNC_TIMEKEEPER) {
+
+          _node_prefs->mesh_time_sync =
+            _node_prefs->mesh_time_sync ? 0 : 1;
+
+          the_mesh.savePrefs();
+
+          _task->notify(
+            UIEventType::ack
+          );
+
+          _task->showAlert(
+            _node_prefs->mesh_time_sync
+              ? "Timekeeper ATIVO"
+              : "Timekeeper DESATIVADO",
+            1500
+          );
+
+          return true;
+        }
 
 
         // DESCOBRIR REPETIDORES
