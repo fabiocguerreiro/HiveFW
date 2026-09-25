@@ -5642,16 +5642,34 @@ class HiveFWPanel extends BasePanel {
 
   async __ensureMapLoaded() {
     if (customElements.get("ha-map")) return true;
-    if (this.__mapLoadStarted) return false;
+
+    // Several Rede render paths can request the map at the same time on first
+    // entry. All callers must await the same loader; returning false while a
+    // load is already in progress produces a transient "Não foi possível
+    // carregar o mapa" even though ha-map becomes available moments later.
+    if (this.__mapLoadPromise) return this.__mapLoadPromise;
+
     this.__mapLoadStarted = true;
+    this.__mapLoadPromise = (async () => {
+      try {
+        if (window.loadCardHelpers) {
+          const helpers = await window.loadCardHelpers();
+          helpers.createCardElement?.({type:"map",entities:[]});
+        }
+        await Promise.race([
+          customElements.whenDefined("ha-map"),
+          new Promise((resolve)=>setTimeout(resolve,1500)),
+        ]);
+      } catch {}
+      return !!customElements.get("ha-map");
+    })();
+
     try {
-      if (window.loadCardHelpers) {
-        const helpers = await window.loadCardHelpers();
-        helpers.createCardElement?.({type:"map",entities:[]});
-      }
-      await Promise.race([customElements.whenDefined("ha-map"),new Promise((r)=>setTimeout(r,1500))]);
-    } catch {}
-    return !!customElements.get("ha-map");
+      return await this.__mapLoadPromise;
+    } finally {
+      this.__mapLoadPromise = null;
+      this.__mapLoadStarted = false;
+    }
   }
 
   __nodeCoords(contact) {
