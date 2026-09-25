@@ -514,6 +514,7 @@ export interface LocalRepeaterStatus {
     level?: number;
     used_kb?: number;
     total_kb?: number;
+    external_power?: boolean | null;
   };
   tuning: {
     rx_delay?: number;
