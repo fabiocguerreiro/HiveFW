@@ -7137,6 +7137,7 @@ class HiveFWPanel extends BasePanel {
     this.__repeaterEdit = {
       repeat: !!status.repeat,
       mesh_time_sync: !!status.mesh_time_sync,
+      power_notify: !!status.power_notify,
       frequency: radio.frequency,
       bandwidth: radio.bandwidth,
       spreading_factor: radio.spreading_factor,
@@ -7873,6 +7874,36 @@ class HiveFWPanel extends BasePanel {
     row.append(info, toggle);
     card.appendChild(row);
 
+    if (status.power_notify_supported) {
+      const powerRow = document.createElement("div");
+      powerRow.className = "mcr-mode-row";
+
+      const powerInfo = document.createElement("div");
+      const powerName = document.createElement("div");
+      powerName.className = "mcr-mode-name";
+      powerName.textContent = "Notif. Energia";
+      const powerHelp = document.createElement("div");
+      powerHelp.className = "mcr-mode-help";
+      powerHelp.textContent =
+        "Quando a alimentação externa falha, envia uma única mensagem “Falha de Energia ⚡” para o Canal APPS/SOS selecionado.";
+      powerInfo.append(powerName, powerHelp);
+
+      const powerToggle = document.createElement("label");
+      powerToggle.className = "mcr-switch";
+      const powerInput = document.createElement("input");
+      powerInput.type = "checkbox";
+      powerInput.checked = !!this.__repeaterEdit.power_notify;
+      powerInput.disabled = this.__repeaterLoading || !status.repeat;
+      powerInput.addEventListener("change", () => {
+        this.__repeaterEdit.power_notify = powerInput.checked;
+      });
+      const powerSlider = document.createElement("span");
+      powerToggle.append(powerInput, powerSlider);
+
+      powerRow.append(powerInfo, powerToggle);
+      card.appendChild(powerRow);
+    }
+
     const actions = document.createElement("div");
     actions.className = "mcr-actions";
     const save = this.__button("Aplicar modo", "primary");
@@ -7886,6 +7917,21 @@ class HiveFWPanel extends BasePanel {
       );
     });
     actions.appendChild(save);
+
+    if (status.power_notify_supported) {
+      const savePower = this.__button("Guardar Notif. Energia");
+      savePower.disabled = this.__repeaterLoading || !status.repeat;
+      savePower.addEventListener("click", () => {
+        void this.__saveRepeaterSettings(
+          { power_notify: !!this.__repeaterEdit.power_notify },
+          this.__repeaterEdit.power_notify
+            ? "Notificação de falha de energia ativada."
+            : "Notificação de falha de energia desativada."
+        );
+      });
+      actions.appendChild(savePower);
+    }
+
     card.appendChild(actions);
 
     return card;
