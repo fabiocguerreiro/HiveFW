@@ -6235,12 +6235,12 @@ async def ws_get_hive_neighbors(hass, connection, msg):
             if previous is None or item["secs_ago"] < previous["secs_ago"]:
                 unique[prefix] = item
 
-        # "Vizinhos 48H" are direct zero-hop repeater adverts heard during
-        # the last 48 hours. The firmware may retain its runtime table longer;
+        # Vizinhos are direct zero-hop repeater adverts heard during the
+        # last 7 days. The firmware may retain its runtime table longer;
         # presentation filtering belongs to the integration.
         neighbors = [
             item for item in unique.values()
-            if item["secs_ago"] <= 48 * 60 * 60
+            if item["secs_ago"] <= 7 * 24 * 60 * 60
         ]
         neighbors = sorted(neighbors, key=lambda item: item["secs_ago"])
 
