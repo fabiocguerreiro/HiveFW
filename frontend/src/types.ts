@@ -236,6 +236,8 @@ export interface Contact {
   adv_lon: number;
   lastmod: number;
   last_advert: number;
+  /** HA-local epoch when this Companion delivered the advert event. */
+  heard_at?: number;
   out_path: string;
   out_path_len: number;
   out_path_hash_mode: number;
