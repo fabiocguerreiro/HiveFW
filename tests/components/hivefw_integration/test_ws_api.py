@@ -4315,3 +4315,23 @@ async def test_ws_get_trace_history_returns_newest_first(
     assert not conn.errors
     traces = conn.results[0][1]["traces"]
     assert [trace["target_prefix"] for trace in traces] == ["bbbb", "aaaa"]
+
+
+def test_node_age_uses_companion_lastmod() -> None:
+    """Contact age follows Companion lastmod, not the remote advert clock."""
+    bucket, age = ws_api._node_age(
+        {"lastmod": 1_000, "last_advert": 9_999_999},
+        now=1_120,
+    )
+    assert bucket == "lt1h"
+    assert age == 120
+
+
+def test_node_age_future_lastmod_is_clock_skew() -> None:
+    """A clearly future Companion clock must never render as age zero/now."""
+    bucket, age = ws_api._node_age(
+        {"lastmod": 2_000},
+        now=1_000,
+    )
+    assert bucket == "clock_skew"
+    assert age is None
