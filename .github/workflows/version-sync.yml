@@ -14,6 +14,7 @@ on:
     paths:
       - "VERSION"
       - "custom_components/hivefw_integration/manifest.json"
+      - "app/pubspec.yaml"
       - ".github/workflows/version-sync.yml"
   workflow_dispatch:
 
@@ -43,10 +44,22 @@ jobs:
           PY
           )"
 
+          APP_VERSION="$(python - <<'PY'
+          from pathlib import Path
+          import re
+          text=Path("app/pubspec.yaml").read_text()
+          match=re.search(r"^version:\s*([^+\s]+)", text, re.MULTILINE)
+          if not match:
+              raise SystemExit("app/pubspec.yaml version not found")
+          print(match.group(1))
+          PY
+          )"
+
           echo "Firmware:         $FW_VERSION"
           echo "Home Assistant:   $HA_VERSION"
+          echo "Android App:      $APP_VERSION"
 
-          if [[ "$FW_VERSION" != "$HA_VERSION" ]]; then
-            echo "::error::VERSION and manifest.json are not synchronized"
+          if [[ "$FW_VERSION" != "$HA_VERSION" || "$FW_VERSION" != "$APP_VERSION" ]]; then
+            echo "::error::VERSION, manifest.json and app/pubspec.yaml are not synchronized"
             exit 1
           fi
