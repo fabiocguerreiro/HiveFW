@@ -2475,9 +2475,7 @@ async def ws_get_local_repeater_status(hass, connection, msg):
             af = max(1.0, min(9.0, float(tuning_view["airtime_factor"])))
             duty_cycle = max(10, min(50, round(100.0 / (1.0 + af))))
 
-        connection.send_result(
-            msg["id"],
-            {
+        status_snapshot = {
                 "supported": repeater_capable,
                 "repeat": repeat_enabled,
                 "auto_advert_supported": auto_advert_supported,
@@ -2543,8 +2541,14 @@ async def ws_get_local_repeater_status(hass, connection, msg):
                     "packets": packets,
                     "cad": cad_diag,
                 },
-            },
-        )
+            }
+
+        coordinator._hivefw_status_snapshot = status_snapshot
+        try:
+            coordinator.async_set_updated_data(coordinator.data or {})
+        except Exception:
+            pass
+        connection.send_result(msg["id"], status_snapshot)
     except Exception as ex:
         _ws_send_error_safe(
             connection,
