@@ -692,7 +692,6 @@ class MeshCoreDataUpdateCoordinator(DataUpdateCoordinator):
             # will stamp heard_at and make normal cleanup possible.
             if heard_at > 0 and (now - heard_at) > threshold_seconds:
                 stale_keys.append(public_key)
-                stale_keys.append(public_key)
 
         # Phase 2: Remove in batches, yielding the event loop between each
         # batch so WebSocket clients can drain their message queues. No-op
