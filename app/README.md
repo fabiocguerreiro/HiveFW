@@ -2,11 +2,11 @@
 
 Aplicação Flutter para controlo e comunicação com **Companions HiveFW / MeshCore**, com foco principal em **Bluetooth LE** e suporte opcional a **Wi-Fi/TCP** nos equipamentos HiveFW compatíveis.
 
-> Estado: desenvolvimento ativo em `main` no repositório independente **HiveFW-app**.
+> Estado: desenvolvimento ativo em `app/` no monorepo **fabiocguerreiro/HiveFW**.
 
 ## Objetivo
 
-HiveFW Companion é a aplicação móvel do projeto HiveFW. A app é desenvolvida no repositório independente **HiveFW-app**. A base técnica nasceu da LusoApp, mas a aplicação atual usa identidade, arquitetura de produto e extensões próprias do HiveFW.
+HiveFW Companion é a aplicação móvel do projeto HiveFW. O código canónico vive agora em `app/` no mesmo repositório do Firmware e da Integração Home Assistant. A base técnica nasceu da LusoApp, mas a aplicação atual usa identidade, arquitetura de produto e extensões próprias do HiveFW.
 
 O alvo principal são rádios Companion, em especial dispositivos nRF52/T114 por BLE. Em ESP32/V3, quando o firmware disponibiliza o Companion por rede, a app também pode ligar diretamente por TCP.
 
@@ -55,6 +55,8 @@ Quando deteta extensões HiveFW, disponibiliza também:
 - Home Assistant: lista de comandos persistidos no Companion e envio direto;
 - diagnóstico CAD;
 - Canal APPS/SOS persistente e identificado no Chat.
+- estado de alimentação externa (T114/V3) na configuração do Repeater;
+- **Notif. Energia** sincronizada por custom var com Firmware e Integração.
 
 As páginas de **Vizinhos** e **Canais observados** consultam a cache local do rádio e não geram tráfego LoRa.
 
@@ -71,11 +73,11 @@ O Android é a plataforma prioritária.
 
 ### Preview APK
 
-A workflow `.github/workflows/internal.yml` cria um APK de preview para cada push em `main`.
+A workflow `.github/workflows/app-preview.yml` cria um APK de preview quando há alterações em `app/**`.
 
 ### Releases GitHub
 
-A workflow `.github/workflows/prod.yml` publica APKs em GitHub Releases para tags `app-v*`.
+A App é incluída nas releases unificadas HiveFW por `.github/workflows/hivefw-release.yml`. O workflow `.github/workflows/app-release.yml` continua disponível para releases isoladas da App através de tags `app-v*`.
 
 Releases instaláveis por cima de versões anteriores precisam de uma chave de assinatura persistente configurada nos GitHub Secrets:
 
