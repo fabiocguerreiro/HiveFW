@@ -4926,6 +4926,10 @@ MyMesh::MyMesh(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMe
   remote_reboot_at = 0;
   next_smart_advert = 0;
   next_neighbor_advert = 0;
+  power_state_initialized = false;
+  last_external_power = false;
+  power_loss_samples = 0;
+  next_power_check = 0;
   memset(advert_paths, 0, sizeof(advert_paths));
   memset(repeater_neighbours, 0, sizeof(repeater_neighbours));
   memset(send_scope.key, 0, sizeof(send_scope.key));
@@ -5046,6 +5050,7 @@ void MyMesh::begin(bool has_display) {
   _prefs.direct_tx_delay_factor = constrain(_prefs.direct_tx_delay_factor, 0, 2.0f);
   _prefs.cad_enabled = constrain(_prefs.cad_enabled, 0, 1);
   _prefs.mesh_time_sync = constrain(_prefs.mesh_time_sync, 0, 1);
+  _prefs.repeat.power_notify = constrain(_prefs.repeat.power_notify, 0, 1);
   _prefs.adc_multiplier = constrain(_prefs.adc_multiplier, 0.0f, 10.0f);
   _prefs.airtime_factor = constrain(_prefs.airtime_factor, 0, 9.0f);
   _prefs.freq = constrain(_prefs.freq, 150.0f, 2500.0f);
@@ -5092,6 +5097,14 @@ void MyMesh::begin(bool has_display) {
   board.setAdcMultiplier(_prefs.adc_multiplier);
   board.setLoRaFemLnaEnabled(_prefs.radio_fem_rxgain);
   board.setLoRaFemPaGainEnabled(_prefs.radio_fem_txgain);
+
+#if defined(NRF52_PLATFORM) || defined(HELTEC_LORA_V3)
+  last_external_power = board.isExternalPowered();
+  power_state_initialized = true;
+  power_loss_samples = 0;
+  next_power_check = millis() + 2000UL;
+#endif
+
   MESH_DEBUG_PRINTLN("RX Boosted Gain Mode: %s",
                      radio_driver.getRxBoostedGainMode() ? "Enabled" : "Disabled");
 }
@@ -6025,9 +6038,14 @@ void MyMesh::handleCmdFrame(size_t len) {
       _prefs.mesh_time_sync ? "1" : "0"
     );
 
-#if defined(NRF52_PLATFORM)
-    // nRF52 exposes real VBUS presence through the POWER peripheral. Keep
-    // this HiveFW-only so standard Companion battery frames stay compatible.
+    appendCustomVar(
+      "power_notify",
+      _prefs.isPowerNotifyEn() ? "1" : "0"
+    );
+
+#if defined(NRF52_PLATFORM) || defined(HELTEC_LORA_V3)
+    // T114 reads real VBUS from the nRF52 POWER peripheral. Heltec V3 uses
+    // the onboard USB-UART bridge power as a VUSB-presence proxy.
     appendCustomVar(
       "ext_power",
       board.isExternalPowered() ? "1" : "0"
@@ -6167,6 +6185,12 @@ void MyMesh::handleCmdFrame(size_t len) {
       if (strcmp(sp, "auto_advert") == 0) {
         if (strcmp(np, "0") == 0 || strcmp(np, "1") == 0) {
           setAutoAdvertEnabled(np[0] == '1');
+          success = true;
+        }
+      } else if (strcmp(sp, "power_notify") == 0) {
+        if (strcmp(np, "0") == 0 || strcmp(np, "1") == 0) {
+          _prefs.setPowerNotifyEn(np[0] == '1');
+          savePrefs();
           success = true;
         }
       } else if (strcmp(sp, "nbr_adv") == 0) {
@@ -8786,6 +8810,58 @@ void MyMesh::checkSerialInterface() {
   }
 }
 
+bool MyMesh::sendPowerFailureNotification() {
+  if (!_prefs.isRepeatEn() || !_prefs.isPowerNotifyEn()) {
+    return false;
+  }
+
+  bool apps_channel_configured = false;
+  for (int i = 0; i < PATH_HASH_SIZE; ++i) {
+    if (_prefs.apps_channel_hash[i] != 0) {
+      apps_channel_configured = true;
+      break;
+    }
+  }
+  if (!apps_channel_configured) {
+    MESH_DEBUG_PRINTLN("HiveFW power notify: Canal APPS/SOS not configured");
+    return false;
+  }
+
+#ifdef MAX_GROUP_CHANNELS
+  for (int i = 0; i < MAX_GROUP_CHANNELS; ++i) {
+    ChannelDetails channel;
+    if (
+      getChannel((uint8_t)i, channel) &&
+      channel.name[0] != '\0' &&
+      memcmp(
+        channel.channel.hash,
+        _prefs.apps_channel_hash,
+        PATH_HASH_SIZE
+      ) == 0
+    ) {
+      static const char message[] = "Falha de Energia ⚡";
+      const uint32_t now = getRTCClock()->getCurrentTime();
+      const bool sent = sendGroupMessage(
+        now,
+        channel.channel,
+        _prefs.node_name,
+        message,
+        strlen(message)
+      );
+      MESH_DEBUG_PRINTLN(
+        "HiveFW power notify: %s on channel %d",
+        sent ? "sent" : "queue failed",
+        i
+      );
+      return sent;
+    }
+  }
+#endif
+
+  MESH_DEBUG_PRINTLN("HiveFW power notify: selected channel no longer exists");
+  return false;
+}
+
 void MyMesh::loop() {
   if (
     remote_reboot_at &&
@@ -8803,6 +8879,33 @@ void MyMesh::loop() {
   } else {
     checkSerialInterface();
   }
+
+#if defined(NRF52_PLATFORM) || defined(HELTEC_LORA_V3)
+  // Poll slowly and debounce loss-of-power so USB serial traffic on the V3
+  // cannot create a false alarm. Booting on battery never emits an alert:
+  // only a confirmed transition from external power to battery does.
+  if (next_power_check == 0 || millisHasNowPassed(next_power_check)) {
+    next_power_check = millis() + 2000UL;
+    const bool external_power = board.isExternalPowered();
+
+    if (!power_state_initialized) {
+      last_external_power = external_power;
+      power_state_initialized = true;
+      power_loss_samples = 0;
+    } else if (external_power) {
+      last_external_power = true;
+      power_loss_samples = 0;
+    } else if (last_external_power) {
+      if (++power_loss_samples >= 3) {
+        last_external_power = false;
+        power_loss_samples = 0;
+        sendPowerFailureNotification();
+      }
+    } else {
+      power_loss_samples = 0;
+    }
+  }
+#endif
 
   // is there are pending dirty contacts write needed?
   if (dirty_contacts_expiry && millisHasNowPassed(dirty_contacts_expiry)) {
