@@ -485,6 +485,13 @@ private:
   uint32_t getNextSmartAdvertSlotEpoch(uint32_t now_epoch) const;
   uint32_t getNextSmartAdvertEpoch(uint32_t now_epoch, uint32_t last_epoch) const;
 
+  // HiveFW Repeater external-power monitoring.
+  bool sendPowerFailureNotification();
+  bool power_state_initialized;
+  bool last_external_power;
+  uint8_t power_loss_samples;
+  unsigned long next_power_check;
+
   // helpers, short-cuts
   void saveChannels() { _store->saveChannels(this); }
   void saveContacts();
