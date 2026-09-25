@@ -1408,9 +1408,14 @@ export class SettingsPage extends LitElement {
       if (!this._regionTarget && this._managedDevices.repeaters.length) {
         this._regionTarget = this._managedDevices.repeaters[0].pubkey_prefix;
       }
-      // Initialize location source from backend instead of defaulting to 'manual'
+      // Initialize location source from backend instead of defaulting to manual.
       if (this._deviceConfig?.location_source) {
-        this._locationSource = this._deviceConfig.location_source as 'gps' | 'manual' | 'ha_location';
+        this._locationSource = this._deviceConfig.location_source as 'none' | 'gps' | 'manual' | 'ha_location';
+        this._locationMode = this._locationSource === 'none'
+          ? 'none'
+          : this._locationSource === 'ha_location'
+            ? 'ha_location'
+            : 'manual';
       }
     } catch (error) {
       this._error = `Failed to load device configuration: ${String(error)}`;
