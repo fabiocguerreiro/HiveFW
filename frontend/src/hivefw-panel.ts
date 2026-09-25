@@ -5906,24 +5906,24 @@ class HiveFWPanel extends BasePanel {
           longitude:this.__meshcoreExportCoord(contact?.adv_lon ?? contact?.longitude),
           last_advert:Math.trunc(Number(contact?.last_advert ?? 0)) || 0,
           last_modified:Math.trunc(Number(contact?.lastmod ?? contact?.last_modified ?? 0)) || 0,
-          // HiveFW diagnostic extension. Import deliberately does not trust this
-          // value as a new local receive time on another HA instance.
-          heard_at:contact?.heard_at == null
-            ? null
-            : (Math.trunc(Number(contact.heard_at)) || null),
           advert_path_list:this.__meshcoreExportPath(contact),
         };
         const previous=byKey.get(publicKey);
-        const rowOrder=Number(row.heard_at||0) || row.last_modified;
-        const previousOrder=Number(previous?.heard_at||0) || Number(previous?.last_modified||0);
+        // Keep MeshCore-compatible JSON fields only. heard_at is HA-local
+        // metadata and must never leak into the portable interchange format.
+        const rowOrder=Number(contact?.heard_at||0) || row.last_modified;
+        const previousOrder=Number(previous?.__sort_heard_at||0) || Number(previous?.last_modified||0);
+        row.__sort_heard_at=Number(contact?.heard_at||0) || 0;
         if(!previous || rowOrder>=previousOrder)byKey.set(publicKey,row);
       }
 
-      const contacts=[...byKey.values()].sort((a,b)=>{
-        const aOrder=Number(a.heard_at||0) || Number(a.last_modified||0);
-        const bOrder=Number(b.heard_at||0) || Number(b.last_modified||0);
-        return bOrder-aOrder;
-      });
+      const contacts=[...byKey.values()]
+        .sort((a,b)=>{
+          const aOrder=Number(a.__sort_heard_at||0) || Number(a.last_modified||0);
+          const bOrder=Number(b.__sort_heard_at||0) || Number(b.last_modified||0);
+          return bOrder-aOrder;
+        })
+        .map(({__sort_heard_at,...portable})=>portable);
       const json=JSON.stringify({discovered_contacts:contacts},null,2);
       const blob=new Blob([json],{type:"application/json;charset=utf-8"});
       const url=URL.createObjectURL(blob);
