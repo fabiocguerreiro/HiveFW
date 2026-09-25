@@ -56,8 +56,8 @@ _LOGGER = logging.getLogger(__name__)
 UTILIZATION_SUFFIX = "_utilization"
 RATE_SUFFIX = "_rate"
 
-# A discovered contact is "fresh" if its last advert was heard within this
-# window. Mirrors the per-contact binary_sensor freshness threshold
+# A discovered contact is "fresh" if HA locally received its advert within
+# this window. Never use remote/Companion clock timestamps for freshness.
 # (binary_sensor.py: 12 hours) so the summary's fresh/stale split matches what
 # users already see on the individual contact entities.
 DISCOVERED_FRESH_WINDOW_SECS = 3600 * 12
@@ -644,10 +644,7 @@ class HiveFWStatusCardSensor(CoordinatorEntity, SensorEntity):
         if key == "dashboard_network_activity":
             now = time.time()
             def seen_at(item):
-                return max(
-                    float(item.get("lastmod") or 0),
-                    float(item.get("last_advert") or 0),
-                )
+                return float(item.get("heard_at") or 0)
             return sum(
                 1 for item in self._contacts()
                 if seen_at(item) > 0 and now - seen_at(item) <= 86400
@@ -719,10 +716,7 @@ class HiveFWStatusCardSensor(CoordinatorEntity, SensorEntity):
             now = time.time()
             contacts = self._contacts()
             def seen_at(item):
-                return max(
-                    float(item.get("lastmod") or 0),
-                    float(item.get("last_advert") or 0),
-                )
+                return float(item.get("heard_at") or 0)
             return {
                 "total_contacts": len(contacts),
                 "active_24h": sum(1 for item in contacts if seen_at(item) > 0 and now - seen_at(item) <= 86400),
@@ -2580,14 +2574,14 @@ class MeshCoreDiscoveredSummarySensor(CoordinatorEntity, SensorEntity):
 
         fresh_count = 0
         newest_contact = None
-        newest_advert = -1.0
+        newest_heard = -1.0
         for contact in discovered.values():
-            last_advert = contact.get("last_advert", 0) or 0
-            if last_advert and (now - last_advert) < DISCOVERED_FRESH_WINDOW_SECS:
+            heard_at = float(contact.get("heard_at") or 0)
+            if heard_at and (now - heard_at) < DISCOVERED_FRESH_WINDOW_SECS:
                 fresh_count += 1
             by_type[type_key.get(contact.get("type"), "unknown")] += 1
-            if last_advert > newest_advert:
-                newest_advert = last_advert
+            if heard_at > newest_heard:
+                newest_heard = heard_at
                 newest_contact = contact
 
         total = len(discovered)
@@ -2597,6 +2591,8 @@ class MeshCoreDiscoveredSummarySensor(CoordinatorEntity, SensorEntity):
             newest = {
                 "adv_name": newest_contact.get("adv_name", "Unknown"),
                 "pubkey_short": newest_pubkey[:12],
+                "heard_at": newest_contact.get("heard_at", 0) or 0,
+                # Keep the advertised timestamp as diagnostic information only.
                 "last_advert": newest_contact.get("last_advert", 0) or 0,
             }
         else:
