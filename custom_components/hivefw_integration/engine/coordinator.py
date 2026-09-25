@@ -158,6 +158,9 @@ class MeshCoreDataUpdateCoordinator(DataUpdateCoordinator):
         self._current_node_info = {}
         self._contacts = {}  # Dict keyed by 12-char public_key prefix
         self._discovered_contacts = {}  # Dict keyed by public_key
+        # HA-local receive clock, keyed by full public key. This is the only
+        # authoritative recency source; radio/node RTC timestamps are diagnostic.
+        self._contact_heard_at: dict[str, float] = {}
         self._manual_mode_initialized = False
 
         # Storage for discovered contacts
@@ -400,6 +403,15 @@ class MeshCoreDataUpdateCoordinator(DataUpdateCoordinator):
             contact_copy = dict(contact)
             contact_copy["pubkey_prefix"] = public_key[:12]
             contact_copy["added_to_node"] = public_key in added_pubkeys
+
+            # Overlay the latest HA-local receive time even for added contacts,
+            # whose radio contact record does not carry this field on the wire.
+            heard_at = max(
+                float(contact_copy.get("heard_at") or 0),
+                float(self._contact_heard_at.get(public_key) or 0),
+            )
+            if heard_at > 0:
+                contact_copy["heard_at"] = heard_at
 
             if public_key in contacts_dict:
                 existing = contacts_dict[public_key]
@@ -1683,6 +1695,13 @@ class MeshCoreDataUpdateCoordinator(DataUpdateCoordinator):
                     stored_contacts = await self._store.async_load()
                     if stored_contacts:
                         self._discovered_contacts = stored_contacts
+                        for stored_key, stored_contact in stored_contacts.items():
+                            try:
+                                stored_heard = float(stored_contact.get("heard_at") or 0)
+                            except (AttributeError, TypeError, ValueError):
+                                stored_heard = 0
+                            if stored_heard > 0:
+                                self._contact_heard_at[stored_key] = stored_heard
                         self.logger.info(f"Loaded {len(stored_contacts)} discovered contacts from storage")
                 else:
                     self.logger.error(f"Failed to set manual contact mode: {result}")
