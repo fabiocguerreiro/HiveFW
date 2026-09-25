@@ -696,6 +696,7 @@ class HomeScreen : public UIScreen {
   enum RepeaterMenu : uint8_t {
     REPEATER_MENU_TOGGLE = 0,
     REPEATER_MENU_AUTOADVERT,
+    REPEATER_MENU_POWER_NOTIFY,
     REPEATER_MENU_DUTY_CYCLE,
     REPEATER_MENU_NEIGHBOURS,
     REPEATER_MENU_REGIONS,
@@ -8078,6 +8079,7 @@ public:
         const char* repeater_items[] = {
           "REPETIDOR",
           "AUTOADVERT",
+          "NOTIF. ENERGIA",
           "DUTY CYCLE",
           "VIZINHOS",
           "REGIÕES",
@@ -8120,6 +8122,20 @@ public:
             sizeof(repeater_value),
             "%s",
             the_mesh.getNodePrefs()->isAutoAdvertEn()
+              ? "ON"
+              : "OFF"
+          );
+
+        } else if (
+          _repeater_menu ==
+          REPEATER_MENU_POWER_NOTIFY
+        ) {
+
+          snprintf(
+            repeater_value,
+            sizeof(repeater_value),
+            "%s",
+            the_mesh.getNodePrefs()->isPowerNotifyEn()
               ? "ON"
               : "OFF"
           );
@@ -16381,7 +16397,27 @@ public:
           }
 
           // ------------------------------------------------
-          // 3. DUTY CYCLE
+          // 3. NOTIF. ENERGIA
+          // ------------------------------------------------
+
+          if (_repeater_menu == REPEATER_MENU_POWER_NOTIFY) {
+            const bool enabled =
+              !the_mesh.getNodePrefs()->isPowerNotifyEn();
+
+            the_mesh.getNodePrefs()->setPowerNotifyEn(enabled);
+            the_mesh.savePrefs();
+
+            _task->notify(UIEventType::ack);
+            _task->showAlert(
+              enabled ? "ENERGIA: ON" : "ENERGIA: OFF",
+              1200
+            );
+
+            return true;
+          }
+
+          // ------------------------------------------------
+          // 4. DUTY CYCLE
           // ------------------------------------------------
 
           if (_repeater_menu == REPEATER_MENU_DUTY_CYCLE) {
