@@ -4,7 +4,7 @@
 
 # HiveFW
 
-**HiveFW** é uma plataforma local-first baseada no [MeshCore](https://github.com/meshcore-dev/MeshCore) que reúne, no mesmo projeto e na mesma linha de versões, o **firmware Companion + Repeater** e a respetiva **integração nativa para Home Assistant**.
+**HiveFW** é uma plataforma local-first baseada no [MeshCore](https://github.com/meshcore-dev/MeshCore) que reúne no mesmo repositório o **firmware Companion + Repeater**, a **integração nativa para Home Assistant** e a **App HiveFW para Android**.
 
 O Companion continua a ser a interface principal do rádio. O modo **Repeater** é opcional e pode ser ativado sem perder a ligação Companion. A integração Home Assistant comunica diretamente com o equipamento HiveFW e disponibiliza configuração, mensagens, nós, vizinhos, diagnóstico RF, backup/restore e atualização de firmware.
 
@@ -16,9 +16,9 @@ No HiveFW, estes três termos têm significado fixo:
 
 - **Firmware** — software que é compilado e instalado no Rádio Companion;
 - **Integração** — integração Home Assistant **e o respetivo frontend HiveFW**;
-- **App** — futura aplicação HiveFW para Android, atualmente desenvolvida separadamente em `fabiocguerreiro/HiveFW-app`.
+- **App** — aplicação HiveFW para Android/Flutter, desenvolvida em `app/` neste mesmo repositório.
 
-Firmware e Integração vivem neste repositório e partilham a linha de versões HiveFW. A App mantém-se independente enquanto estiver no repositório próprio; está prevista uma futura integração no repositório principal quando estiver suficientemente madura.
+As três vertentes vivem agora em `fabiocguerreiro/HiveFW`. Firmware e Integração continuam a usar a versão canónica do ficheiro `VERSION`; a App mantém o seu ciclo de versão/tag `app-v*`, mas o seu código, CI e desenvolvimento passam a ser feitos no monorepo. O antigo `fabiocguerreiro/HiveFW-app` fica apenas como histórico/rollback da migração.
 
 Ver [Vertentes do projeto HiveFW](docs/project_scope.md).
 
@@ -41,7 +41,7 @@ O projeto unificado inclui:
 - Web OTA seguro no Heltec V3 **apenas na build Wi-Fi/TCP**;
 - build BLE do Heltec V3 com atualização manual por USB;
 - BLE DFU / UF2 no T114;
-- uma única versão HiveFW para firmware e integração.
+- Firmware e Integração na versão canónica HiveFW e App Android no mesmo repositório, com tags `app-v*` próprias.
 
 ## Arquitetura
 
@@ -57,9 +57,8 @@ HiveFW
 │   ├── Backend · custom_components/
 │   └── Frontend HiveFW · frontend/
 │
-└── App
-    └── Android · desenvolvimento separado em HiveFW-app
-        └── futura integração neste repositório
+└── App · app/
+    └── Flutter / Android · código, testes e builds no mesmo repositório
 
 Firmware ↔ Integração ↔ Rádio Companion ↔ Rede MeshCore
 ```
@@ -77,6 +76,7 @@ HiveFW/
 ├── examples/companion_radio/             Companion + Repeater HiveFW
 ├── custom_components/hivefw_integration/ integração Home Assistant
 ├── frontend/                             source do painel HA
+├── app/                                  aplicação Flutter / Android HiveFW
 ├── tests/                                testes HA
 ├── docs/                                 documentação
 ├── platformio.ini
@@ -137,6 +137,8 @@ Funcionalidades comuns:
 - passwords Repeater write-only na integração, sem leitura de segredos a partir do rádio;
 - contadores de adverts TX/RX;
 - telemetria e informação do Companion;
+- deteção de alimentação externa no Heltec T114 e Heltec V3;
+- **Notif. Energia** no modo Repeater: quando ativada, uma transição de alimentação externa para bateria envia uma única mensagem `Falha de Energia ⚡` para o Canal APPS/SOS selecionado e só rearma quando a alimentação regressa;
 - UI HiveFW nos equipamentos com display.
 
 ### Smart Advert
@@ -508,6 +510,18 @@ npm run typecheck
 npm run build
 npm test
 ```
+
+App HiveFW:
+
+```bash
+cd app
+flutter pub get
+flutter analyze --no-fatal-infos --no-fatal-warnings
+flutter test
+flutter build apk --debug
+```
+
+Os workflows da App vivem em `.github/workflows/app-*.yml`. Previews são artefactos de CI; releases da App usam tags `app-v*`.
 
 Backend Home Assistant:
 
