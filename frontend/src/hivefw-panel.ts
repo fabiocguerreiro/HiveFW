@@ -122,6 +122,8 @@ class HiveFWPanel extends BasePanel {
     this.__networkHistory = null;
     this.__networkContactsFilter = "all";
     this.__networkContactsMenuOpen = false;
+    this.__networkContactsSearchOpen = false;
+    this.__networkContactsSearchQuery = "";
 
     this.__consoleHistory = [];
     this.__consoleCommandHistory = [];
@@ -403,7 +405,10 @@ class HiveFWPanel extends BasePanel {
       if (!this.__hiveNeighborDiscovery && !this.__hiveNeighborDiscoveryLoading) {
         void this.__loadHiveNeighborDiscovery();
       }
-      if (!this.__repeaterStatus && !this.__repeaterLoading) {
+      if (
+        !this.__repeaterLoading &&
+        (!this.__repeaterStatus || !this.__repeaterStatusLoadedAt || Date.now()-this.__repeaterStatusLoadedAt>10000)
+      ) {
         void this.__loadRepeaterStatus();
       }
       if (this.__peerActivityLoadedEntry !== entryId && !this.__peerActivityLoading) {
@@ -2254,7 +2259,8 @@ class HiveFWPanel extends BasePanel {
         background:var(--secondary-background-color);
       }
       .hive-network-contact-filter button,
-      .hive-network-contact-gear {
+      .hive-network-contact-gear,
+      .hive-network-contact-search-button {
         border:0;
         border-radius:7px;
         padding:6px 9px;
@@ -2269,11 +2275,52 @@ class HiveFWPanel extends BasePanel {
         background:var(--primary-color);
         color:#fff;
       }
-      .hive-network-contact-gear {
+      .hive-network-contact-gear,
+      .hive-network-contact-search-button {
+        width:34px;
+        height:34px;
+        display:grid;
+        place-items:center;
         border:1px solid var(--divider-color);
         background:var(--secondary-background-color);
         font-size:14px;
         line-height:1;
+        box-sizing:border-box;
+      }
+      .hive-network-contact-search {
+        width:100%;
+        margin:10px 0 8px;
+      }
+      .hive-network-contact-search input {
+        width:100%;
+        min-width:0;
+        box-sizing:border-box;
+        padding:8px 10px;
+        border:1px solid var(--divider-color);
+        border-radius:9px;
+        background:var(--primary-background-color);
+        color:var(--primary-text-color);
+        font:inherit;
+        font-size:11px;
+      }
+      .hive-network-activity-split {
+        display:grid;
+        grid-template-columns:repeat(2,minmax(0,1fr));
+        gap:12px;
+      }
+      .hive-network-activity-side {
+        min-width:0;
+      }
+      .hive-network-activity-side-title {
+        margin-bottom:5px;
+        color:var(--secondary-text-color);
+        font-size:10px;
+        font-weight:750;
+        text-transform:uppercase;
+        letter-spacing:.04em;
+      }
+      @media(max-width:720px){
+        .hive-network-activity-split{grid-template-columns:1fr;}
       }
       .hive-network-contact-menu {
         position:absolute;
@@ -6119,17 +6166,21 @@ class HiveFWPanel extends BasePanel {
 
     if(matched){
       const merged={...matched,__hivefw_local:true,__hivefw_local_match:true};
-      // The map label always follows the currently connected device name,
-      // even before a fresh advert updates the discovered-contact name.
+      // The local repeater is a special case: it cannot hear its own advert.
+      // Its identity, coordinates and advert age therefore come from the live
+      // local Companion/Repeater status, never from its cached heard-contact row.
       if(currentName)merged.adv_name=currentName;
-
-      // Preserve the real contact GPS first; use SELF_INFO location only
-      // when that contact currently has no valid advertised coordinates.
-      if(!this.__nodeCoords(merged) && fallbackCoordsValid){
+      if(fallbackCoordsValid){
         merged.adv_lat=fallbackLat;
         merged.adv_lon=fallbackLon;
         merged.latitude=fallbackLat;
         merged.longitude=fallbackLon;
+      }
+      const localAdvertEpoch=Number(status?.smart_advert?.last_epoch);
+      if(Number.isFinite(localAdvertEpoch)&&localAdvertEpoch>0){
+        merged.last_advert=localAdvertEpoch;
+        merged.age_seconds=Math.max(0,Math.floor(Date.now()/1000-localAdvertEpoch));
+        merged.__hivefw_local_advert_sent=true;
       }
       return merged;
     }
@@ -6145,8 +6196,13 @@ class HiveFWPanel extends BasePanel {
       adv_lon:fallbackLon,
       latitude:fallbackLat,
       longitude:fallbackLon,
+      last_advert:Number(status?.smart_advert?.last_epoch)||0,
+      age_seconds:Number(status?.smart_advert?.last_epoch)>0
+        ? Math.max(0,Math.floor(Date.now()/1000-Number(status.smart_advert.last_epoch)))
+        : null,
       __hivefw_local:true,
       __hivefw_local_match:false,
+      __hivefw_local_advert_sent:true,
     };
   }
 
@@ -8787,39 +8843,56 @@ class HiveFWPanel extends BasePanel {
     const trafficPanel=document.createElement("section");
     trafficPanel.className="hive-network-panel";
     const ttitle=document.createElement("div");ttitle.className="hive-network-panel-title";
-    const tlabel=document.createElement("span");tlabel.textContent="Repeaters por atividade";
-    const tmeta=document.createElement("span");tmeta.style.color="var(--secondary-text-color)";tmeta.textContent="RX + TX + paths";
+    const tlabel=document.createElement("span");tlabel.textContent="Repeaters principais";
+    const tmeta=document.createElement("span");tmeta.style.color="var(--secondary-text-color)";tmeta.textContent="Entrada / Saída";
     ttitle.append(tlabel,tmeta);trafficPanel.appendChild(ttitle);
 
-    const ranked=all.map((neighbor)=>{
+    const directional=all.map((neighbor)=>{
       const signal=this.__networkSignalFor(neighbor);
       const activity=signal.contact?this.__peerActivityFor(signal.contact):{rx:0,tx:0,linkVolume:0};
-      return {neighbor,contact:signal.contact,score:(Number(activity.rx)||0)+(Number(activity.tx)||0)+(Number(activity.linkVolume)||0),activity};
-    }).filter((item)=>item.score>0).sort((a,b)=>b.score-a.score).slice(0,5);
+      return {neighbor,contact:signal.contact,activity};
+    });
+    const rxTotal=directional.reduce((sum,item)=>sum+(Number(item.activity.rx)||0),0);
+    const txTotal=directional.reduce((sum,item)=>sum+(Number(item.activity.tx)||0),0);
+    const inbound=directional.filter((item)=>Number(item.activity.rx)>0)
+      .sort((a,b)=>Number(b.activity.rx)-Number(a.activity.rx)).slice(0,10);
+    const outbound=directional.filter((item)=>Number(item.activity.tx)>0)
+      .sort((a,b)=>Number(b.activity.tx)-Number(a.activity.tx)).slice(0,10);
 
-    if(!ranked.length){
-      const empty=document.createElement("div");
-      empty.style.cssText="color:var(--secondary-text-color);font-size:9px;line-height:1.4;";
-      empty.textContent="Ainda sem atividade correlacionada com os vizinhos zero-hop.";
-      trafficPanel.appendChild(empty);
-    }else{
-      for(const item of ranked){
+    const split=document.createElement("div");split.className="hive-network-activity-split";
+    const renderDirection=(label,items,key,total)=>{
+      const side=document.createElement("div");side.className="hive-network-activity-side";
+      const heading=document.createElement("div");heading.className="hive-network-activity-side-title";heading.textContent=label;
+      side.appendChild(heading);
+      if(!items.length){
+        const empty=document.createElement("div");
+        empty.style.cssText="color:var(--secondary-text-color);font-size:9px;line-height:1.4;";
+        empty.textContent="Ainda sem dados "+label.toLowerCase()+".";
+        side.appendChild(empty);
+        return side;
+      }
+      for(const item of items){
+        const count=Number(item.activity[key])||0;
+        const pct=total>0?count/total*100:0;
         const row=document.createElement("div");row.className="hive-network-top-row";
         const name=document.createElement("strong");name.textContent=String(item.neighbor?.name||item.neighbor?.pubkey_prefix||"Repeater");
-        const value=document.createElement("span");value.textContent=String(item.score);
+        const value=document.createElement("span");value.textContent=String(Math.round(count))+" · "+pct.toFixed(1)+"%";
         row.append(name,value);
         if(item.contact){
           row.style.cursor="pointer";
-          row.title="Abrir este nó no mapa";
+          row.title="Abrir este nó no mapa · paths observados: "+String(Math.round(Number(item.activity.linkVolume)||0));
           row.addEventListener("click",()=>{
             this._activeTab="network";this.__hiveNeighborMapMode="contacts";
             this.requestUpdate?.();
             window.setTimeout(()=>this.__focusNodeOnMap(item.contact,true),180);
           });
         }
-        trafficPanel.appendChild(row);
+        side.appendChild(row);
       }
-    }
+      return side;
+    };
+    split.append(renderDirection("Entrada",inbound,"rx",rxTotal),renderDirection("Saída",outbound,"tx",txTotal));
+    trafficPanel.appendChild(split);
     panels.append(freshness,signals,trafficPanel);
 
     const events=document.createElement("section");
@@ -8873,7 +8946,16 @@ class HiveFWPanel extends BasePanel {
   __renderNetworkContacts(container) {
     container.replaceChildren();
     const source=Array.isArray(this.__nodesMapContacts)?[...this.__nodesMapContacts]:[];
+    const query=String(this.__networkContactsSearchQuery||"").trim().toLocaleLowerCase();
     const contacts=source
+      .filter((contact)=>{
+        if(!query)return true;
+        const haystack=[
+          contact?.adv_name,contact?.name,contact?.pubkey_prefix,contact?.public_key,
+          contact?.added_to_node?"no rádio":"local",
+        ].map((value)=>String(value||"").toLocaleLowerCase()).join(" ");
+        return haystack.includes(query);
+      })
       .sort((a,b)=>Number(b?.lastmod||b?.last_advert||0)-Number(a?.lastmod||a?.last_advert||0));
 
     const head=document.createElement("div");
@@ -8892,6 +8974,21 @@ class HiveFWPanel extends BasePanel {
 
     const tools=document.createElement("div");
     tools.className="hive-network-contact-tools";
+    const search=document.createElement("button");
+    search.type="button";
+    search.className="hive-network-contact-search-button";
+    search.textContent="⌕";
+    search.title="Pesquisar contactos";
+    search.setAttribute("aria-label","Pesquisar contactos");
+    search.addEventListener("click",()=>{
+      this.__networkContactsSearchOpen=!this.__networkContactsSearchOpen;
+      if(!this.__networkContactsSearchOpen)this.__networkContactsSearchQuery="";
+      this.__renderNetworkContacts(container);
+      if(this.__networkContactsSearchOpen){
+        requestAnimationFrame(()=>container.querySelector(".hive-network-contact-search input")?.focus());
+      }
+    });
+
     const gear=document.createElement("button");
     gear.type="button";
     gear.className="hive-network-contact-gear";
@@ -8901,7 +8998,7 @@ class HiveFWPanel extends BasePanel {
       this.__networkContactsMenuOpen=!this.__networkContactsMenuOpen;
       this.__renderNetworkContacts(container);
     });
-    tools.append(gear);
+    tools.append(search,gear);
 
     if(this.__networkContactsMenuOpen){
       const menu=document.createElement("div");
@@ -8936,6 +9033,25 @@ class HiveFWPanel extends BasePanel {
     head.append(intro,tools);
     container.appendChild(head);
 
+    if(this.__networkContactsSearchOpen){
+      const searchWrap=document.createElement("div");
+      searchWrap.className="hive-network-contact-search";
+      const input=document.createElement("input");
+      input.type="search";
+      input.placeholder="Pesquisar nome, prefixo ou chave…";
+      input.value=this.__networkContactsSearchQuery;
+      input.addEventListener("input",()=>{
+        this.__networkContactsSearchQuery=input.value;
+        this.__renderNetworkContacts(container);
+        requestAnimationFrame(()=>{
+          const next=container.querySelector(".hive-network-contact-search input");
+          if(next){next.focus();next.setSelectionRange?.(next.value.length,next.value.length);}
+        });
+      });
+      searchWrap.appendChild(input);
+      container.appendChild(searchWrap);
+    }
+
     const list=document.createElement("div");
     list.className="hive-network-contact-list";
     if(!source.length){
@@ -8964,7 +9080,7 @@ class HiveFWPanel extends BasePanel {
         const ageSeconds=Number(contact?.age_seconds);
         if(Number.isFinite(ageSeconds)){
           const age=document.createElement("span");
-          age.textContent="Advert "+this.__age(ageSeconds);
+          age.textContent=(contact?.__hivefw_local ? "Advert enviado " : "Advert ")+this.__age(ageSeconds);
           meta.appendChild(age);
         }
         info.append(name,prefix,meta);
@@ -9468,7 +9584,7 @@ class HiveFWPanel extends BasePanel {
     eyebrow.textContent = "ATIVO · RF ZERO-HOP";
     const title = document.createElement("div");
     title.className = "hive-discovery-title";
-    title.textContent = "Repetidores descobertos";
+    title.textContent = "Descobrir Repetidores";
     const subtitle = document.createElement("div");
     subtitle.className = "hive-discovery-subtitle";
     subtitle.textContent = "Pesquisa oficial MeshCore apenas a Repeaters em alcance direto.";
@@ -9820,7 +9936,7 @@ class HiveFWPanel extends BasePanel {
 
     const actions=document.createElement("div");
     actions.style.cssText="display:flex;align-items:center;gap:6px;";
-    for(const [mode,label] of [["neighbors","Vizinhos"],["discovery","Repetidores Descobertos"],["contacts","Contactos Descobertos"]]){
+    for(const [mode,label] of [["neighbors","Vizinhos"],["discovery","Descobrir Repetidores"],["contacts","Contactos Descobertos"]]){
       const button=document.createElement("button");
       button.type="button";
       button.className="mcr-btn";
