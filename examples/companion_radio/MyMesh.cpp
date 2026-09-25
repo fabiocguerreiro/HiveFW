@@ -6025,6 +6025,15 @@ void MyMesh::handleCmdFrame(size_t len) {
       _prefs.mesh_time_sync ? "1" : "0"
     );
 
+#if defined(NRF52_PLATFORM)
+    // nRF52 exposes real VBUS presence through the POWER peripheral. Keep
+    // this HiveFW-only so standard Companion battery frames stay compatible.
+    appendCustomVar(
+      "ext_power",
+      board.isExternalPowered() ? "1" : "0"
+    );
+#endif
+
     float duty_af = _prefs.airtime_factor;
     if (duty_af < 1.0f) duty_af = 1.0f;
     if (duty_af > 9.0f) duty_af = 9.0f;
