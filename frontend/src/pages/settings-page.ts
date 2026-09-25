@@ -155,7 +155,8 @@ export class SettingsPage extends LitElement {
     | null = null;
   @state() private _confirmAction: ConfirmAction | null = null;
   @state() private _confirmDialogOpen = false;
-  @state() private _locationSource: 'gps' | 'manual' | 'ha_location' = 'manual';
+  @state() private _locationSource: 'none' | 'gps' | 'manual' | 'ha_location' = 'manual';
+  @state() private _locationMode: 'none' | 'manual' | 'ha_location' | 'map' = 'manual';
   @state() private _settingsTopic: SettingsTopic | null = null;
   @state() private _importKeyValue = '';
 
@@ -611,6 +612,11 @@ export class SettingsPage extends LitElement {
       .settings-topic-header strong{font-size:16px}.settings-topic-close{width:34px;height:34px;border:0;border-radius:50%;background:transparent;color:var(--secondary-text-color);font-size:20px;cursor:pointer}.settings-topic-close:hover{background:var(--secondary-background-color);color:var(--primary-text-color)}
       .settings-topic-body{overflow:auto;padding:16px;min-height:0}.settings-topic-body .settings-grid{margin:0}
       .topic-firmware .firmware-manager,.topic-wifi #hive-wifi-portal-card,.topic-location .settings-card-location,.topic-identity .settings-card-identity,.topic-backup .backup-restore-card{width:100%;max-width:none;box-sizing:border-box}
+      .settings-topic-body .device-section{margin:0 0 16px;padding:18px;border-radius:12px}
+      .settings-topic-body .card-title{margin-bottom:14px}
+      .settings-topic-body .section-row{gap:14px;margin-bottom:14px}
+      .settings-topic-body .form-group-inline{margin-bottom:10px}
+      .settings-topic-body [data-hive-routing],.settings-topic-body [data-hive-rf],.settings-topic-body [data-hive-owner-info]{margin-top:16px!important;padding:16px!important;border-radius:10px!important}
       .topic-firmware .settings-grid,.topic-wifi .settings-grid,.topic-location .settings-grid,.topic-identity .settings-grid,.topic-backup .settings-grid{grid-template-columns:minmax(0,1fr)!important}
       .topic-wifi .settings-column,.topic-location .settings-column,.topic-identity .settings-column,.topic-backup .settings-column{display:contents}
       .settings-topic-dialog #hive-repeater-settings-card,.settings-topic-dialog .firmware-manager,.settings-topic-dialog .settings-card-identity,.settings-topic-dialog .backup-restore-card,.settings-topic-dialog #hive-console-settings-card,.settings-topic-dialog #hive-rxlog-card,.settings-topic-dialog #hive-observability-settings-card,.settings-topic-dialog .settings-card-location,.settings-topic-dialog #hive-wifi-portal-card{display:none}
@@ -621,6 +627,16 @@ export class SettingsPage extends LitElement {
       .topic-regions [data-hive-repeater-quick],.topic-regions [data-hive-repeater-access],.topic-regions [data-hive-owner-info],.topic-regions [data-hive-native="companion"],.topic-regions [data-hive-routing],.topic-regions [data-hive-rf]{display:none!important}
       @media(max-width:870px){.settings-shortcuts{grid-template-columns:1fr}.settings-topic-overlay{padding:0}.settings-topic-dialog{width:100%;height:100%;max-height:none;border-radius:0}}
       @media(max-width:520px){.settings-shortcuts{grid-template-columns:1fr}}
+
+      .location-mode-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:16px}
+      .location-mode-button{padding:12px;border:1px solid var(--divider-color);border-radius:10px;background:var(--secondary-background-color);color:var(--primary-text-color);cursor:pointer;text-align:left}
+      .location-mode-button.active{border-color:var(--primary-color);background:color-mix(in srgb,var(--primary-color) 10%,var(--card-background-color))}
+      .location-mode-button strong{display:block;font-size:12px;margin-bottom:3px}.location-mode-button span{font-size:10px;color:var(--secondary-text-color);line-height:1.35}
+      .location-picker-map{height:420px;border:1px solid var(--divider-color);border-radius:12px;overflow:hidden;background:var(--secondary-background-color);margin:12px 0}
+      .location-picker-map ha-map{display:block;width:100%;height:100%}
+      .location-current{display:flex;gap:14px;flex-wrap:wrap;padding:10px 12px;border-radius:9px;background:var(--secondary-background-color);font-size:11px;margin-bottom:12px}
+      @media(max-width:800px){.location-mode-grid{grid-template-columns:1fr 1fr}.location-picker-map{height:360px}}
+      @media(max-width:520px){.location-mode-grid{grid-template-columns:1fr}}
 
       .card-title {
         font-size: 15px;
@@ -1329,6 +1345,13 @@ export class SettingsPage extends LitElement {
   updated(changedProperties: Map<string, unknown>) {
     if (changedProperties.has('config')) {
       this._loadDeviceConfig();
+    }
+    if (
+      this._settingsTopic === 'location'
+      && this._locationMode === 'map'
+      && (changedProperties.has('_settingsTopic') || changedProperties.has('_locationMode') || changedProperties.has('_deviceConfig'))
+    ) {
+      void this._initLocationPickerMap();
     }
   }
 
@@ -2383,7 +2406,7 @@ export class SettingsPage extends LitElement {
   }
 
   private _applyImmediateLocationSource(
-    source: 'gps' | 'manual' | 'ha_location',
+    source: 'none' | 'gps' | 'manual' | 'ha_location',
   ) {
     if (!this.hass) return;
     this._settingsWriteQueue = this._settingsWriteQueue.then(async () => {
@@ -2428,90 +2451,147 @@ export class SettingsPage extends LitElement {
   private _renderLocation() {
     if (!this._deviceConfig) return;
 
-    const isHaLocation = this._locationSource === 'ha_location';
-    const zoneHome = isHaLocation ? this.hass?.states['zone.home'] : null;
-    const sourceChanged = this._locationSource !== (this._deviceConfig.location_source ?? 'manual');
-    const coordsChanged = this._hasChanges('location', ['latitude', 'longitude']);
-    const locationChanged = sourceChanged || coordsChanged;
-    const displayLat = isHaLocation && zoneHome
-      ? String(zoneHome.attributes.latitude ?? 0)
-      : String(this._editValues['latitude'] ?? this._deviceConfig.latitude ?? 0);
-    const displayLon = isHaLocation && zoneHome
-      ? String(zoneHome.attributes.longitude ?? 0)
-      : String(this._editValues['longitude'] ?? this._deviceConfig.longitude ?? 0);
+    const zoneHome = this.hass?.states['zone.home'];
+    const lat = Number(this._deviceConfig.latitude ?? 0);
+    const lon = Number(this._deviceConfig.longitude ?? 0);
+
+    const chooseMode = (mode: 'none' | 'manual' | 'ha_location' | 'map') => {
+      this._locationMode = mode;
+      if (mode === 'none') {
+        this._locationSource = 'none';
+        void this._applyImmediateLocationSource('none');
+      } else if (mode === 'ha_location') {
+        this._locationSource = 'ha_location';
+        void this._applyImmediateLocationSource('ha_location');
+      } else {
+        this._locationSource = 'manual';
+        void this._applyImmediateLocationSource('manual');
+      }
+    };
 
     return html`
-      <div class="section-row">
-        <div class="form-group-inline">
-          <label class="form-label">Latitude</label>
-          <input
-            type="number"
-            class="form-input"
-            step="0.000001"
-            min="-90"
-            max="90"
-            .value=${displayLat}
-            ?disabled=${isHaLocation}
-            @change=${(e: Event) => {
-              const latitude = Number((e.target as HTMLInputElement).value);
-              const longitude = Number(
-                this._deviceConfig?.longitude ?? 0
-              );
-              void this._applyImmediateCoordinates(latitude, longitude);
-            }}
-          />
-        </div>
-        <div class="form-group-inline">
-          <label class="form-label">Longitude</label>
-          <input
-            type="number"
-            class="form-input"
-            step="0.000001"
-            min="-180"
-            max="180"
-            .value=${displayLon}
-            ?disabled=${isHaLocation}
-            @change=${(e: Event) => {
-              const latitude = Number(
-                this._deviceConfig?.latitude ?? 0
-              );
-              const longitude = Number((e.target as HTMLInputElement).value);
-              void this._applyImmediateCoordinates(latitude, longitude);
-            }}
-          />
-        </div>
+      <div class="location-mode-grid">
+        ${[
+          ['none','Não partilhar','O Companion não anuncia coordenadas.'],
+          ['ha_location','Home Assistant','Usa as coordenadas de zone.home.'],
+          ['manual','Coordenadas','Introduz latitude e longitude diretamente.'],
+          ['map','Escolher no mapa','Clica num ponto do mapa para definir as coordenadas.'],
+        ].map(([mode,title,desc])=>html`
+          <button class="location-mode-button ${this._locationMode===mode?'active':''}"
+            @click=${()=>chooseMode(mode as 'none'|'manual'|'ha_location'|'map')}>
+            <strong>${title}</strong><span>${desc}</span>
+          </button>`)}
       </div>
-      ${isHaLocation ? html`
-        <div style="font-size: 11px; color: var(--secondary-text-color); margin-top: -8px; margin-bottom: 8px;">
-          Using coordinates from Home Assistant zone.home
-        </div>
-      ` : ''}
 
-      <div class="section-row">
-        <div class="form-group-inline">
-          <label class="form-label">Location Source</label>
-          <select
-            class="form-select"
-            .value=${this._locationSource}
-            @change=${(e: Event) => {
-              const source = (e.target as HTMLSelectElement).value as 'gps' | 'manual' | 'ha_location';
-              this._locationSource = source;
-              void this._applyImmediateLocationSource(source);
-            }}>
-            <option value="manual">Manual (coordinates above)</option>
-            <option value="gps">GPS (device hardware)</option>
-            <option value="ha_location">Home Assistant Zone</option>
-          </select>
-          <div style="font-size: 11px; color: var(--secondary-text-color); margin-top: 4px;">
-            How the device determines its coordinates
+      <div class="location-current">
+        <span><strong>Latitude:</strong> ${lat.toFixed(6)}</span>
+        <span><strong>Longitude:</strong> ${lon.toFixed(6)}</span>
+        <span><strong>Partilha:</strong> ${this._locationSource==='none'?'desativada':this._locationMode==='ha_location'?'Home Assistant':this._locationMode==='map'?'mapa':'coordenadas'}</span>
+      </div>
+
+      ${this._locationMode === 'none' ? html`
+        <div style="font-size:11px;color:var(--secondary-text-color);line-height:1.5;">
+          A localização deixa de ser anunciada. As últimas coordenadas podem permanecer guardadas no rádio, mas não são usadas como fonte de localização.
+        </div>
+      ` : nothing}
+
+      ${this._locationMode === 'ha_location' ? html`
+        <div style="padding:12px;border:1px solid var(--divider-color);border-radius:10px;background:var(--secondary-background-color);">
+          <div style="font-size:12px;font-weight:600;margin-bottom:5px;">Home Assistant · zone.home</div>
+          <div style="font-size:11px;color:var(--secondary-text-color);">
+            ${zoneHome
+              ? `${Number(zoneHome.attributes.latitude ?? 0).toFixed(6)}, ${Number(zoneHome.attributes.longitude ?? 0).toFixed(6)}`
+              : 'zone.home não tem coordenadas disponíveis.'}
           </div>
         </div>
-      </div>
+      ` : nothing}
 
-      <div style="font-size:11px;color:var(--secondary-text-color);margin-top:10px;">
-        Alterações de localização são aplicadas automaticamente.
-      </div>
+      ${this._locationMode === 'manual' ? html`
+        <div class="section-row">
+          <div class="form-group-inline">
+            <label class="form-label">Latitude</label>
+            <input type="number" class="form-input" step="0.000001" min="-90" max="90"
+              .value=${String(lat)}
+              @change=${(e:Event)=>void this._applyImmediateCoordinates(Number((e.target as HTMLInputElement).value),Number(this._deviceConfig?.longitude??0))}/>
+          </div>
+          <div class="form-group-inline">
+            <label class="form-label">Longitude</label>
+            <input type="number" class="form-input" step="0.000001" min="-180" max="180"
+              .value=${String(lon)}
+              @change=${(e:Event)=>void this._applyImmediateCoordinates(Number(this._deviceConfig?.latitude??0),Number((e.target as HTMLInputElement).value))}/>
+          </div>
+        </div>
+      ` : nothing}
+
+      ${this._locationMode === 'map' ? html`
+        <div style="font-size:11px;color:var(--secondary-text-color);line-height:1.45;">
+          Clica no mapa para mover a localização do Companion. A alteração é aplicada imediatamente.
+        </div>
+        <div id="location-picker-map" class="location-picker-map"></div>
+      ` : nothing}
     `;
+  }
+
+  private async _initLocationPickerMap() {
+    if (this._locationMode !== 'map' || !this.hass || !this._deviceConfig) return;
+    const host = this.renderRoot.querySelector('#location-picker-map') as HTMLElement | null;
+    if (!host || host.dataset.ready === '1') return;
+
+    try {
+      if (!customElements.get('ha-map')) {
+        const loadHelpers = (window as unknown as { loadCardHelpers?: () => Promise<any> }).loadCardHelpers;
+        if (loadHelpers) {
+          const helpers = await loadHelpers();
+          helpers?.createCardElement?.({ type:'map', entities:[] });
+        }
+        await Promise.race([
+          customElements.whenDefined('ha-map'),
+          new Promise((resolve)=>window.setTimeout(resolve,1500)),
+        ]);
+      }
+      if (!customElements.get('ha-map') || !host.isConnected) return;
+
+      const map = document.createElement('ha-map') as any;
+      map.hass = this.hass;
+      map.autoFit = false;
+      map.clusterMarkers = false;
+      map.scaleRuler = true;
+      map.themeMode = 'light';
+      host.replaceChildren(map);
+      host.dataset.ready = '1';
+
+      await new Promise((resolve)=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+      const lat = Number(this._deviceConfig?.latitude ?? 0);
+      const lon = Number(this._deviceConfig?.longitude ?? 0);
+      const initial = Number.isFinite(lat) && Number.isFinite(lon) && !(lat===0&&lon===0)
+        ? [lat,lon] : [
+            Number(this.hass?.states['zone.home']?.attributes.latitude ?? 0),
+            Number(this.hass?.states['zone.home']?.attributes.longitude ?? 0),
+          ];
+
+      const bind = () => {
+        const leaflet = map.leafletMap;
+        if (!leaflet) return false;
+        if (Number.isFinite(initial[0]) && Number.isFinite(initial[1])) leaflet.setView(initial,13,{animate:false});
+        let marker:any = null;
+        if (map.Leaflet?.marker && Number.isFinite(initial[0]) && Number.isFinite(initial[1])) {
+          marker = map.Leaflet.marker(initial).addTo(leaflet);
+        }
+        leaflet.on('click',(event:any)=>{
+          const nextLat = Number(event?.latlng?.lat);
+          const nextLon = Number(event?.latlng?.lng);
+          if (!Number.isFinite(nextLat) || !Number.isFinite(nextLon)) return;
+          if (marker?.setLatLng) marker.setLatLng([nextLat,nextLon]);
+          else if (map.Leaflet?.marker) marker = map.Leaflet.marker([nextLat,nextLon]).addTo(leaflet);
+          void this._applyImmediateCoordinates(nextLat,nextLon);
+        });
+        leaflet.invalidateSize?.(false);
+        return true;
+      };
+      if (!bind()) window.setTimeout(()=>bind(),500);
+    } catch (error) {
+      host.textContent = 'Não foi possível carregar o mapa do Home Assistant: ' + String(error);
+    }
   }
 
   // _renderAdvancedSettings removed — path hash mode moved to Radio & RF Settings
