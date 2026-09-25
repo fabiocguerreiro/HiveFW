@@ -17,6 +17,15 @@
 #define  PIN_ADC_CTRL_ACTIVE    LOW
 #define  PIN_ADC_CTRL_INACTIVE  HIGH
 
+// Heltec WiFi LoRa 32 V3: the onboard CP2102 UART bridge is powered from
+// VUSB. Its TX line is wired to ESP32-S3 U0RXD (GPIO44), so an idle HIGH is
+// a practical local indication that USB power is present. A pulldown keeps
+// the pin LOW when the bridge is unpowered. This is used only as a VUSB
+// presence proxy; it does not claim the charger is actively pushing current.
+#ifndef PIN_USB_POWER_SENSE
+  #define PIN_USB_POWER_SENSE 44
+#endif
+
 class HeltecV3Board : public ESP32Board {
 private:
   bool adc_active_state;
@@ -38,6 +47,8 @@ public:
     digitalWrite(PIN_ADC_CTRL, !adc_active_state); // Initially inactive
 
     periph_power.begin();
+
+    pinMode(PIN_USB_POWER_SENSE, INPUT_PULLDOWN);
 
     esp_reset_reason_t reason = esp_reset_reason();
     if (reason == ESP_RST_DEEPSLEEP) {
@@ -64,6 +75,17 @@ public:
     digitalWrite(PIN_ADC_CTRL, !adc_active_state);
 
     return (getAdcMultiplier() * (3.3 / 1024.0) * raw) * 1000;
+  }
+
+  bool isExternalPowered() override {
+    // UART idle is HIGH while the USB-powered CP2102 is alive. Sample several
+    // times so normal serial traffic (LOW data bits) cannot look like a power
+    // failure. With VUSB absent the pulldown keeps every sample LOW.
+    for (uint8_t i = 0; i < 8; ++i) {
+      if (digitalRead(PIN_USB_POWER_SENSE) == HIGH) return true;
+      delayMicroseconds(250);
+    }
+    return false;
   }
 
   bool setAdcMultiplier(float multiplier) override {
