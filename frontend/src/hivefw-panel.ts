@@ -6865,6 +6865,7 @@ class HiveFWPanel extends BasePanel {
         lt6h:"#66a832",
         lt24h:"#f9a825",
         lt7d:"#ef6c00",
+        clock_skew:"#000000",
         stale:"#757575",
       };
       const markerColor=ageColors[age]||ageColors.stale;
@@ -9194,19 +9195,25 @@ class HiveFWPanel extends BasePanel {
         ageSpacer.textContent="GPS:";
         const dot=document.createElement("span");
         dot.className="hive-discovery-signal-dot";
+        const clockSkew=String(contact?.age_bucket||"")==="clock_skew";
         const advertAge=Number.isFinite(ageSeconds)?Math.max(0,ageSeconds):Infinity;
         // Companion last-heard freshness: 0–24 h green, 24–48 h yellow,
-        // 48–72 h red, then grey until lastmod is refreshed.
-        dot.style.background=advertAge<24*3600
-          ? "#2e7d32"
-          : advertAge<48*3600
-            ? "#f9a825"
-            : advertAge<72*3600
-              ? "#c62828"
-              : "#757575";
-        dot.title=Number.isFinite(advertAge)
-          ? "Última vez ouvido: há "+this.__age(advertAge)
-          : "Sem lastmod disponível";
+        // 48–72 h red, then grey. A future/incoherent Companion timestamp
+        // is black so it is visually obvious that recency must be ignored.
+        dot.style.background=clockSkew
+          ? "#000000"
+          : advertAge<24*3600
+            ? "#2e7d32"
+            : advertAge<48*3600
+              ? "#f9a825"
+              : advertAge<72*3600
+                ? "#c62828"
+                : "#757575";
+        dot.title=clockSkew
+          ? "Relógio dessincronizado — ignorar recência"
+          : Number.isFinite(advertAge)
+            ? "Última vez ouvido: há "+this.__age(advertAge)
+            : "Sem lastmod disponível";
         ageRow.append(ageSpacer,dot);
 
         side.append(gpsRow,ageRow);
