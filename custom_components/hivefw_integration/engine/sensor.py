@@ -509,7 +509,7 @@ HIVEFW_STATUS_CARD_SENSORS = [
     ("dashboard_airtime", "Estado · Tempo de rádio", "mdi:chart-donut"),
     ("dashboard_integrity", "Estado · Integridade", "mdi:shield-check-outline"),
     ("dashboard_network_activity", "Estado · Atividade da rede", "mdi:account-network"),
-    ("dashboard_health", "Estado · Saúde", "mdi:heart-pulse"),
+    ("dashboard_health", "Saúde", "mdi:heart-pulse"),
 ]
 
 
@@ -654,7 +654,10 @@ class HiveFWStatusCardSensor(CoordinatorEntity, SensorEntity):
             )
 
         if key == "dashboard_health":
-            return len(self._health_alerts(snap))
+            alerts = self._health_alerts(snap)
+            return "OK" if not alerts else (
+                f"{len(alerts)} alerta" if len(alerts) == 1 else f"{len(alerts)} alertas"
+            )
 
         return None
 
