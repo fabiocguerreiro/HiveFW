@@ -2393,6 +2393,14 @@ async def ws_get_local_repeater_status(hass, connection, msg):
             "yes",
         }
 
+        power_notify_supported = "power_notify" in custom_vars
+        power_notify = str(custom_vars.get("power_notify", "0")).strip().lower() in {
+            "1",
+            "true",
+            "on",
+            "yes",
+        }
+
         external_power = None
         if "ext_power" in custom_vars:
             external_power = str(custom_vars.get("ext_power", "0")).strip().lower() in {
@@ -2520,6 +2528,8 @@ async def ws_get_local_repeater_status(hass, connection, msg):
                 "neighbor_advert_interval": neighbor_advert_interval,
                 "mesh_time_sync_supported": mesh_time_sync_supported,
                 "mesh_time_sync": mesh_time_sync,
+                "power_notify_supported": power_notify_supported,
+                "power_notify": power_notify,
                 "smart_advert": smart_advert,
                 "duty_cycle_supported": duty_cycle_supported,
                 "duty_cycle": duty_cycle,
@@ -3926,6 +3936,48 @@ async def ws_set_device_config(hass, connection, msg):
                 return
 
             changed.append("mesh_time_sync")
+
+        if "power_notify" in settings:
+            requested_power_notify = bool(settings["power_notify"])
+            result = await coordinator.api.mesh_core.commands.set_custom_var(
+                "power_notify",
+                "1" if requested_power_notify else "0",
+            )
+            reason = _device_config_failure_reason(result)
+            if reason is not None:
+                _send_device_config_failure(
+                    connection, msg["id"], "power_notify", reason, changed
+                )
+                return
+
+            verified = await coordinator.api.mesh_core.commands.get_custom_vars()
+            reason = _device_config_failure_reason(verified)
+            if reason is not None:
+                _send_device_config_failure(
+                    connection,
+                    msg["id"],
+                    "power_notify verification",
+                    reason,
+                    changed,
+                )
+                return
+
+            verified_payload = getattr(verified, "payload", {}) or {}
+            actual_power_notify = str(
+                verified_payload.get("power_notify", "0")
+            ).strip().lower() in {"1", "true", "on", "yes"}
+
+            if actual_power_notify != requested_power_notify:
+                _send_device_config_failure(
+                    connection,
+                    msg["id"],
+                    "power_notify verification",
+                    "read-back mismatch",
+                    changed,
+                )
+                return
+
+            changed.append("power_notify")
 
         profile_keys = {"owner_info", "rx_boosted_gain", "adc_multiplier"}
         if profile_keys & set(settings.keys()):
