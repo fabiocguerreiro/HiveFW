@@ -2105,14 +2105,31 @@ class HiveFWPanel extends BasePanel {
         background:color-mix(in srgb,var(--primary-color) 6%,var(--primary-background-color));
       }
       .hive-discovery-signal {
-        min-width:112px;
+        min-width:68px;
         display:inline-flex;
-        align-items:center;
-        justify-content:flex-end;
-        gap:6px;
+        flex-direction:column;
+        align-items:flex-end;
+        justify-content:center;
+        gap:5px;
         text-align:right;
         font-size:12px;
         font-weight:700;
+      }
+      .hive-network-contact-gps,
+      .hive-network-contact-age-dot {
+        min-height:18px;
+        display:flex;
+        align-items:center;
+        justify-content:flex-end;
+        gap:5px;
+      }
+      .hive-network-contact-gps ha-icon {
+        --mdc-icon-size:18px;
+      }
+      .hive-network-contact-age-dot small {
+        color:var(--secondary-text-color);
+        font-size:9px;
+        font-weight:600;
       }
       .hive-discovery-signal-values {
         display:flex;
@@ -9081,29 +9098,52 @@ class HiveFWPanel extends BasePanel {
         sourcePill.className="hive-neighbor-pill";
         sourcePill.textContent=contact?.added_to_node?"NO RÁDIO":"LOCAL";
         meta.appendChild(sourcePill);
-        const ageSeconds=Number(contact?.age_seconds);
+        const advertEpoch=Number(contact?.last_advert||0);
+        const fallbackAge=Number(contact?.age_seconds);
+        const ageSeconds=advertEpoch>0
+          ? Math.max(0,Math.floor(Date.now()/1000-advertEpoch))
+          : fallbackAge;
         if(Number.isFinite(ageSeconds)){
           const age=document.createElement("span");
-          age.textContent=(contact?.__hivefw_local ? "Advert enviado " : "Advert ")+this.__age(ageSeconds);
+          age.textContent="Há "+this.__age(ageSeconds);
           meta.appendChild(age);
         }
         info.append(name,prefix,meta);
 
         const side=document.createElement("div");
         side.className="hive-discovery-signal";
-        const values=document.createElement("span");
-        values.className="hive-discovery-signal-values";
-        const gps=document.createElement("span");
+
+        const gpsRow=document.createElement("div");
+        gpsRow.className="hive-network-contact-gps";
         const hasGps=Boolean(this.__nodeCoords(contact));
-        gps.textContent=hasGps?"GPS":"SEM GPS";
-        const sourceLabel=document.createElement("small");
-        sourceLabel.textContent=contact?.added_to_node?"guardado":"anunciado";
-        values.append(gps,sourceLabel);
+        const gpsIcon=document.createElement("ha-icon");
+        gpsIcon.icon=hasGps?"mdi:map-marker":"mdi:map-marker-off-outline";
+        gpsIcon.style.color=hasGps?"#2e7d32":"#9e9e9e";
+        gpsIcon.title=hasGps
+          ? "GPS incluído no advert"
+          : "Advert sem localização GPS";
+        gpsRow.appendChild(gpsIcon);
+
+        const ageRow=document.createElement("div");
+        ageRow.className="hive-network-contact-age-dot";
         const dot=document.createElement("span");
         dot.className="hive-discovery-signal-dot";
-        dot.style.background=hasGps?"#2e7d32":"#757575";
-        dot.title=hasGps?"Localização disponível":"Sem localização anunciada";
-        side.append(values,dot);
+        const advertAge=Number.isFinite(ageSeconds)?Math.max(0,ageSeconds):Infinity;
+        // Advert freshness: 0–24 h green, 24–48 h yellow,
+        // 48–72 h red, then grey until a new advert arrives.
+        dot.style.background=advertAge<24*3600
+          ? "#2e7d32"
+          : advertAge<48*3600
+            ? "#f9a825"
+            : advertAge<72*3600
+              ? "#c62828"
+              : "#757575";
+        dot.title=Number.isFinite(advertAge)
+          ? "Último advert: há "+this.__age(advertAge)
+          : "Sem data de advert disponível";
+        ageRow.appendChild(dot);
+
+        side.append(gpsRow,ageRow);
         row.append(info,side);
         row.addEventListener("click",()=>{
           this.__hiveNeighborMapMode="contacts";
