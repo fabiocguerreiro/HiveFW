@@ -665,21 +665,22 @@ def _contact_meta_key(contact: dict) -> str:
 
 
 def _node_age(contact: dict, now: float | None = None) -> tuple[str, int | None]:
-    """Return (bucket, age_seconds) from the freshest known contact timestamp."""
-    stamps: list[float] = []
-    for field in ("lastmod", "last_advert", "last_modified"):
-        try:
-            value = float(contact.get(field) or 0)
-        except (TypeError, ValueError):
-            value = 0
-        if value > 0:
-            stamps.append(value)
+    """Return (bucket, age_seconds) from the Companion lastmod timestamp.
 
-    if not stamps:
+    last_advert is announced by the remote node and may have an incorrect
+    RTC. MeshCore/meshcore-ha use lastmod as the local Companion-side
+    "last heard" timestamp; last_modified is the portable JSON alias.
+    """
+    try:
+        stamp = float(contact.get("lastmod") or contact.get("last_modified") or 0)
+    except (TypeError, ValueError):
+        stamp = 0
+
+    if stamp <= 0:
         return "stale", None
 
     current = now if now is not None else time.time()
-    age = max(0, int(current - max(stamps)))
+    age = max(0, int(current - stamp))
     if age < 3600:
         return "lt1h", age
     if age < 6 * 3600:
@@ -1089,7 +1090,7 @@ async def ws_bulk_cleanup_contacts(hass, connection, msg):
             continue
 
         if threshold_seconds is not None:
-            lastmod = float(contact.get("lastmod") or contact.get("last_advert") or 0)
+            lastmod = float(contact.get("lastmod") or contact.get("last_modified") or 0)
             if lastmod and (now - lastmod) <= threshold_seconds:
                 skipped["age"] += 1
                 continue
