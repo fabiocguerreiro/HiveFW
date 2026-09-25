@@ -751,6 +751,7 @@ export class ChatPage extends LitElement {
                 .entryId=${this.config?.entry_id}
                 .narrow=${this.narrow}
                 .initialTab=${this._manageInitialTab}
+                .lockedTab=${true}
                 @manage-closed=${() => this._manageOpen = false}
                 @contacts-changed=${this._onContactsChanged}
                 @channels-changed=${this._onChannelsChanged}
@@ -816,7 +817,8 @@ export class ChatPage extends LitElement {
             .entryId=${this.config?.entry_id}
             .narrow=${this.narrow}
             .initialTab=${this._manageInitialTab}
-            @manage-closed=${() => this._manageOpen = false}
+            .lockedTab=${true}
+                @manage-closed=${() => this._manageOpen = false}
             @contacts-changed=${this._onContactsChanged}
             @channels-changed=${this._onChannelsChanged}
           ></meshcore-manage-dialog>

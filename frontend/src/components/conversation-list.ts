@@ -232,6 +232,24 @@ export class ConversationList extends LitElement {
       color: #fff;
     }
 
+    .conversation-sections {
+      flex: 1 1 auto;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .channels-section,
+    .contacts-section {
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+    }
+    .channels-section { flex: 7 1 0; }
+    .contacts-section {
+      flex: 3 1 0;
+      border-top: 1px solid var(--divider-color, #e0e0e0);
+    }
     .conversation-list {
       flex: 1 1 auto;
       min-height: 0;
@@ -441,69 +459,50 @@ export class ConversationList extends LitElement {
         ` : ''}
       </section>
 
-      <div class="sidebar-header main-section-header">
-        <div style="display:flex;align-items:center;gap:7px;min-width:0;">
-          <span class="sidebar-title main-section-title">Canais</span>
-          ${this._totalChannelUnreadCount() > 0
-            ? html`<div class="unread-badge" aria-label="${this._totalChannelUnreadCount()} mensagens por ler">${this._totalChannelUnreadCount()}</div>`
-            : nothing}
-        </div>
-        <div class="apps-header-actions">
-          <button
-            class="compose-btn"
-            title="Marcar todas as mensagens como lidas"
-            aria-label="Marcar todas as mensagens como lidas"
-            ?disabled=${!this._hasUnreadMessages()}
-            @click=${() => this._markAllRead()}>
-            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true">
-              <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
-            </svg>
-          </button>
-          <button
-            class="compose-btn"
-            title="Atualizar canais do rádio"
-            aria-label="Atualizar canais do rádio"
-            @click=${() => this.dispatchEvent(
-              new CustomEvent('refresh-channels-requested', {
-                bubbles: true,
-                composed: true,
-              }),
-            )}>
-            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
-              <path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.09 0-7.19 3.72-6.39 7.69l-2.08.68C2.47 7.11 6.48 2 12 2c2.76 0 5.26 1.12 7.07 2.93L22 2v8h-8l3.65-3.65zM6.35 17.65C7.8 19.1 9.79 20 12 20c4.09 0 7.19-3.72 6.39-7.69l2.08-.68C21.53 16.89 17.52 22 12 22c-2.76 0-5.26-1.12-7.07-2.93L2 22v-8h8l-3.65 3.65z"/>
-            </svg>
-          </button>
-          <button
-            class="compose-btn"
-            title="Gerir canais"
-            aria-label="Gerir canais"
-            @click=${() => this.dispatchEvent(
-              new CustomEvent('manage-requested', {
-                detail: { tab: 'channels' },
-                bubbles: true,
-                composed: true,
-              }),
-            )}>
-            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true">
-              <path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 00.12-.61l-1.92-3.32a.49.49 0 00-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 00-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.49.49 0 00-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.07.62-.07.94s.02.64.07.94l-2.03 1.58a.49.49 0 00-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/>
-            </svg>
-          </button>
-        </div>
-      </div>
-      <div
-        class="conversation-list"
-        role="listbox"
-        aria-label="Canais e chats"
-        @keydown=${this._onListKeyDown}>
-        ${this._filteredConversations.length > 0
-          ? this._filteredConversations.map((conv, idx) => this._renderConversation(conv, idx))
-          : html`
-              <div class="empty-state">
-                <div class="empty-text">
-                  ${this._emptyMessage()}
-                </div>
-              </div>
-            `}
+      <div class="conversation-sections">
+        <section class="channels-section" aria-label="Canais">
+          <div class="sidebar-header main-section-header">
+            <div style="display:flex;align-items:center;gap:7px;min-width:0;">
+              <span class="sidebar-title main-section-title">Canais</span>
+              ${this._totalChannelUnreadCount() > 0
+                ? html`<div class="unread-badge" aria-label="${this._totalChannelUnreadCount()} mensagens por ler">${this._totalChannelUnreadCount()}</div>`
+                : nothing}
+            </div>
+            <div class="apps-header-actions">
+              <button class="compose-btn" title="Marcar todas as mensagens como lidas" aria-label="Marcar todas as mensagens como lidas"
+                ?disabled=${!this._hasUnreadMessages()} @click=${() => this._markAllRead()}>
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
+              </button>
+              <button class="compose-btn" title="Atualizar canais do rádio" aria-label="Atualizar canais do rádio"
+                @click=${() => this.dispatchEvent(new CustomEvent('refresh-channels-requested',{bubbles:true,composed:true}))}>
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.09 0-7.19 3.72-6.39 7.69l-2.08.68C2.47 7.11 6.48 2 12 2c2.76 0 5.26 1.12 7.07 2.93L22 2v8h-8l3.65-3.65zM6.35 17.65C7.8 19.1 9.79 20 12 20c4.09 0 7.19-3.72 6.39-7.69l2.08-.68C21.53 16.89 17.52 22 12 22c-2.76 0-5.26-1.12-7.07-2.93L2 22v-8h8l-3.65 3.65z"/></svg>
+              </button>
+              <button class="compose-btn" title="Gerir canais" aria-label="Gerir canais"
+                @click=${() => this.dispatchEvent(new CustomEvent('manage-requested',{detail:{tab:'channels'},bubbles:true,composed:true}))}>
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58-.96-1.66-2.39.96a7.1 7.1 0 00-1.62-.94L14.4 2.8h-4.8l-.36 2.54c-.59.24-1.13.56-1.62.94l-2.39-.96-.96 1.66 2.03 1.58A7.2 7.2 0 006.2 12c0 .32.02.64.07.94l-2.03 1.58.96 1.66 2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54h4.8l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96.96-1.66-2.03-1.58c.04-.3.06-.61.06-.94zM12 15.5A3.5 3.5 0 1112 8a3.5 3.5 0 010 7.5z"/></svg>
+              </button>
+            </div>
+          </div>
+          <div class="conversation-list" role="listbox" aria-label="Canais" @keydown=${this._onListKeyDown}>
+            ${this._channelConversations().filter((conv) => !this._isAppsChannel(conv)).length
+              ? this._channelConversations().filter((conv) => !this._isAppsChannel(conv)).map((conv,idx)=>this._renderConversation(conv,idx))
+              : html`<div class="empty-state"><div class="empty-text">Sem canais configurados</div></div>`}
+          </div>
+        </section>
+        <section class="contacts-section" aria-label="Contactos">
+          <div class="sidebar-header main-section-header">
+            <span class="sidebar-title main-section-title">Contactos</span>
+            <button class="compose-btn" title="Gerir contactos" aria-label="Gerir contactos"
+              @click=${() => this.dispatchEvent(new CustomEvent('manage-requested',{detail:{tab:'contacts'},bubbles:true,composed:true}))}>
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58-.96-1.66-2.39.96a7.1 7.1 0 00-1.62-.94L14.4 2.8h-4.8l-.36 2.54c-.59.24-1.13.56-1.62.94l-2.39-.96-.96 1.66 2.03 1.58A7.2 7.2 0 006.2 12c0 .32.02.64.07.94l-2.03 1.58.96 1.66 2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54h4.8l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96.96-1.66-2.03-1.58c.04-.3.06-.61.06-.94zM12 15.5A3.5 3.5 0 1112 8a3.5 3.5 0 010 7.5z"/></svg>
+            </button>
+          </div>
+          <div class="conversation-list" role="listbox" aria-label="Contactos adicionados" @keydown=${this._onListKeyDown}>
+            ${this._addedContactConversations().length
+              ? this._addedContactConversations().map((conv,idx)=>this._renderConversation(conv,idx))
+              : html`<div class="empty-state"><div class="empty-text">Sem contactos adicionados ao Companion</div></div>`}
+          </div>
+        </section>
       </div>
     `;
   }
@@ -590,6 +589,13 @@ export class ConversationList extends LitElement {
   private _channelConversations(): Channel[] {
     return this.conversations.filter(
       (conv): conv is Channel => !('pubkey_prefix' in conv),
+    );
+  }
+
+  private _addedContactConversations(): Contact[] {
+    return this.conversations.filter(
+      (conv): conv is Contact =>
+        'pubkey_prefix' in conv && (conv as Contact).added_to_node !== false,
     );
   }
 

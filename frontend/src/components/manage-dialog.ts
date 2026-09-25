@@ -24,6 +24,7 @@ export class ManageDialog extends LitElement {
    * scope chip opens the dialog on 'channels' so the user lands on
    * the channel whose scope they tapped. */
   @property({ type: String }) initialTab?: ManageTab;
+  @property({ type: Boolean }) lockedTab = false;
 
   private _tabInitialized = false;
 
@@ -555,22 +556,16 @@ export class ManageDialog extends LitElement {
         aria-label="Manage contacts and channels"
         @click=${(e: Event) => e.stopPropagation()}>
         <div class="dialog-header">
-          <span class="dialog-title">Manage</span>
+          <span class="dialog-title">${this.lockedTab ? (this._activeTab === 'contacts' ? 'Contactos' : 'Canais') : 'Manage'}</span>
           <button class="close-btn" aria-label="Close" @click=${this._close}>✕</button>
         </div>
 
-        <div class="tab-bar">
-          <button
-            class=${this._activeTab === 'contacts' ? 'active' : ''}
-            @click=${() => this._switchTab('contacts')}>
-            Contacts
-          </button>
-          <button
-            class=${this._activeTab === 'channels' ? 'active' : ''}
-            @click=${() => this._switchTab('channels')}>
-            Channels
-          </button>
-        </div>
+        ${!this.lockedTab ? html`
+          <div class="tab-bar">
+            <button class=${this._activeTab === 'contacts' ? 'active' : ''} @click=${() => this._switchTab('contacts')}>Contacts</button>
+            <button class=${this._activeTab === 'channels' ? 'active' : ''} @click=${() => this._switchTab('channels')}>Channels</button>
+          </div>
+        ` : html``}
 
         ${this._activeTab === 'contacts'
           ? html`

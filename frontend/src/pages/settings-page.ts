@@ -32,6 +32,10 @@ import '../components/confirm-dialog';
 import { attachDialogA11y } from '../utils/dialog-a11y';
 import { panelStyles } from '../styles';
 
+type SettingsTopic =
+  | 'firmware' | 'users' | 'radio' | 'repeater' | 'wifi'
+  | 'location' | 'regions' | 'identity' | 'backup' | 'diagnostics';
+
 interface ConfirmAction {
   title: string;
   message: string;
@@ -152,6 +156,7 @@ export class SettingsPage extends LitElement {
   @state() private _confirmAction: ConfirmAction | null = null;
   @state() private _confirmDialogOpen = false;
   @state() private _locationSource: 'gps' | 'manual' | 'ha_location' = 'manual';
+  @state() private _settingsTopic: SettingsTopic | null = null;
   @state() private _importKeyValue = '';
 
   // Streaming identity-change flow (Regenerate / Import).
@@ -592,6 +597,24 @@ export class SettingsPage extends LitElement {
           box-sizing: border-box;
         }
       }
+
+      .settings-shortcuts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;padding:2px}
+      .settings-shortcut{display:flex;flex-direction:column;align-items:flex-start;gap:5px;min-height:92px;padding:16px;border:1px solid var(--divider-color);border-radius:12px;background:var(--card-background-color);color:var(--primary-text-color);cursor:pointer;text-align:left;transition:.15s}
+      .settings-shortcut:hover{border-color:var(--primary-color);background:color-mix(in srgb,var(--primary-color) 5%,var(--card-background-color));transform:translateY(-1px)}
+      .settings-shortcut-title{font-size:14px;font-weight:700}.settings-shortcut-desc{font-size:11px;line-height:1.4;color:var(--secondary-text-color)}
+      .settings-topic-overlay{position:fixed;inset:0;z-index:10020;display:grid;place-items:center;padding:18px;box-sizing:border-box;background:rgba(0,0,0,.5)}
+      .settings-topic-dialog{width:min(1080px,100%);max-height:min(90vh,900px);display:flex;flex-direction:column;overflow:hidden;border-radius:14px;background:var(--primary-background-color);color:var(--primary-text-color);box-shadow:0 14px 42px rgba(0,0,0,.32)}
+      .settings-topic-header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 16px;border-bottom:1px solid var(--divider-color);background:var(--card-background-color);flex:0 0 auto}
+      .settings-topic-header strong{font-size:16px}.settings-topic-close{width:34px;height:34px;border:0;border-radius:50%;background:transparent;color:var(--secondary-text-color);font-size:20px;cursor:pointer}.settings-topic-close:hover{background:var(--secondary-background-color);color:var(--primary-text-color)}
+      .settings-topic-body{overflow:auto;padding:16px;min-height:0}.settings-topic-body .settings-grid{margin:0}
+      .settings-topic-dialog #hive-repeater-settings-card,.settings-topic-dialog .firmware-manager,.settings-topic-dialog .settings-card-identity,.settings-topic-dialog .backup-restore-card,.settings-topic-dialog #hive-console-settings-card,.settings-topic-dialog #hive-rxlog-card,.settings-topic-dialog #hive-observability-settings-card,.settings-topic-dialog .settings-card-location,.settings-topic-dialog #hive-wifi-portal-card{display:none}
+      .topic-firmware .firmware-manager,.topic-identity .settings-card-identity,.topic-backup .backup-restore-card,.topic-location .settings-card-location,.topic-wifi #hive-wifi-portal-card,.topic-diagnostics #hive-console-settings-card,.topic-diagnostics #hive-rxlog-card,.topic-diagnostics #hive-observability-settings-card,.topic-users #hive-repeater-settings-card,.topic-radio #hive-repeater-settings-card,.topic-repeater #hive-repeater-settings-card,.topic-regions #hive-repeater-settings-card{display:block}
+      .topic-users [data-hive-repeater-quick],.topic-users [data-hive-owner-info],.topic-users [data-hive-native="companion"],.topic-users [data-hive-routing],.topic-users [data-hive-rf],.topic-users .settings-regions-block{display:none!important}
+      .topic-radio [data-hive-repeater-quick],.topic-radio [data-hive-repeater-access],.topic-radio [data-hive-owner-info],.topic-radio [data-hive-routing],.topic-radio [data-hive-rf],.topic-radio .settings-regions-block{display:none!important}
+      .topic-repeater [data-hive-repeater-access],.topic-repeater [data-hive-native="companion"],.topic-repeater .settings-regions-block{display:none!important}
+      .topic-regions [data-hive-repeater-quick],.topic-regions [data-hive-repeater-access],.topic-regions [data-hive-owner-info],.topic-regions [data-hive-native="companion"],.topic-regions [data-hive-routing],.topic-regions [data-hive-rf]{display:none!important}
+      @media(max-width:870px){.settings-shortcuts{grid-template-columns:1fr 1fr}.settings-topic-overlay{padding:0}.settings-topic-dialog{width:100%;height:100%;max-height:none;border-radius:0}}
+      @media(max-width:520px){.settings-shortcuts{grid-template-columns:1fr}}
 
       .card-title {
         font-size: 15px;
@@ -1398,73 +1421,71 @@ export class SettingsPage extends LitElement {
     return html`
       <div class="settings-page">
         <div class="settings-container" data-hive-native-layout="device-v2">
-          <!-- Definições owns all configuration/maintenance cards. -->
-          <!-- Full-width Repeater setup. -->
-          ${this.selectedDevice ? html`
-            <div id="hive-repeater-settings-card"
-                 class="device-section"
-                 data-hive-native="repeater"
-                 style="margin-bottom:16px;">
-              <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;">
-                <div class="card-title" style="margin:0;">Repeater Setup</div>
-                <button
-                  class="action-btn"
-                  style="white-space:nowrap;"
-                  ?disabled=${this._repeaterReadBusy || this._saving}
-                  @click=${() => this._readRepeaterStatus(true, true)}>
-                  ${this._repeaterReadBusy ? 'A ler…' : '↻ Ler configuração'}
-                </button>
-              </div>
-              ${this._renderRepeaterSettings()}
-              <div style="height:1px;background:var(--divider-color);margin:16px 0;"></div>
-              <div style="font-size:13px;font-weight:600;margin-bottom:10px;">Regions &amp; Scopes</div>
-              ${this._renderRegionsScopes()}
+          <div class="settings-shortcuts">
+            ${[
+              ['firmware','Gestão Firmware','Releases, OTA, flash manual e downloads'],
+              ['users','Utilizadores','Acesso remoto, passwords e ACL'],
+              ['radio','Config. Rádio','Frequência, BW, SF, CR, potência e RX'],
+              ['repeater','Config. Repetidor','Modo, adverts, Timekeeper, routing e retransmissão'],
+              ['wifi','Wi-Fi','Configuração de rede do Companion'],
+              ['location','Localização','GPS, manual ou Home Assistant'],
+              ['regions','Regiões & Scopes','RegionMap e flood scopes'],
+              ['identity','Identidade','Nome, identidade e chaves do dispositivo'],
+              ['backup','Backup & Restore','Cópias Companion e Repeater'],
+              ['diagnostics','Diagnóstico','Consola, RX Log, alertas e automações'],
+            ].map(([id,title,desc])=>html`
+              <button class="settings-shortcut" @click=${()=>{this._settingsTopic=id as SettingsTopic;}}>
+                <span class="settings-shortcut-title">${title}</span>
+                <span class="settings-shortcut-desc">${desc}</span>
+              </button>`)}
+          </div>
+        </div>
+      </div>
+
+      ${this._settingsTopic ? html`
+        <div class="settings-topic-overlay" @click=${(e:Event)=>{if(e.target===e.currentTarget)this._settingsTopic=null;}}>
+          <div class="settings-topic-dialog topic-${this._settingsTopic}" role="dialog" aria-modal="true">
+            <div class="settings-topic-header">
+              <strong>${({
+                firmware:'Gestão Firmware',users:'Utilizadores',radio:'Config. Rádio',
+                repeater:'Config. Repetidor',wifi:'Wi-Fi',location:'Localização',
+                regions:'Regiões & Scopes',identity:'Identidade',backup:'Backup & Restore',
+                diagnostics:'Diagnóstico',
+              } as Record<SettingsTopic,string>)[this._settingsTopic]}</strong>
+              <button class="settings-topic-close" aria-label="Fechar" @click=${()=>{this._settingsTopic=null;}}>×</button>
             </div>
-          ` : nothing}
-
-          <!-- Firmware manager is the third full-width card. -->
-          ${this.selectedDevice ? this._renderFirmwareOta() : nothing}
-
-          <!-- Two independent columns avoid vertical holes between cards of
-               different heights. -->
-          <div class="settings-grid">
-            <div class="settings-column">
-              <div class="device-section">
-                <div class="card-title">Identidade</div>
-                ${this._renderIdentityManagement()}
-              </div>
-
-              ${this.selectedDevice ? this._renderBackupRestore() : nothing}
-
-              <div id="hive-console-settings-card"
-                   class="device-section"
-                   data-hive-native-host="console">
-                <div class="card-title">Consola</div>
-                <div style="font-size:12px;line-height:1.45;color:var(--secondary-text-color);margin-bottom:14px;">
-                  Executa comandos diretamente no rádio ligado ao Home Assistant. Os comandos locais não geram tráfego LoRa, exceto quando o próprio comando envia dados para a mesh.
+            <div class="settings-topic-body">
+              ${this.selectedDevice ? html`
+                <div id="hive-repeater-settings-card" class="device-section" data-hive-native="repeater">
+                  <div class="repeater-card-header" style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;">
+                    <div class="card-title" style="margin:0;">Repeater Setup</div>
+                    <button class="action-btn" style="white-space:nowrap;" ?disabled=${this._repeaterReadBusy||this._saving} @click=${()=>this._readRepeaterStatus(true,true)}>
+                      ${this._repeaterReadBusy?'A ler…':'↻ Ler configuração'}
+                    </button>
+                  </div>
+                  ${this._renderRepeaterSettings()}
+                  <div class="settings-regions-block">
+                    <div style="height:1px;background:var(--divider-color);margin:16px 0;"></div>
+                    <div style="font-size:13px;font-weight:600;margin-bottom:10px;">Regions &amp; Scopes</div>
+                    ${this._renderRegionsScopes()}
+                  </div>
+                </div>` : nothing}
+              ${this.selectedDevice ? this._renderFirmwareOta() : nothing}
+              <div class="settings-grid">
+                <div class="settings-column">
+                  <div class="device-section settings-card-identity"><div class="card-title">Identidade</div>${this._renderIdentityManagement()}</div>
+                  ${this.selectedDevice ? this._renderBackupRestore() : nothing}
+                  <div id="hive-console-settings-card" class="device-section" data-hive-native-host="console"><div class="card-title">Consola</div><div class="hive-console-settings-host"></div></div>
                 </div>
-                <div class="hive-console-settings-host"></div>
-              </div>
-            </div>
-
-            <div class="settings-column">
-              <div id="hive-rxlog-card" class="device-section" data-hive-native-host="rx-log">
-                <div class="card-title">RX Log</div>
-              </div>
-
-              <div id="hive-observability-settings-card" class="device-section" data-hive-native-host="observability">
-                <div class="card-title">Alertas &amp; automações</div>
-              </div>
-
-              <div class="device-section">
-                <div class="card-title">Location</div>
-                ${this._renderLocation()}
+                <div class="settings-column">
+                  <div id="hive-rxlog-card" class="device-section" data-hive-native-host="rx-log"><div class="card-title">RX Log</div></div>
+                  <div id="hive-observability-settings-card" class="device-section" data-hive-native-host="observability"><div class="card-title">Alertas &amp; automações</div></div>
+                  <div class="device-section settings-card-location"><div class="card-title">Location</div>${this._renderLocation()}</div>
+                </div>
               </div>
             </div>
           </div>
-
-        </div>
-      </div>
+        </div>` : nothing}
 
       <!-- Modals & Dialogs -->
       <!-- Identity Flow Modal (streaming progress) -->
@@ -2868,6 +2889,7 @@ export class SettingsPage extends LitElement {
     const directTxDelay = Number(this._editValues['direct_tx_delay'] ?? radioGuard?.direct_tx_delay ?? 0.3);
 
     return html`
+      <div data-hive-repeater-quick>
       <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;padding:10px 12px;border-radius:8px;background:var(--secondary-background-color);">
         <div>
           <div style="font-size:13px;font-weight:600;">Modo Repetidor</div>
@@ -2975,6 +2997,7 @@ export class SettingsPage extends LitElement {
         </label>
       </div>
 
+      </div>
       <div class="repeater-setup-grid" style="margin-bottom:14px;">
         <div
           style="margin:0 0 10px;padding:12px;border:1px solid var(--divider-color);border-radius:8px;background:var(--secondary-background-color);"
@@ -3088,7 +3111,25 @@ export class SettingsPage extends LitElement {
             </div>
           `}
 
-          <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--divider-color);">
+        </div>
+
+
+
+        </div>
+
+          <div
+            id="hive-companion-settings-card"
+            data-hive-native="companion"
+            style="margin:0 0 10px;padding:12px;border:1px solid var(--divider-color);border-radius:8px;background:var(--secondary-background-color);">
+            <div style="font-size:13px;font-weight:600;margin-bottom:4px;">Rádio Setup</div>
+            <div style="font-size:11px;color:var(--secondary-text-color);line-height:1.45;margin-bottom:10px;">
+              Parâmetros RF base do HiveFW. O modo Repeater usa esta mesma configuração do Companion.
+            </div>
+            ${this._renderRadioSettings()}
+          </div>
+      </div>
+
+          <div data-hive-owner-info style="margin:0 0 14px;padding:12px;border:1px solid var(--divider-color);border-radius:8px;background:var(--secondary-background-color);">
             <div style="font-size:12px;font-weight:600;">Owner Info</div>
             <div style="font-size:10px;color:var(--secondary-text-color);margin:2px 0 7px;line-height:1.4;">
               Texto livre anunciado pelo Repeater. Máximo 119 bytes UTF-8.
@@ -3107,22 +3148,8 @@ export class SettingsPage extends LitElement {
               }}></textarea>
           </div>
 
-        </div>
-
-          <div
-            id="hive-companion-settings-card"
-            data-hive-native="companion"
-            style="margin:0 0 10px;padding:12px;border:1px solid var(--divider-color);border-radius:8px;background:var(--secondary-background-color);">
-            <div style="font-size:13px;font-weight:600;margin-bottom:4px;">Rádio Setup</div>
-            <div style="font-size:11px;color:var(--secondary-text-color);line-height:1.45;margin-bottom:10px;">
-              Parâmetros RF base do HiveFW. O modo Repeater usa esta mesma configuração do Companion.
-            </div>
-            ${this._renderRadioSettings()}
-          </div>
-      </div>
-
       <div class="repeater-setup-grid">
-        <div style="padding:12px;border:1px solid var(--divider-color);border-radius:8px;background:var(--secondary-background-color);">
+        <div data-hive-routing style="padding:12px;border:1px solid var(--divider-color);border-radius:8px;background:var(--secondary-background-color);">
           <div style="font-size:13px;font-weight:600;margin-bottom:4px;">Routing &amp; Flood</div>
           <div style="font-size:11px;color:var(--secondary-text-color);line-height:1.45;margin-bottom:10px;">
             Limites oficiais do Repeater para flood e deteção de loops.
@@ -3186,7 +3213,7 @@ export class SettingsPage extends LitElement {
           `}
         </div>
 
-        <div style="padding:12px;border:1px solid var(--divider-color);border-radius:8px;background:var(--secondary-background-color);">
+        <div data-hive-rf style="padding:12px;border:1px solid var(--divider-color);border-radius:8px;background:var(--secondary-background-color);">
           <div style="font-size:13px;font-weight:600;margin-bottom:4px;">RF &amp; Retransmissão</div>
           <div style="font-size:11px;color:var(--secondary-text-color);line-height:1.45;margin-bottom:10px;">
             Proteção contra canal ocupado, AGC e timings de retransmissão do Repeater.
