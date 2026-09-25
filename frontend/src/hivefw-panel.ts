@@ -2905,7 +2905,7 @@ class HiveFWPanel extends BasePanel {
 
   __decorateMetricTiles(hero) {
     const helpByMarker={
-      "state":"Indica se o modo Repeater está ativo. O Companion permanece disponível em ambos os estados.",
+      "state":"Modo Repeater do HiveFW. Ativo permite retransmitir tráfego segundo as regras configuradas; desligado mantém o equipamento a funcionar como Companion, sem repetição.",
       "uptime":"Tempo decorrido desde o último arranque do rádio.",
       "clock":"Hora interna do dispositivo e desvio estimado face ao Home Assistant.",
       "smart-advert":"Estado e próxima execução do Smart Advert automático do Repeater.",
