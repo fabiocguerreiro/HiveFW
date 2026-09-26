@@ -1,6 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -8,7 +6,6 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:qr_flutter/qr_flutter.dart';
-import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../l10n/l10n.dart';
@@ -17,7 +14,6 @@ import '../../providers/radio_providers.dart';
 import '../../services/hivefw_local_data_service.dart';
 import '../../services/app_update_service.dart';
 import '../../services/app_update_installer.dart';
-import '../../services/storage_service.dart';
 import '../../services/notification_service.dart';
 import '../../transport/radio_transport.dart';
 import '../theme.dart';
@@ -122,11 +118,6 @@ class _HiveFwDeviceScreenState extends ConsumerState<HiveFwDeviceScreen> {
     }
     unawaited(service.requestBattAndStorage().catchError((_) {}));
 
-    final repeatEnabled =
-        deviceResponse is DeviceInfoResponse
-            ? deviceResponse.info.clientRepeat != 0
-            : (ref.read(deviceInfoProvider)?.clientRepeat ?? 0) != 0;
-
     // Read HiveFW local extensions before background/statistics requests.
     // Companion responses have no request id, so avoiding unrelated errors
     // here prevents a stats NACK from being mistaken for an extension failure.
@@ -176,20 +167,6 @@ class _HiveFwDeviceScreenState extends ConsumerState<HiveFwDeviceScreen> {
     return info.publicKey
         .map((b) => b.toRadixString(16).padLeft(2, '0'))
         .join();
-  }
-
-  int _batteryPercent(int mv) {
-    if (mv <= 3000) return 0;
-    if (mv >= 4200) return 100;
-    return (((mv - 3000) / 1200) * 100).round();
-  }
-
-  String _uptime(int seconds) {
-    final d = Duration(seconds: seconds);
-    final days = d.inDays;
-    final hours = d.inHours.remainder(24);
-    final mins = d.inMinutes.remainder(60);
-    return days > 0 ? '${days}d ${hours}h' : '${hours}h ${mins}m';
   }
 
   Future<void> _toggleRepeat(bool enabled) async {
@@ -419,18 +396,11 @@ class _HiveFwDeviceScreenState extends ConsumerState<HiveFwDeviceScreen> {
     final connection = ref.watch(connectionProvider);
     final self = ref.watch(selfInfoProvider);
     final info = ref.watch(deviceInfoProvider);
-    final batteryMv = ref.watch(batteryProvider);
-    final storage = ref.watch(storageProvider);
-    final core = ref.watch(radioStatsCoreProvider);
-    final radio = ref.watch(radioStatsRadioProvider);
-    final packets = ref.watch(radioStatsPacketsProvider);
-    final config = ref.watch(radioConfigProvider);
     final channels = ref.watch(channelsProvider);
     final connected = connection == TransportState.connected;
     final autoReconnect = ref.watch(autoReconnectProvider);
     final repeatEnabled = (info?.clientRepeat ?? 0) != 0;
     final smartAdvert = _base['auto_advert'] == '1';
-    final route = (_base['route'] ?? '').split('/');
     final appsChannelIndex = ref.watch(hiveAppsChannelIndexProvider);
     final selectedAppsChannel = _appsChannel(channels, appsChannelIndex);
 
@@ -728,80 +698,6 @@ class _HiveFwDeviceScreenState extends ConsumerState<HiveFwDeviceScreen> {
           const SizedBox(height: 24),
         ],
       ),
-    );
-  }
-}
-
-class _Metric {
-  const _Metric(this.label, this.value, this.detail, this.icon);
-  final String label;
-  final String value;
-  final String detail;
-  final IconData icon;
-}
-
-class _MetricGrid extends StatelessWidget {
-  const _MetricGrid({required this.metrics});
-  final List<_Metric> metrics;
-
-  @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final columns =
-            constraints.maxWidth >= 850
-                ? 6
-                : constraints.maxWidth >= 560
-                ? 3
-                : 2;
-        final width =
-            (constraints.maxWidth - (columns - 1) * 8) / columns;
-        return Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children:
-              metrics
-                  .map(
-                    (m) => SizedBox(
-                      width: width,
-                      child: Card(
-                        child: Padding(
-                          padding: const EdgeInsets.all(12),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Icon(
-                                m.icon,
-                                size: 20,
-                                color: Theme.of(context).colorScheme.primary,
-                              ),
-                              const SizedBox(height: 8),
-                              Text(
-                                m.value,
-                                style: Theme.of(context).textTheme.titleMedium
-                                    ?.copyWith(fontWeight: FontWeight.bold),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                m.label,
-                                style: Theme.of(context).textTheme.labelMedium,
-                              ),
-                              if (m.detail.isNotEmpty)
-                                Text(
-                                  m.detail,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: Theme.of(context).textTheme.bodySmall,
-                                ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  )
-                  .toList(),
-        );
-      },
     );
   }
 }
