@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'package:flutter/foundation.dart' show defaultTargetPlatform, TargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart'
     show FlutterBluePlus, BluetoothAdapterState, FlutterBluePlusException;
@@ -87,32 +86,13 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
 
   final List<_ConnectTarget> _targets = [];
   StreamSubscription<RadioDevice>? _bleScanSub;
-  StreamSubscription<BluetoothAdapterState>? _bleStateSub;
   _ConnectTarget? _connectingTarget;
   int _cachedContactCount = 0;
   int _cachedChannelCount = 0;
   bool _cancelledByUser = false;
 
   @override
-  void initState() {
-    super.initState();
-    if (defaultTargetPlatform == TargetPlatform.android) {
-      _bleStateSub = FlutterBluePlus.adapterState.listen((state) {
-        if (state == BluetoothAdapterState.off) {
-          _bleStateSub?.cancel();
-          _bleStateSub = null;
-          if (mounted) _checkBleOnStartup();
-        } else if (state != BluetoothAdapterState.unknown) {
-          _bleStateSub?.cancel();
-          _bleStateSub = null;
-        }
-      });
-    }
-  }
-
-  @override
   void dispose() {
-    _bleStateSub?.cancel();
     _bleScanSub?.cancel();
     super.dispose();
   }
@@ -186,7 +166,10 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
   }
 
   Future<void> _startScan() async {
-    if (!_checkBluetoothOn()) return;
+    if (!_checkBluetoothOn()) {
+      await _checkBleOnStartup();
+      if (!_checkBluetoothOn()) return;
+    }
 
     setState(() {
       _scanning = true;
