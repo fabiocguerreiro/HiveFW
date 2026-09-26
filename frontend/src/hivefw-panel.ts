@@ -103,7 +103,6 @@ class HiveFWPanel extends BasePanel {
     this.__hiveNeighborsError = null;
     this.__hiveNeighborsSort = "recent";
     this.__hiveNeighborsLoadedEntry = null;
-    this.__neighborsOverlay = null;
     this.__hiveNeighborDiscovery = null;
     this.__hiveNeighborDiscoveryLoading = false;
     this.__hiveNeighborDiscoveryStarting = false;
@@ -319,9 +318,6 @@ class HiveFWPanel extends BasePanel {
       this.__networkHistory = null;
     }
 
-    if (this._activeTab !== "neighbors") {
-      this.__removeNeighborsOverlay();
-    }
     if (this._activeTab !== "network") {
       this.__stopHiveNeighborDiscoveryPolling();
     }
@@ -2246,23 +2242,6 @@ class HiveFWPanel extends BasePanel {
       .page-container {
         position: relative;
       }
-      .hive-neighbors-overlay {
-        position:absolute;
-        inset:0;
-        z-index:20;
-        overflow:auto;
-        overscroll-behavior-y:auto;
-        touch-action:pan-y;
-        -webkit-overflow-scrolling:touch;
-        background:var(--primary-background-color);
-      }
-      .hive-neighbors-overlay > .mcr-page {
-        height:auto;
-        min-height:100%;
-        overflow:visible;
-        overscroll-behavior-y:auto;
-      }
-
       .hive-neighbors-three {
         display:grid;
         grid-template-columns:repeat(4,minmax(0,1fr));
@@ -2562,13 +2541,6 @@ class HiveFWPanel extends BasePanel {
         font-size:9px;
         font-weight:700;
         pointer-events:none;
-      }
-      .hive-network-overlay {
-        position:absolute;
-        inset:0;
-        z-index:21;
-        overflow:auto;
-        background:var(--primary-background-color);
       }
       .hive-network-page {
         min-height:100%;
@@ -2883,8 +2855,6 @@ class HiveFWPanel extends BasePanel {
       .hive-network-copy .hive-neighbors-three { height:100%; }
 
       @media (max-width:1050px) {
-        .hive-neighbors-overlay { overflow:auto; }
-        .hive-neighbors-overlay > .mcr-page { height:auto; min-height:100%; }
         .hive-network-lower { grid-template-columns:1fr; }
         .hive-network-metrics { grid-template-columns:repeat(2,minmax(0,1fr)); }
         .hive-network-panels { grid-template-columns:1fr; }
@@ -9175,14 +9145,6 @@ class HiveFWPanel extends BasePanel {
         button.title="Atualizar contactos";
       }
     }
-  }
-
-  __removeNeighborsOverlay() {
-    if (this.__neighborsOverlay?.isConnected) {
-      this.__neighborsOverlay.remove();
-    }
-    this.__neighborsOverlay = null;
-    if(this._activeTab!=="network")this.__stopHiveNeighborDiscoveryPolling();
   }
 
   async __loadHiveNeighbors() {
