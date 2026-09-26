@@ -404,6 +404,10 @@ class _HiveFwDeviceScreenState extends ConsumerState<HiveFwDeviceScreen> {
     final repeatEnabled = (info?.clientRepeat ?? 0) != 0;
     final modelName = (info?.model ?? '').toLowerCase();
     final isHeltecV3 = modelName.contains('heltec') && modelName.contains('v3');
+    final isHeltecT114 = modelName.contains('t114');
+    final lastDevice = ref.watch(lastDeviceProvider);
+    final isBleConnection = connected && lastDevice?.type == 'ble';
+    final isTcpConnection = connected && lastDevice?.type == 'tcp';
     final smartAdvert = _base['auto_advert'] == '1';
     final appsChannelIndex = ref.watch(hiveAppsChannelIndexProvider);
     final selectedAppsChannel = _appsChannel(channels, appsChannelIndex);
@@ -600,7 +604,7 @@ class _HiveFwDeviceScreenState extends ConsumerState<HiveFwDeviceScreen> {
             icon: Icons.dashboard_customize_outlined,
             child: Column(
               children: [
-                if (isHeltecV3)
+                if (isHeltecV3 && isTcpConnection)
                   ListTile(
                     contentPadding: EdgeInsets.zero,
                     leading: const Icon(Icons.router_outlined),
@@ -610,6 +614,19 @@ class _HiveFwDeviceScreenState extends ConsumerState<HiveFwDeviceScreen> {
                     ),
                     trailing: const Icon(Icons.chevron_right),
                     onTap: () => context.push('/hivefw/radio-network'),
+                  ),
+                if ((isHeltecV3 || isHeltecT114) && isBleConnection)
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.system_update_alt),
+                    title: const Text('Atualização de firmware BLE'),
+                    subtitle: Text(
+                      isHeltecT114
+                          ? 'Última release HiveFW para T114 através do DFU Bluetooth.'
+                          : 'Última release HiveFW para V3 diretamente por Bluetooth.',
+                    ),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () => context.push('/hivefw/firmware-ble'),
                   ),
                 ListTile(
                   contentPadding: EdgeInsets.zero,
