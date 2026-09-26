@@ -13,10 +13,18 @@ import '../../providers/radio_providers.dart';
 /// everything heard on the mesh so the user can decide what to save.
 final discoveredContactsProvider = Provider<List<Contact>>((ref) {
   final allContacts = ref.watch(contactsProvider);
+  final radioKeys = ref.watch(radioContactsSnapshotProvider);
 
-  // Show every contact heard via an advert this session (lastAdvertTimestamp > 0).
+  // "Descobertos" are advert-heard contacts that are not yet persisted on
+  // the radio. Once added, they move to the Adicionados list.
   final discovered =
-      allContacts.where((c) => c.lastAdvertTimestamp > 0).toList();
+      allContacts
+          .where(
+            (c) =>
+                c.lastAdvertTimestamp > 0 &&
+                !radioKeys.contains(_hex32(c.publicKey)),
+          )
+          .toList();
 
   // Sort by last heard (newest first).
   discovered.sort(
@@ -40,6 +48,209 @@ class _CleanOption {
   final IconData icon;
   final String label;
   final bool destructive;
+}
+
+
+Future<void> showDiscoveredCleanSheet(
+  BuildContext context,
+  WidgetRef ref,
+  List<Contact> discovered,
+) async {
+  final l10n = context.l10n;
+  final radioKeys = ref.read(radioContactsSnapshotProvider);
+  final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+  final localOnly =
+      discovered.where((c) => !radioKeys.contains(_hex32(c.publicKey))).toList();
+
+  if (localOnly.isEmpty) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(l10n.discoverCleanNothing)),
+    );
+    return;
+  }
+
+  int? ageSec(Contact c) {
+    final ts = c.lastModified ?? c.lastAdvertTimestamp;
+    if (ts <= 0) return null;
+    return nowSec - ts;
+  }
+
+  final options = <(_CleanOption, List<Contact>)>[
+    (
+      _CleanOption(icon: Icons.timer_outlined, label: l10n.discoverCleanOption48h),
+      localOnly.where((c) => (ageSec(c) ?? 1 << 30) >= 48 * 3600).toList(),
+    ),
+    (
+      _CleanOption(icon: Icons.history_toggle_off, label: l10n.discoverCleanOption7d),
+      localOnly.where((c) => (ageSec(c) ?? 1 << 30) >= 7 * 24 * 3600).toList(),
+    ),
+    (
+      _CleanOption(icon: Icons.schedule, label: l10n.discoverCleanOption30d),
+      localOnly.where((c) => (ageSec(c) ?? 1 << 30) >= 30 * 24 * 3600).toList(),
+    ),
+    (
+      _CleanOption(icon: Icons.signal_cellular_off, label: l10n.discoverCleanOptionNever),
+      localOnly.where((c) => ageSec(c) == null).toList(),
+    ),
+    (
+      _CleanOption(
+        icon: Icons.delete_sweep_outlined,
+        label: l10n.discoverCleanOptionAll,
+        destructive: true,
+      ),
+      localOnly,
+    ),
+  ];
+
+  final chosen = await showModalBottomSheet<List<Contact>>(
+    context: context,
+    showDragHandle: true,
+    builder:
+        (ctx) => SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 4),
+                child: Text(
+                  l10n.discoverCleanSheetTitle,
+                  style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+                child: Text(
+                  l10n.discoverCleanSheetSubtitle,
+                  style: Theme.of(ctx).textTheme.bodySmall,
+                ),
+              ),
+              const Divider(height: 1),
+              Flexible(
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      for (final (opt, matches) in options)
+                        ListTile(
+                          enabled: matches.isNotEmpty,
+                          leading: Icon(
+                            opt.icon,
+                            color:
+                                opt.destructive
+                                    ? Theme.of(ctx).colorScheme.error
+                                    : null,
+                          ),
+                          title: Text(
+                            opt.label,
+                            style: TextStyle(
+                              color:
+                                  opt.destructive
+                                      ? Theme.of(ctx).colorScheme.error
+                                      : null,
+                            ),
+                          ),
+                          trailing: Text('${matches.length}'),
+                          onTap:
+                              matches.isEmpty
+                                  ? null
+                                  : () => Navigator.pop(ctx, matches),
+                        ),
+                      const SizedBox(height: 8),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+  );
+
+  if (chosen == null || chosen.isEmpty || !context.mounted) return;
+
+  final keysHex = chosen.map((c) => _hex32(c.publicKey)).toSet();
+  final confirm = await showDialog<bool>(
+    context: context,
+    builder:
+        (ctx) => AlertDialog(
+          title: Text(l10n.discoverCleanTitle),
+          content: Text(l10n.discoverCleanBody(keysHex.length)),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: Text(l10n.commonCancel),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: Text(l10n.commonDelete),
+            ),
+          ],
+        ),
+  );
+  if (confirm != true || !context.mounted) return;
+
+  final radioSnapshot = ref.read(radioContactsSnapshotProvider);
+  final safeKeys = keysHex.difference(radioSnapshot);
+  final removed = ref.read(contactsProvider.notifier).removeManyByKeyHex(safeKeys);
+  if (!context.mounted) return;
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(content: Text(l10n.discoverCleanDone(removed))),
+  );
+}
+
+enum DiscoveredContactSort { recent, name }
+
+class DiscoveredContactsList extends ConsumerWidget {
+  const DiscoveredContactsList({
+    super.key,
+    required this.query,
+    required this.sort,
+  });
+
+  final String query;
+  final DiscoveredContactSort sort;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final discovered = ref.watch(discoveredContactsProvider);
+    var filtered =
+        query.isEmpty
+            ? [...discovered]
+            : discovered
+                .where(
+                  (c) =>
+                      c.name.toLowerCase().contains(query) ||
+                      c.displayName.toLowerCase().contains(query) ||
+                      c.shortId.toLowerCase().contains(query),
+                )
+                .toList();
+
+    if (sort == DiscoveredContactSort.name) {
+      filtered.sort(
+        (a, b) =>
+            a.displayName.toLowerCase().compareTo(b.displayName.toLowerCase()),
+      );
+    } else {
+      filtered.sort(
+        (a, b) => (b.lastModified ?? b.lastAdvertTimestamp).compareTo(
+          a.lastModified ?? a.lastAdvertTimestamp,
+        ),
+      );
+    }
+
+    if (filtered.isEmpty) {
+      return _EmptyState(hasAny: discovered.isNotEmpty, query: query);
+    }
+
+    return ListView.builder(
+      padding: const EdgeInsets.fromLTRB(12, 0, 12, 80),
+      itemCount: filtered.length,
+      itemBuilder:
+          (context, i) => DiscoveredContactTile(contact: filtered[i]),
+    );
+  }
 }
 
 /// Discover new contacts via mesh advertisements.
@@ -76,144 +287,8 @@ class _DiscoverContactsScreenState
   Future<void> _openCleanSheet(
     BuildContext context,
     List<Contact> discovered,
-  ) async {
-    final l10n = context.l10n;
-    final radioKeys = ref.read(radioContactsSnapshotProvider);
-    final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-
-    // Pre-compute the local-only set once.
-    final localOnly =
-        discovered
-            .where((c) => !radioKeys.contains(_hex32(c.publicKey)))
-            .toList();
-
-    if (localOnly.isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(l10n.discoverCleanNothing)));
-      return;
-    }
-
-    // ageSec == null means no advert ever heard.
-    int? ageSec(Contact c) {
-      final ts = c.lastModified ?? c.lastAdvertTimestamp;
-      if (ts <= 0) return null;
-      return nowSec - ts;
-    }
-
-    final options = <(_CleanOption, List<Contact>)>[
-      (
-        _CleanOption(
-          icon: Icons.timer_outlined,
-          label: l10n.discoverCleanOption48h,
-        ),
-        localOnly.where((c) => (ageSec(c) ?? 1 << 30) >= 48 * 3600).toList(),
-      ),
-      (
-        _CleanOption(
-          icon: Icons.history_toggle_off,
-          label: l10n.discoverCleanOption7d,
-        ),
-        localOnly
-            .where((c) => (ageSec(c) ?? 1 << 30) >= 7 * 24 * 3600)
-            .toList(),
-      ),
-      (
-        _CleanOption(icon: Icons.schedule, label: l10n.discoverCleanOption30d),
-        localOnly
-            .where((c) => (ageSec(c) ?? 1 << 30) >= 30 * 24 * 3600)
-            .toList(),
-      ),
-      (
-        _CleanOption(
-          icon: Icons.signal_cellular_off,
-          label: l10n.discoverCleanOptionNever,
-        ),
-        localOnly.where((c) => ageSec(c) == null).toList(),
-      ),
-      (
-        _CleanOption(
-          icon: Icons.delete_sweep_outlined,
-          label: l10n.discoverCleanOptionAll,
-          destructive: true,
-        ),
-        localOnly,
-      ),
-    ];
-
-    final chosen = await showModalBottomSheet<List<Contact>>(
-      context: context,
-      showDragHandle: true,
-      builder:
-          (ctx) => SafeArea(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 4),
-                  child: Text(
-                    l10n.discoverCleanSheetTitle,
-                    style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
-                  child: Text(
-                    l10n.discoverCleanSheetSubtitle,
-                    style: Theme.of(ctx).textTheme.bodySmall,
-                  ),
-                ),
-                const Divider(height: 1),
-                Flexible(
-                  child: SingleChildScrollView(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        for (final (opt, matches) in options)
-                          ListTile(
-                            enabled: matches.isNotEmpty,
-                            leading: Icon(
-                              opt.icon,
-                              color:
-                                  opt.destructive
-                                      ? Theme.of(ctx).colorScheme.error
-                                      : null,
-                            ),
-                            title: Text(
-                              opt.label,
-                              style: TextStyle(
-                                color:
-                                    opt.destructive
-                                        ? Theme.of(ctx).colorScheme.error
-                                        : null,
-                              ),
-                            ),
-                            trailing: Text(
-                              '${matches.length}',
-                              style: Theme.of(ctx).textTheme.bodyMedium,
-                            ),
-                            onTap:
-                                matches.isEmpty
-                                    ? null
-                                    : () => Navigator.pop(ctx, matches),
-                          ),
-                        const SizedBox(height: 8),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-    );
-
-    if (chosen == null || chosen.isEmpty || !context.mounted) return;
-    await _confirmAndRemove(context, chosen);
-  }
-
+  ) =>
+      showDiscoveredCleanSheet(context, ref, discovered);
   /// Asks for confirmation, then removes the given set of contacts.
   Future<void> _confirmAndRemove(
     BuildContext context,
@@ -268,19 +343,6 @@ class _DiscoverContactsScreenState
   @override
   Widget build(BuildContext context) {
     final discovered = ref.watch(discoveredContactsProvider);
-
-    List<Contact> filtered = discovered;
-    if (_query.isNotEmpty) {
-      filtered =
-          discovered
-              .where(
-                (c) =>
-                    c.name.toLowerCase().contains(_query) ||
-                    c.displayName.toLowerCase().contains(_query) ||
-                    c.shortId.toLowerCase().contains(_query),
-              )
-              .toList();
-    }
 
     return Scaffold(
       appBar: AppBar(
@@ -344,18 +406,11 @@ class _DiscoverContactsScreenState
             ),
           ),
 
-          // Content
           Expanded(
-            child:
-                filtered.isEmpty
-                    ? _EmptyState(hasAny: discovered.isNotEmpty, query: _query)
-                    : ListView.builder(
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                      itemCount: filtered.length,
-                      itemBuilder:
-                          (context, i) =>
-                              _DiscoveredContactTile(contact: filtered[i]),
-                    ),
+            child: DiscoveredContactsList(
+              query: _query,
+              sort: DiscoveredContactSort.recent,
+            ),
           ),
         ],
       ),
@@ -404,8 +459,8 @@ class _EmptyState extends StatelessWidget {
   }
 }
 
-class _DiscoveredContactTile extends ConsumerWidget {
-  const _DiscoveredContactTile({required this.contact});
+class DiscoveredContactTile extends ConsumerWidget {
+  const DiscoveredContactTile({super.key, required this.contact});
   final Contact contact;
 
   @override
@@ -554,6 +609,25 @@ class _DiscoveredContactTile extends ConsumerWidget {
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       const SizedBox(height: 8),
+                      if (contact.isRepeater &&
+                          contact.latitude != null &&
+                          contact.longitude != null &&
+                          !(contact.latitude == 0 && contact.longitude == 0)) ...[
+                        OutlinedButton.icon(
+                          onPressed: () {
+                            ref.read(mapFocusRequestProvider.notifier).state = (
+                              latitude: contact.latitude!,
+                              longitude: contact.longitude!,
+                              label: contact.displayName,
+                            );
+                            Navigator.pop(ctx);
+                            context.go('/apps/map');
+                          },
+                          icon: const Icon(Icons.map_outlined),
+                          label: const Text('Mostrar no mapa'),
+                        ),
+                        const SizedBox(height: 8),
+                      ],
                       OutlinedButton.icon(
                         onPressed: () {
                           Navigator.pop(ctx);
