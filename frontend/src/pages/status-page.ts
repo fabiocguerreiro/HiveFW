@@ -6,6 +6,15 @@ import { loadMeshcoreEntityRegistry, type EntityInfo } from '../utils/classify-e
 import type { CompanionDeviceDescriptor } from '../components/node-summary';
 import '../components/node-summary';
 
+type StatusCacheEntry = {
+  repeaterStatus: LocalRepeaterStatus | null;
+  deviceConfig: DeviceConfig | null;
+  deviceEntities: Record<string, EntityInfo[]>;
+  meshcoreDeviceMap: Record<string, string>;
+};
+
+const statusCache = new Map<string, StatusCacheEntry>();
+
 @customElement('meshcore-status-page')
 export class StatusPage extends LitElement {
   @property({ type: Object }) hass?: HomeAssistant;
@@ -24,7 +33,10 @@ export class StatusPage extends LitElement {
   @state() private _contextMenu: { entityId: string; label: string; deviceKey: string } | null = null;
   @state() private _statusMessage: { text: string; type: 'success' | 'error' } | null = null;
   @state() private _hiddenSensorsOpen = false;
+  @state() private _dataReady = false;
+  @state() private _dataLoading = false;
   private _loadedEntry: string | null = null;
+  private _loadSeq = 0;
   private _statusMessageTimeout: number | null = null;
 
   static styles = css`
@@ -62,28 +74,87 @@ export class StatusPage extends LitElement {
     this._loadHiddenSensors();
   }
 
+  protected shouldUpdate(changedProperties: Map<PropertyKey, unknown>) {
+    // Home Assistant replaces the hass object very frequently.  Do not redraw
+    // the whole Estado page for unrelated entity changes; only relevant entity
+    // states, selected-device/count changes, or our own local state should
+    // trigger Lit rendering.
+    if (changedProperties.size === 1 && changedProperties.has('hass') && this._dataReady) {
+      const previous = changedProperties.get('hass') as HomeAssistant | undefined;
+      const current = this.hass;
+      if (!previous || !current) return true;
+      for (const entityId of this._relevantEntityIds()) {
+        if (previous.states?.[entityId] !== current.states?.[entityId]) return true;
+      }
+      return false;
+    }
+    return true;
+  }
+
   protected updated() {
     const entry = this.selectedDevice?.entry_id || null;
     if (entry && entry !== this._loadedEntry) {
       this._loadedEntry = entry;
-      void this._loadData();
+      const cached = statusCache.get(entry);
+      if (cached) {
+        this._repeaterStatus = cached.repeaterStatus;
+        this._deviceConfig = cached.deviceConfig;
+        this._deviceEntities = cached.deviceEntities;
+        this._meshcoreDeviceMap = cached.meshcoreDeviceMap;
+        this._dataReady = true;
+      } else {
+        this._dataReady = false;
+      }
+      void this._loadData(entry);
     }
   }
 
-  private async _loadData() {
-    if (!this.hass) return;
+  private _relevantEntityIds(): string[] {
+    if (!this.selectedDevice) return [];
+    const entryId = this.selectedDevice.entry_id;
+    const haDeviceId = this._meshcoreDeviceMap[entryId];
+    if (haDeviceId && this._deviceEntities[haDeviceId]) {
+      return this._deviceEntities[haDeviceId].map((entity) => entity.entity_id);
+    }
+    const prefix = this.selectedDevice.pubkey_prefix?.substring(0, 6)?.toLowerCase() || '';
+    if (!prefix) return [];
+    return Object.values(this._deviceEntities)
+      .flat()
+      .filter((entity) => entity.entity_id.toLowerCase().includes(prefix))
+      .map((entity) => entity.entity_id);
+  }
+
+  private async _loadData(entryId = this.selectedDevice?.entry_id) {
+    if (!this.hass || !entryId) return;
+    const seq = ++this._loadSeq;
+    const hadCache = statusCache.has(entryId);
+    if (!hadCache) this._dataLoading = true;
+
     try {
       const [{ meshcoreDeviceMap, deviceEntities }, repeaterStatus, deviceConfig] = await Promise.all([
         loadMeshcoreEntityRegistry(this.hass),
-        getLocalRepeaterStatus(this.hass, this.config?.entry_id).catch(() => null),
-        getDeviceConfig(this.hass, this.config?.entry_id).catch(() => null),
+        getLocalRepeaterStatus(this.hass, entryId).catch(() => null),
+        getDeviceConfig(this.hass, entryId).catch(() => null),
       ]);
+      if (seq !== this._loadSeq || this._loadedEntry !== entryId) return;
+
       this._meshcoreDeviceMap = meshcoreDeviceMap;
       this._deviceEntities = deviceEntities;
       this._repeaterStatus = repeaterStatus;
       this._deviceConfig = deviceConfig;
+      statusCache.set(entryId, {
+        repeaterStatus,
+        deviceConfig,
+        deviceEntities,
+        meshcoreDeviceMap,
+      });
+      this._dataReady = true;
     } catch {
+      if (seq !== this._loadSeq || this._loadedEntry !== entryId) return;
       this._repeaterStatus = null;
+      this._dataReady = true;
+    } finally {
+      if (seq === this._loadSeq) this._dataLoading = false;
     }
   }
 
@@ -149,7 +220,7 @@ export class StatusPage extends LitElement {
     try{
       const result=await executeLocal(this.hass,command,args,this.config?.entry_id);
       this._showStatus('Companion: '+(label||command)+' → '+(result.response||'OK'),'success');
-      if(command==='set_time') void this._loadData();
+      if(command==='set_time') void this._loadData(this.selectedDevice?.entry_id);
     }catch(error){this._showStatus('Companion: '+(label||command)+' — '+String(error),'error');}
   }
 
@@ -183,6 +254,23 @@ export class StatusPage extends LitElement {
   render(){
     const d=this.selectedDevice;
     if(!d)return html`<div class="page"><div class="wrap">Sem Companion selecionado.</div></div>`;
+    if(!this._dataReady){
+      return html`
+        <div class="page"><div class="wrap">
+          <div class="device-section" data-hive-status-loading="1">
+            <div class="companion-header">
+              <div class="section-title">
+                <div class="section-icon">…</div>
+                <div>
+                  <div class="device-name">${d.name}</div>
+                  <div class="device-meta"><span>A carregar Estado…</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div></div>
+      `;
+    }
     const entities=this._entities();
     const hidden=this._hiddenSensors[this._deviceKey()]||[];
     return html`
