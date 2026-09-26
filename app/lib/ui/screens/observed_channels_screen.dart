@@ -218,16 +218,52 @@ class _ObservedChannelsScreenState
     return null;
   }
 
+  List<Contact> _contactsForRouteHash(String rawHash) {
+    final hash = rawHash.trim().toLowerCase();
+    if (hash.isEmpty) return const <Contact>[];
+
+    final matches = <Contact>[];
+    for (final contact in ref.read(contactsProvider)) {
+      final hex = contact.publicKey
+          .map((b) => b.toRadixString(16).padLeft(2, '0'))
+          .join()
+          .toLowerCase();
+      if (hex.startsWith(hash)) matches.add(contact);
+    }
+    return matches;
+  }
+
+  String _resolvedHopTitle(String hash, {required bool isIngress, String? ingressName}) {
+    if (isIngress && ingressName != null && ingressName.isNotEmpty) {
+      return ingressName;
+    }
+
+    final matches = _contactsForRouteHash(hash);
+    if (matches.length == 1) {
+      return matches.single.displayName;
+    }
+    if (matches.length > 1) {
+      return 'Repeater $hash · identificação ambígua';
+    }
+    return 'Repeater $hash';
+  }
+
   Future<void> _showTrace(_ObservedChannel row) async {
     final ingressName = _ingressName(row);
+    final hops = row.routeHashes;
+    final counts = <String, int>{};
+    for (final hop in hops) {
+      counts[hop] = (counts[hop] ?? 0) + 1;
+    }
+    final repeated = counts.entries.where((entry) => entry.value > 1).toList();
+
     await showDialog<void>(
       context: context,
       builder: (ctx) {
-        final hops = row.routeHashes;
         return AlertDialog(
           title: Text('Trace · ${row.verifiedName ?? '#${row.hashHex}'}'),
           content: SizedBox(
-            width: 460,
+            width: 500,
             child: SingleChildScrollView(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -236,15 +272,64 @@ class _ObservedChannelsScreenState
                     'Caminho da última mensagem realmente recebida neste canal. '
                     'É um trace passivo do pacote capturado e não gera tráfego LoRa.',
                   ),
-                  const SizedBox(height: 14),
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: [
+                      Chip(label: Text('${hops.length} hops')),
+                      if (row.hashSize > 0)
+                        Chip(label: Text('Path Hash ${row.hashSize} bytes')),
+                      if (ingressName != null)
+                        Chip(label: Text('Entrada: $ingressName')),
+                    ],
+                  ),
+                  if (repeated.isNotEmpty) ...[
+                    const SizedBox(height: 10),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: Theme.of(ctx).colorScheme.tertiaryContainer,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text(
+                        '⚠ Hash repetido no path: ' +
+                        repeated
+                            .map((entry) => '${entry.key} ×${entry.value}')
+                            .join(', ') +
+                        '. Pode indicar loop/retransmissão repetida ou colisão de Path Hash.',
+                        style: Theme.of(ctx).textTheme.bodySmall,
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 12),
                   if (hops.isEmpty)
-                    const Text('Receção direta: o pacote chegou sem repetidores no caminho.')
-                  else
+                    const Text(
+                      'Receção direta: o pacote chegou sem repetidores no caminho.',
+                    )
+                  else ...[
+                    const ListTile(
+                      dense: true,
+                      contentPadding: EdgeInsets.zero,
+                      leading: CircleAvatar(radius: 14, child: Text('○')),
+                      title: Text('Origem anterior ao primeiro hop'),
+                      subtitle: Text(
+                        'O path não identifica necessariamente o Companion/utilizador que originou a mensagem.',
+                      ),
+                    ),
                     ...List.generate(hops.length, (index) {
+                      final hash = hops[index];
                       final isLast = index == hops.length - 1;
-                      final label = isLast && ingressName != null
-                          ? '$ingressName · ${hops[index]}'
-                          : hops[index];
+                      final matches = _contactsForRouteHash(hash);
+                      final title = _resolvedHopTitle(
+                        hash,
+                        isIngress: isLast,
+                        ingressName: ingressName,
+                      );
+                      final ambiguous = !isLast && matches.length > 1;
+                      final repeatedHash = (counts[hash] ?? 0) > 1;
+
                       return ListTile(
                         dense: true,
                         contentPadding: EdgeInsets.zero,
@@ -252,14 +337,38 @@ class _ObservedChannelsScreenState
                           radius: 14,
                           child: Text('${index + 1}'),
                         ),
-                        title: Text(label),
-                        subtitle: Text(
-                          isLast
-                              ? 'Entrada no nosso rádio'
-                              : 'Repeater intermédio · hash RF',
+                        title: Text(title),
+                        subtitle: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              isLast
+                                  ? 'Entrada no nosso rádio · hash $hash'
+                                  : 'Hop ${index + 1} · hash $hash',
+                            ),
+                            if (matches.length == 1 && !(isLast && ingressName != null))
+                              Text(
+                                'Contacto descoberto: ${matches.single.displayName}',
+                              ),
+                            if (ambiguous)
+                              Text(
+                                '${matches.length} contactos descobertos compatíveis com este hash.',
+                                style: TextStyle(
+                                  color: Theme.of(ctx).colorScheme.tertiary,
+                                ),
+                              ),
+                            if (repeatedHash)
+                              Text(
+                                '⚠ Hash repetido neste path.',
+                                style: TextStyle(
+                                  color: Theme.of(ctx).colorScheme.tertiary,
+                                ),
+                              ),
+                          ],
                         ),
                       );
                     }),
+                  ],
                   const Divider(),
                   const ListTile(
                     dense: true,
@@ -270,9 +379,10 @@ class _ObservedChannelsScreenState
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'Os hops intermédios são hashes de caminho. O repeater de '
-                    'entrada só é identificado por nome quando o prefixo pode '
-                    'ser associado com segurança a um contacto conhecido.',
+                    'Os hashes de cada hop são cruzados com os contactos '
+                    'descobertos/adicionados guardados na App. Um nome só é '
+                    'atribuído quando existe uma correspondência única; colisões '
+                    'ficam assinaladas como ambíguas.',
                     style: Theme.of(ctx).textTheme.bodySmall,
                   ),
                 ],
