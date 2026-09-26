@@ -114,7 +114,7 @@ class _AppUpdateCardState extends ConsumerState<_AppUpdateCard> {
             subtitle:
                 check == null
                     ? const Text(
-                      'Fonte: releases oficiais do repositório HiveFW-app.',
+                      'Fonte: releases oficiais do repositório HiveFW.',
                     )
                     : Text(
                       '${check.latest.name}'
