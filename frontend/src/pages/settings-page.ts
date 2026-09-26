@@ -22,9 +22,12 @@ import {
   restoreCompanionBackup,
   exportRepeaterBackup,
   restoreRepeaterBackup,
+  getSoftwareUpdateStatus,
+  installLatestSoftware,
 } from '../api';
 import type {
   FirmwareOtaStatus,
+  SoftwareUpdateStatus,
   IdentityFlowStep,
   SetDeviceConfigRenameResult,
 } from '../api';
@@ -138,6 +141,8 @@ export class SettingsPage extends LitElement {
   @state() private _firmwareChecking = false;
   @state() private _firmwareUploadStage: 'uploading' | 'rebooting' | 'reconnecting' | null = null;
   @state() private _firmwareDownloadTarget: 'v3-wifi' | 'v3-ble' | 't114-ble' = 'v3-wifi';
+  @state() private _softwareUpdateStatus: SoftwareUpdateStatus | null = null;
+  @state() private _softwareUpdateBusy = false;
   @state() private _dutyCycleValue = 10;
   @state() private _dutyCycleBusy: 'read' | 'apply' | null = null;
   @state() private _adminPasswordDraft = '';
@@ -1536,6 +1541,7 @@ export class SettingsPage extends LitElement {
               <button class="settings-shortcut" @click=${()=>{
                 this._settingsTopic=id as SettingsTopic;
                 if(id==='radio') void this._loadDeviceConfig();
+                if(id==='firmware') void this._loadSoftwareUpdateStatus();
               }}>
                 <span class="settings-shortcut-icon" aria-hidden="true"><ha-icon .icon=${icon}></ha-icon></span>
                 <span class="settings-shortcut-copy">
@@ -1833,13 +1839,94 @@ export class SettingsPage extends LitElement {
             `;
           })()}
         </div>
+
+        <div class="firmware-action-card" style="margin-top:14px;">
+          <div class="firmware-action-title">Software HiveFW no Home Assistant</div>
+          <div class="firmware-action-text">
+            Atualiza a integração através da entidade de atualização gerida pelo Home Assistant/HACS.
+            Quando a atualização termina, o Home Assistant pode reiniciar automaticamente.
+          </div>
+          ${this._softwareUpdateStatus?.supported ? html`
+            <div class="firmware-release-row">
+              <div>
+                <div class="firmware-release-label">Instalado</div>
+                <div class="firmware-release-version" style="font-size:12px;">
+                  ${this._softwareUpdateStatus.installed_version || '—'}
+                </div>
+              </div>
+              <div>
+                <div class="firmware-release-label">Disponível</div>
+                <div class="firmware-release-version" style="font-size:12px;">
+                  ${this._softwareUpdateStatus.latest_version || '—'}
+                </div>
+              </div>
+            </div>
+            <button
+              class="apply-button firmware-primary-action"
+              ?disabled=${this._softwareUpdateBusy || !this._softwareUpdateStatus.update_available}
+              @click=${this._installLatestSoftware}>
+              ${this._softwareUpdateBusy
+                ? 'A atualizar software…'
+                : this._softwareUpdateStatus.update_available
+                  ? 'Atualizar e reiniciar Home Assistant'
+                  : 'Software atualizado'}
+            </button>
+          ` : html`
+            <div class="firmware-empty">
+              ${this._softwareUpdateStatus
+                ? 'Não foi encontrada uma entidade update do HiveFW. A instalação pode não estar gerida pelo HACS/Home Assistant.'
+                : 'A verificar a gestão de atualizações do HiveFW…'}
+            </div>
+            <button
+              class="action-btn"
+              ?disabled=${this._softwareUpdateBusy}
+              @click=${this._loadSoftwareUpdateStatus}>
+              Verificar software
+            </button>
+          `}
+        </div>
         </div>
         </div>
 
       </div>
-    `;
+    `;`;
   }
 
+  private async _loadSoftwareUpdateStatus() {
+    if (!this.hass) return;
+    try {
+      this._softwareUpdateStatus = await getSoftwareUpdateStatus(this.hass);
+    } catch (error) {
+      this._softwareUpdateStatus = { supported: false, update_available: false };
+      this._showStatusMessage(
+        `Software HiveFW: ${error instanceof Error ? error.message : String(error)}`,
+        'error',
+      );
+    }
+  }
+
+  private async _installLatestSoftware() {
+    if (!this.hass || this._softwareUpdateBusy) return;
+    this._softwareUpdateBusy = true;
+    try {
+      const result = await installLatestSoftware(this.hass, true);
+      if (!result.success) throw new Error('A atualização não foi aceite.');
+      this._showStatusMessage(
+        result.restart_scheduled
+          ? 'Software HiveFW atualizado. O Home Assistant vai reiniciar.'
+          : 'Software HiveFW atualizado.',
+        'success',
+      );
+    } catch (error) {
+      this._showStatusMessage(
+        `Atualização de software: ${error instanceof Error ? error.message : String(error)}`,
+        'error',
+      );
+      await this._loadSoftwareUpdateStatus();
+    } finally {
+      this._softwareUpdateBusy = false;
+    }
+  }
   private async _checkFirmwareUpdates() {
     if (!this.hass) return;
     this._firmwareChecking = true;
