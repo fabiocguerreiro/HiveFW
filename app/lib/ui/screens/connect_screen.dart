@@ -17,11 +17,6 @@ import '../theme.dart';
 
 part 'parts/connect_progress_card.dart';
 
-// ---------------------------------------------------------------------------
-// Temporary event badge — set to false to remove.
-// ---------------------------------------------------------------------------
-const _showSummitEdition = false;
-
 String _sanitizeUtf16Ui(String s) {
   for (var i = 0; i < s.length; i++) {
     final c = s.codeUnitAt(i);
@@ -928,39 +923,6 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
                       height: 120,
                     ),
                   ),
-                  if (_showSummitEdition)
-                    Positioned(
-                      bottom: 0,
-                      right: -16,
-                      child: Transform.rotate(
-                        angle: -0.6,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 3,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.black87,
-                            borderRadius: BorderRadius.circular(10),
-                            border: Border.all(
-                              color: const Color(0xFFFF8C00),
-                              width: 1.5,
-                            ),
-                          ),
-                          child: const Text(
-                            'SUMMIT\nEDITION',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              color: Color(0xFFFF8C00),
-                              fontSize: 9,
-                              fontWeight: FontWeight.bold,
-                              letterSpacing: 1.5,
-                              height: 1.3,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
                 ],
               ),
               const SizedBox(height: 16),
@@ -1178,39 +1140,14 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
                     _scanning ? 'A procurar...' : 'Procurar Companion por Bluetooth',
                   ),
                 ),
-                if (!kIsWeb) ...[
-                  const SizedBox(height: 10),
-                  ExpansionTile(
-                    tilePadding: const EdgeInsets.symmetric(horizontal: 8),
-                    childrenPadding: const EdgeInsets.only(bottom: 8),
-                    leading: const Icon(Icons.more_horiz),
-                    title: const Text('Outras ligações'),
-                    subtitle: const Text(
-                      'Wi-Fi/TCP para Companions HiveFW compatíveis',
-                    ),
-                    children: [
-                      SizedBox(
-                        width: double.infinity,
-                        child: OutlinedButton.icon(
-                          onPressed:
-                              (_scanning || _usbScanning)
-                                  ? null
-                                  : _showTcpConnectDialog,
-                          icon: const Icon(Icons.wifi),
-                          label: const Text('Ligar por Wi-Fi / TCP'),
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        'Alternativa ao Bluetooth. Porta HiveFW: 5000.',
-                        textAlign: TextAlign.center,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.onSurface.withAlpha(140),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
+                const SizedBox(height: 10),
+                TextButton(
+                  onPressed:
+                      (_scanning || _usbScanning)
+                          ? null
+                          : () => context.push('/hivefw/radio-network'),
+                  child: const Text('Configurar via Wi-Fi'),
+                ),
                 if (kIsWeb) ...[
                   const SizedBox(height: 4),
                   Text(
