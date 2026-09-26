@@ -636,7 +636,7 @@ class _HiveFwDeviceScreenState extends ConsumerState<HiveFwDeviceScreen> {
                     'Captura RF e exportação PCAP para diagnóstico.',
                   ),
                   trailing: const Icon(Icons.chevron_right),
-                  onTap: connected ? () => context.push('/apps/rxlog') : null,
+                  onTap: connected ? () => context.push('/settings/rxlog') : null,
                 ),
                 ListTile(
                   contentPadding: EdgeInsets.zero,
