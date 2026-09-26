@@ -169,6 +169,10 @@ private:
     // power sends exactly one "Falha de Energia ⚡" message to the channel
     // selected as Canal APPS/SOS. It rearms only after power returns.
     uint8_t power_notify = 0;
+    // Persisted arm bit for mains-loss detection. It is set only after
+    // external power has been observed and cleared after a confirmed alert.
+    // This survives a brownout/reboot during USB -> battery switchover.
+    uint8_t power_alert_armed = 0;
     // Local zero-hop neighbour advert interval, stored exactly like the
     // official SimpleRepeater: minutes / 2. 120 => 240 minutes.
     uint8_t neighbor_advert_interval = 120;
@@ -192,6 +196,7 @@ private:
       def("allow_ro", allow_read_only);
       def("auto_adv", auto_advert);
       def("pwr_notif", power_notify);
+      def("pwr_arm", power_alert_armed);
       def("nbr_adv", neighbor_advert_interval);
       def("last_adv", last_auto_advert_epoch);
       def("adv_on", auto_advert_enabled_epoch);
@@ -267,6 +272,11 @@ public:
 
   bool isPowerNotifyEn() const { return repeat.power_notify == 1; }
   void setPowerNotifyEn(bool en) { repeat.power_notify = en ? 1 : 0; }
+
+  bool isPowerAlertArmed() const { return repeat.power_alert_armed == 1; }
+  void setPowerAlertArmed(bool armed) {
+    repeat.power_alert_armed = armed ? 1 : 0;
+  }
 
   uint16_t getNeighborAdvertIntervalMinutes() const {
     return (uint16_t)repeat.neighbor_advert_interval * 2U;
