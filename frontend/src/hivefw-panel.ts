@@ -101,9 +101,7 @@ class HiveFWPanel extends BasePanel {
     this.__hiveNeighbors = null;
     this.__hiveNeighborsLoading = false;
     this.__hiveNeighborsError = null;
-    this.__hiveNeighborsSort = "recent";
     this.__hiveNeighborsLoadedEntry = null;
-    this.__neighborsOverlay = null;
     this.__hiveNeighborDiscovery = null;
     this.__hiveNeighborDiscoveryLoading = false;
     this.__hiveNeighborDiscoveryStarting = false;
@@ -117,16 +115,14 @@ class HiveFWPanel extends BasePanel {
     this.__hiveNeighborLocalMarker = null;
     this.__hiveNeighborMapFocusId = "";
     this.__hiveNeighborMapMode = "neighbors";
-    this.__hiveNeighborMapRenderSeq = 0;
 
-    this.__networkOverlay = null;
     this.__networkRangeHours = 48;
     this.__networkHistory = null;
     this.__networkHistoryPersistAt = 0;
-    this.__networkContactsFilter = "all";
-    this.__networkContactsMenuOpen = false;
-    this.__networkContactsSearchOpen = false;
-    this.__networkContactsSearchQuery = "";
+    // Incremented only when Network-owned data changes.  Generic Home
+    // Assistant hass updates do not touch this revision, so the Lit Network
+    // page and its map keep their DOM/lifecycle intact.
+    this.__networkRevision = 0;
 
     this.__consoleHistory = [];
     this.__consoleCommandHistory = [];
@@ -183,6 +179,23 @@ class HiveFWPanel extends BasePanel {
 
   __entryId() {
     return this._selectedEntryId || this._config?.entry_id || undefined;
+  }
+
+  __networkPageElement() {
+    return this.shadowRoot?.querySelector("hivefw-network-page") || null;
+  }
+
+  __networkMapComponent() {
+    return this.__networkPageElement()?.querySelector?.("hivefw-network-map") || null;
+  }
+
+  __touchNetworkPage() {
+    this.__networkRevision = (Number(this.__networkRevision) || 0) + 1;
+    // requestUpdate lets the base Lit template pass the new revision.  Calling
+    // requestUpdate on the current child as well keeps async radio callbacks
+    // responsive without waiting for an unrelated Home Assistant update.
+    this.requestUpdate?.();
+    this.__networkPageElement()?.requestUpdate?.();
   }
 
   __headerPathHash() {
@@ -299,12 +312,6 @@ class HiveFWPanel extends BasePanel {
       this.__networkHistory = null;
     }
 
-    if (this._activeTab !== "neighbors") {
-      this.__removeNeighborsOverlay();
-    }
-    if (this._activeTab !== "network") {
-      this.__removeNetworkOverlay();
-    }
     if (this._activeTab !== "network") {
       this.__stopHiveNeighborDiscoveryPolling();
     }
@@ -396,13 +403,8 @@ class HiveFWPanel extends BasePanel {
         this.__stopHiveNeighborDiscoveryPolling();
       }
 
-      const container = root.querySelector(".hive-network-host");
-      if (!container) return;
-
-      const overlay = this.__ensureNetworkOverlay(container);
-      if (!overlay.querySelector(".hive-network-page")) {
-        this.__renderHiveNetwork(overlay);
-      }
+      const networkPage = root.querySelector("hivefw-network-page");
+      if (!networkPage) return;
 
       // Rede combines the final zero-hop neighbour view, active discovery,
       // map and local network analytics.
@@ -432,15 +434,7 @@ class HiveFWPanel extends BasePanel {
       if ((!Array.isArray(this.__nodesMapContacts) || this.__nodesMapLoadedEntry !== entryId) && !this.__nodesMapLoading) {
         void this.__loadNodesMapContacts().then(() => {
           if (this._activeTab !== "network") return;
-          const overlay = this.__networkOverlay;
-          const contacts = overlay?.querySelector(".hive-network-contacts");
-          if (contacts) this.__renderNetworkContacts(contacts);
-          const analytics = overlay?.querySelector(".hive-network-analytics");
-          if (analytics) this.__renderHiveNetworkAnalytics(analytics);
-          const map = overlay?.querySelector(".hive-neighbors-map");
-          if (map && this.__hiveNeighborMapMode === "contacts") {
-            void this.__renderHiveNeighborDiscoveryMap(map);
-          }
+          this.__touchNetworkPage();
         });
       }
     }
@@ -2242,23 +2236,6 @@ class HiveFWPanel extends BasePanel {
       .page-container {
         position: relative;
       }
-      .hive-neighbors-overlay {
-        position:absolute;
-        inset:0;
-        z-index:20;
-        overflow:auto;
-        overscroll-behavior-y:auto;
-        touch-action:pan-y;
-        -webkit-overflow-scrolling:touch;
-        background:var(--primary-background-color);
-      }
-      .hive-neighbors-overlay > .mcr-page {
-        height:auto;
-        min-height:100%;
-        overflow:visible;
-        overscroll-behavior-y:auto;
-      }
-
       .hive-neighbors-three {
         display:grid;
         grid-template-columns:repeat(4,minmax(0,1fr));
@@ -2558,13 +2535,6 @@ class HiveFWPanel extends BasePanel {
         font-size:9px;
         font-weight:700;
         pointer-events:none;
-      }
-      .hive-network-overlay {
-        position:absolute;
-        inset:0;
-        z-index:21;
-        overflow:auto;
-        background:var(--primary-background-color);
       }
       .hive-network-page {
         min-height:100%;
@@ -2879,8 +2849,6 @@ class HiveFWPanel extends BasePanel {
       .hive-network-copy .hive-neighbors-three { height:100%; }
 
       @media (max-width:1050px) {
-        .hive-neighbors-overlay { overflow:auto; }
-        .hive-neighbors-overlay > .mcr-page { height:auto; min-height:100%; }
         .hive-network-lower { grid-template-columns:1fr; }
         .hive-network-metrics { grid-template-columns:repeat(2,minmax(0,1fr)); }
         .hive-network-panels { grid-template-columns:1fr; }
@@ -5835,10 +5803,7 @@ class HiveFWPanel extends BasePanel {
       this.__peerActivityLoadedEntry=entryId;
     }finally{
       this.__peerActivityLoading=false;
-      if(this._activeTab==="network"){
-        const analytics=this.__networkOverlay?.querySelector(".hive-network-analytics");
-        if(analytics)this.__renderHiveNetworkAnalytics(analytics);
-      }
+      if(this._activeTab==="network")this.__touchNetworkPage();
     }
   }
 
@@ -5900,22 +5865,15 @@ class HiveFWPanel extends BasePanel {
     this.__lastTraceLoadedEntry=String(this.__entryId()||"default");
     this._activeTab="network";
     this.__hiveNeighborMapMode="contacts";
-    this.requestUpdate?.();
+    this.__touchNetworkPage();
     try{await this.updateComplete;}catch{}
-    this.__enhanceRepeaterUi();
 
-    // Wait for the real contact source and for the map render itself instead
-    // of guessing that ha-map/Leaflet will be ready after a fixed 120 ms.
+    // Wait for the real contact source and then delegate map readiness,
+    // trace drawing and fitBounds to the isolated Lit map component.
     await this.__loadNodesMapContacts();
-    const mapHost=this.__networkOverlay?.querySelector(".hive-neighbors-map");
-    if(mapHost)await this.__renderHiveNeighborDiscoveryMap(mapHost);
-
-    this.__drawLastTraceRoute();
-    const data=this.__traceRouteData();
-    if(data?.points?.length){
-      const map=this.__nodesMapElement?.leafletMap;
-      try{map?.fitBounds?.(data.points,{padding:[40,40],maxZoom:12});}catch{}
-    }
+    this.__touchNetworkPage();
+    try{await this.updateComplete;}catch{}
+    await this.__networkPageElement()?.showTraceAndFit?.();
   }
 
   __lastTraceStorageKey() {
@@ -5960,7 +5918,10 @@ class HiveFWPanel extends BasePanel {
     this.__lastTrace=trace;
     this.__lastTraceLoadedEntry=String(this.__entryId()||"default");
     try{localStorage.setItem(this.__lastTraceStorageKey(),JSON.stringify(trace));}catch{}
-    this.__drawLastTraceRoute();
+    if(this._activeTab==="network"){
+      this.__touchNetworkPage();
+      void this.__networkPageElement()?.refreshTrace?.(false);
+    }
   }
 
   __captureTraceResult() {
@@ -5975,7 +5936,7 @@ class HiveFWPanel extends BasePanel {
     try{localStorage.removeItem(this.__lastTraceStorageKey());}catch{}
     this.__lastTrace=null;
     this.__removeTraceRouteLayer();
-    this.__nodesMapPane?.querySelector(".hive-trace-summary")?.remove();
+    if(this._activeTab==="network")this.__touchNetworkPage();
   }
 
   __removeTraceRouteLayer() {
@@ -6035,52 +5996,6 @@ class HiveFWPanel extends BasePanel {
     }
     if(local&&this.__nodeCoords(local))push(local,String(local.adv_name||"Local"),null,trace.result.final_snr);
     return {trace,points,resolved,unresolved};
-  }
-
-  __drawLastTraceRoute() {
-    const pane=this.__nodesMapPane;
-    const mapEl=this.__nodesMapElement;
-    const map=mapEl?.leafletMap;
-    const L=mapEl?.Leaflet;
-    if(!pane||!map||!L)return;
-    this.__removeTraceRouteLayer();
-    pane.querySelector(".hive-trace-summary")?.remove();
-    const data=this.__traceRouteData();
-    if(!data)return;
-
-    if(data.points.length>=2){
-      const line=L.polyline(data.points,{weight:4,opacity:.78,dashArray:"9 6",interactive:false});
-      line.addTo(map);
-      this.__traceRouteLayer=line;
-    }
-
-    const summary=document.createElement("div");
-    summary.className="hive-trace-summary";
-    summary.style.cssText="position:absolute;left:10px;top:10px;z-index:35;max-width:min(360px,calc(100% - 20px));padding:8px 10px;border:1px solid var(--divider-color,#ccc);border-radius:10px;background:color-mix(in srgb,var(--card-background-color,#fff) 93%,transparent);box-shadow:0 1px 5px rgba(0,0,0,.18);font-size:10px;color:var(--primary-text-color,#222);pointer-events:auto;";
-    const top=document.createElement("div");
-    top.style.cssText="display:flex;align-items:center;gap:8px;";
-    const label=document.createElement("strong");
-    label.style.flex="1";
-    label.textContent="Último Trace · "+String(data.trace.target?.adv_name||data.trace.target?.pubkey_prefix||"Nó");
-    const clear=document.createElement("button");
-    clear.type="button";clear.textContent="Limpar";
-    clear.style.cssText="border:0;background:transparent;color:var(--primary-color,#03a9f4);font:inherit;font-weight:700;cursor:pointer;";
-    clear.addEventListener("click",()=>this.__clearLastTrace());
-    top.append(label,clear);
-    const detail=document.createElement("div");
-    const parts=[data.trace.result.response_time||((data.trace.result.round_trip_ms||0)+"ms"),String(data.trace.result.hops||0)+" hops"];
-    if(Number.isFinite(Number(data.trace.result.final_snr)))parts.push("SNR "+Number(data.trace.result.final_snr).toFixed(1)+" dB");
-    if(data.unresolved.length)parts.push(data.unresolved.length+" hash não resolvido"+(data.unresolved.length===1?"":"s"));
-    detail.textContent=parts.join(" · ");
-    detail.style.cssText="margin-top:3px;color:var(--secondary-text-color,#666);";
-    summary.append(top,detail);
-    if(data.unresolved.length){
-      const hashes=document.createElement("div");
-      hashes.textContent="Sem GPS/ambíguos: "+data.unresolved.join(", ");
-      hashes.style.cssText="margin-top:3px;font:9px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:var(--secondary-text-color,#777);overflow-wrap:anywhere;";
-      summary.appendChild(hashes);
-    }
-    pane.appendChild(summary);
   }
 
   async __ensureMapLoaded() {
@@ -6268,17 +6183,13 @@ class HiveFWPanel extends BasePanel {
 
       const result=await this.hass.callWS(msg);
 
-      // Force a fresh list + map snapshot after an additive import.
+      // Force a fresh Network snapshot after an additive import.  Lit updates
+      // the contacts and map in place; no column reconstruction is required.
       this.__nodesMapContacts=null;
       this.__nodesMapLoadedEntry=null;
       this.__nodesMapSignature="";
       await this.__loadNodesMapContacts();
-      const mapHost=this.__networkOverlay?.querySelector(".hive-neighbors-map");
-      if(mapHost&&this.__hiveNeighborMapMode==="contacts"){
-        void this.__renderHiveNeighborDiscoveryMap(mapHost);
-      }
-      const contactHost=this.__networkOverlay?.querySelector(".hive-network-contacts");
-      if(contactHost)this.__renderNetworkContacts(contactHost);
+      if(this._activeTab==="network")this.__touchNetworkPage();
 
       if(button){
         const imported=Number(result?.imported||0);
@@ -6416,10 +6327,7 @@ class HiveFWPanel extends BasePanel {
     if(this.__nodesMapPane?.isConnected){
       this.__nodesMapLoadedEntry=null;
       void this.__loadNodesMapContacts().then(()=>{
-        const host=this.__networkOverlay?.querySelector(".hive-neighbors-map");
-        if(host&&this.__hiveNeighborMapMode==="contacts")void this.__renderHiveNeighborDiscoveryMap(host);
-        const contacts=this.__networkOverlay?.querySelector(".hive-network-contacts");
-        if(contacts)this.__renderNetworkContacts(contacts);
+        if(this._activeTab==="network")this.__touchNetworkPage();
       });
     }
     if(this.__nodesPersistentPopup){
@@ -7204,6 +7112,11 @@ class HiveFWPanel extends BasePanel {
   }
 
   __focusNodeOnMap(contact, openPopup = false) {
+    const litPage=this.__networkPageElement?.();
+    if(litPage){
+      void litPage.focusContact?.(contact,openPopup);
+      return;
+    }
     const coords=this.__nodeCoords(contact);
     if(!coords)return;
     const mapEl=this.__nodesMapElement;
@@ -7997,10 +7910,7 @@ class HiveFWPanel extends BasePanel {
   __rerenderRepeater() {
     if (this._activeTab === "state") this.__enhanceStatePage();
     if (this._activeTab === "settings") this.__enhanceSettingsPage();
-    if (this._activeTab === "network") {
-      const analytics=this.__networkOverlay?.querySelector(".hive-network-analytics");
-      if(analytics)this.__renderHiveNetworkAnalytics(analytics);
-    }
+    if (this._activeTab === "network") this.__touchNetworkPage();
   }
 
   __renderRepeater(container) {
@@ -9138,308 +9048,6 @@ class HiveFWPanel extends BasePanel {
     };
   }
 
-  __networkMetric(label,value,detail="") {
-    const box=document.createElement("div");
-    box.className="hive-network-metric";
-    const l=document.createElement("span");l.textContent=label;
-    const v=document.createElement("strong");v.textContent=String(value);
-    const d=document.createElement("small");d.textContent=detail;
-    box.append(l,v,d);
-    return box;
-  }
-
-  __networkBarRow(label,value,max,display=String(value)) {
-    const row=document.createElement("div");
-    row.className="hive-network-bar-row";
-    const name=document.createElement("span");name.textContent=label;
-    const track=document.createElement("div");track.className="hive-network-bar-track";
-    const fill=document.createElement("div");fill.className="hive-network-bar-fill";
-    fill.style.width=(max>0?Math.max(0,Math.min(100,Number(value||0)/max*100)):0)+"%";
-    track.appendChild(fill);
-    const amount=document.createElement("strong");amount.textContent=display;
-    row.append(name,track,amount);
-    return row;
-  }
-
-  __renderHiveNetworkAnalytics(container) {
-    container.replaceChildren();
-    const data=this.__hiveNeighbors;
-    const all=Array.isArray(data?.neighbors)?[...data.neighbors]:[];
-    const hours=Math.max(1,Number(this.__networkRangeHours)||48);
-    const visible=all.filter((neighbor)=>Number(neighbor?.secs_ago||0)<=hours*3600);
-    const hasNeighborData=!!data && Array.isArray(data.neighbors);
-    const history=hasNeighborData
-      ? this.__networkHistorySnapshot(all)
-      : (this.__networkHistory||{nodes:{},events:[],advert_events:[]});
-    const now=Date.now();
-
-    const head=document.createElement("div");
-    head.className="hive-network-head";
-    const intro=document.createElement("div");
-    const eyebrow=document.createElement("div");eyebrow.className="mcr-eyebrow";eyebrow.textContent="◉  NETWORK ANALYTICS · LOCAL";
-    const title=document.createElement("h1");title.textContent="Rede";
-    const subtitle=document.createElement("p");
-    subtitle.textContent="Leitura consolidada da rede observada pelo HiveFW. O histórico de novos/desaparecidos, presença e adverts/h começa a ser acumulado localmente a partir desta versão e não gera tráfego LoRa.";
-    intro.append(eyebrow,title,subtitle);
-
-    const range=document.createElement("div");
-    range.className="hive-network-range";
-    for(const value of [6,24,48,168]){
-      const button=document.createElement("button");
-      button.type="button";
-      button.textContent=value+"H";
-      button.classList.toggle("active",hours===value);
-      button.addEventListener("click",()=>{
-        this.__networkRangeHours=value;
-        this.__renderHiveNetworkAnalytics(container);
-      });
-      range.appendChild(button);
-    }
-    head.append(intro,range);
-    container.appendChild(head);
-
-    const new24=Object.values(history.nodes||{}).filter((node)=>Number(node?.first_seen_at)>0&&now-Number(node.first_seen_at)<=86400000).length;
-    const new48=Object.values(history.nodes||{}).filter((node)=>Number(node?.first_seen_at)>0&&now-Number(node.first_seen_at)<=2*86400000).length;
-    const missing7=Object.values(history.nodes||{}).filter((node)=>Number(node?.missing_since)>0&&now-Number(node.missing_since)<=7*86400000).length;
-    const active1=all.filter((neighbor)=>Number(neighbor?.secs_ago||0)<=3600).length;
-    const adverts1h=(history.advert_events||[]).filter((event)=>now-Number(event.timestamp||0)<=3600000).length;
-
-    const rxRate=this.__readMetricState(null,"nb_recv_rate").value;
-    const txRate=this.__readMetricState(null,"nb_sent_rate").value;
-    const rxFlood=this.__readMetricState(null,"recv_flood_rate").value;
-    const txFlood=this.__readMetricState(null,"sent_flood_rate").value;
-    const traffic=([rxRate,txRate].some(Number.isFinite))
-      ? ((Number.isFinite(rxRate)?rxRate:0)+(Number.isFinite(txRate)?txRate:0)).toFixed(1)
-      : "—";
-    const floodHour=([rxFlood,txFlood].some(Number.isFinite))
-      ? (((Number.isFinite(rxFlood)?rxFlood:0)+(Number.isFinite(txFlood)?txFlood:0))*60).toFixed(0)
-      : "—";
-    const txAirtime=this.__readMetricState(null,"airtime_utilization").value;
-    const rxAirtime=this.__readMetricState(null,"rx_airtime_utilization").value;
-    const airtimePrimary=Number.isFinite(txAirtime)?txAirtime.toFixed(1)+"%":"—";
-    const airtimeDetail=[
-      Number.isFinite(txAirtime)?"TX "+txAirtime.toFixed(1)+"%":null,
-      Number.isFinite(rxAirtime)?"RX "+rxAirtime.toFixed(1)+"%":null,
-    ].filter(Boolean).join(" · ")||"sem métrica";
-
-    const metrics=document.createElement("div");
-    metrics.className="hive-network-metrics";
-    metrics.append(
-      this.__networkMetric("Vizinhos "+hours+"H",visible.length,"zero-hop observados"),
-      this.__networkMetric("Ativos <1H",active1,"advert recente"),
-      this.__networkMetric("Novos 24H",new24,new48+" em 48H · desde o baseline"),
-      this.__networkMetric("Desaparecidos",missing7,"últimos 7 dias"),
-      this.__networkMetric("Adverts/H",adverts1h,"eventos observados"),
-      this.__networkMetric("Flood/H",floodHour,floodHour==="—"?"sem métrica":"RX + TX atual"),
-      this.__networkMetric("Airtime",airtimePrimary,airtimeDetail),
-      this.__networkMetric("Tráfego",traffic,traffic==="—"?"sem métrica":"msg/min · RX + TX")
-    );
-    container.appendChild(metrics);
-
-    const panels=document.createElement("div");
-    panels.className="hive-network-panels";
-
-    const freshness=document.createElement("section");
-    freshness.className="hive-network-panel";
-    const ftitle=document.createElement("div");ftitle.className="hive-network-panel-title";ftitle.textContent="Presença / recência";
-    freshness.appendChild(ftitle);
-    const freshBuckets=[
-      ["< 1h",all.filter((n)=>Number(n.secs_ago||0)<3600).length],
-      ["1–6h",all.filter((n)=>Number(n.secs_ago||0)>=3600&&Number(n.secs_ago||0)<21600).length],
-      ["6–24h",all.filter((n)=>Number(n.secs_ago||0)>=21600&&Number(n.secs_ago||0)<86400).length],
-      ["1–3 dias",all.filter((n)=>Number(n.secs_ago||0)>=86400&&Number(n.secs_ago||0)<3*86400).length],
-      ["3–7 dias",all.filter((n)=>Number(n.secs_ago||0)>=3*86400&&Number(n.secs_ago||0)<=7*86400).length],
-    ];
-    const freshMax=Math.max(1,...freshBuckets.map(([,value])=>value));
-    for(const [label,value] of freshBuckets)freshness.appendChild(this.__networkBarRow(label,value,freshMax));
-
-    const sampledNodes=Object.values(history.nodes||{}).filter((node)=>{
-      const first=Math.max(1,Number(node?.first_sample)||1);
-      return (Number(history.samples)||0)-first+1>=2;
-    });
-    if(sampledNodes.length){
-      const presence=sampledNodes.map((node)=>{
-        const first=Math.max(1,Number(node?.first_sample)||1);
-        const possible=Math.max(1,(Number(history.samples)||0)-first+1);
-        return Math.max(0,Math.min(100,(Number(node?.seen_samples)||0)/possible*100));
-      });
-      const average=presence.reduce((sum,value)=>sum+value,0)/presence.length;
-      const note=document.createElement("div");
-      note.style.cssText="margin-top:9px;padding-top:8px;border-top:1px solid var(--divider-color);color:var(--secondary-text-color);font-size:9px;line-height:1.35;";
-      note.textContent="Estabilidade observada · "+average.toFixed(0)+"% de presença média · "+String(history.samples||0)+" amostras";
-      freshness.appendChild(note);
-    }
-
-    const signals=document.createElement("section");
-    signals.className="hive-network-panel";
-    const stitle=document.createElement("div");stitle.className="hive-network-panel-title";stitle.textContent="Distribuição de sinal";
-    signals.appendChild(stitle);
-    const signalCache=new Map();
-    const signalFor=(neighbor)=>{
-      const id=this.__networkNeighborId(neighbor);
-      if(signalCache.has(id))return signalCache.get(id);
-      const signal=this.__networkSignalFor(neighbor);
-      signalCache.set(id,signal);
-      return signal;
-    };
-    const signalRows=all.map((n)=>signalFor(n)).filter((s)=>s.snr!=null||s.rssi!=null);
-    const good=signalRows.filter((s)=>s.snr!=null?s.snr>=-5:s.rssi>=-100).length;
-    const medium=signalRows.filter((s)=>{
-      if(s.snr!=null)return s.snr<-5&&s.snr>=-12;
-      return s.rssi<-100&&s.rssi>=-115;
-    }).length;
-    const weak=Math.max(0,signalRows.length-good-medium);
-    const signalMax=Math.max(1,good,medium,weak);
-    signals.append(
-      this.__networkBarRow("Bom",good,signalMax),
-      this.__networkBarRow("Médio",medium,signalMax),
-      this.__networkBarRow("Fraco",weak,signalMax)
-    );
-    const sNote=document.createElement("div");
-    sNote.style.cssText="margin-top:8px;color:var(--secondary-text-color);font-size:9px;line-height:1.35;";
-    sNote.textContent=signalRows.length?signalRows.length+" vizinho(s) com RSSI/SNR disponível.":"Sem amostras RSSI/SNR disponíveis neste momento.";
-    signals.appendChild(sNote);
-
-    const trafficPanel=document.createElement("section");
-    trafficPanel.className="hive-network-panel";
-    const ttitle=document.createElement("div");ttitle.className="hive-network-panel-title";
-    const tlabel=document.createElement("span");tlabel.textContent="Repeaters principais";
-    const tmeta=document.createElement("span");tmeta.style.color="var(--secondary-text-color)";tmeta.textContent="Entrada / Percurso";
-    ttitle.append(tlabel,tmeta);trafficPanel.appendChild(ttitle);
-
-    // Routing activity must come from the RF path itself. The message
-    // pubkey_prefix identifies the sender/recipient, not the repeater that
-    // forwarded it, so using peer RX/TX here left this card empty.
-    const contactSource=Array.isArray(this.__nodesMapContacts)
-      ? this.__nodesMapContacts
-      : (Array.isArray(this._contacts)?this._contacts:[]);
-    const resolvedHashCache=new Map();
-    const resolveHash=(rawHash)=>{
-      const hash=String(rawHash||"").trim().replace(/^0x/i,"").toLowerCase();
-      if(!hash)return null;
-      if(resolvedHashCache.has(hash))return resolvedHashCache.get(hash);
-      const matches=contactSource.filter((contact)=>{
-        const key=String(contact?.public_key||"").trim().toLowerCase();
-        const prefix=String(contact?.pubkey_prefix||key.slice(0,12)).trim().toLowerCase();
-        return (key&&key.startsWith(hash))||(prefix&&prefix.startsWith(hash));
-      });
-      const resolved=matches.length===1?matches[0]:null;
-      resolvedHashCache.set(hash,resolved);
-      return resolved;
-    };
-    const rowsFromHashes=(source)=>{
-      return Object.entries(source||{}).map(([hash,activity])=>{
-        const contact=resolveHash(hash);
-        const neighbor=all.find((candidate)=>{
-          const signal=signalFor(candidate);
-          return contact&&signal.contact&&this.__nodeId(signal.contact)===this.__nodeId(contact);
-        })||null;
-        return {
-          hash:String(hash).toUpperCase(),
-          activity:activity||{},
-          contact,
-          name:String(
-            contact?.adv_name||
-            contact?.name||
-            neighbor?.name||
-            neighbor?.pubkey_prefix||
-            ("Repeater "+String(hash).toUpperCase())
-          ),
-        };
-      }).filter((item)=>Number(item.activity?.observations)>0)
-        .sort((a,b)=>Number(b.activity.observations)-Number(a.activity.observations))
-        .slice(0,10);
-    };
-
-    const inbound=rowsFromHashes(this.__peerActivity?.ingress);
-    const pathRows=rowsFromHashes(this.__peerActivity?.links);
-    const inboundTotal=inbound.reduce((sum,item)=>sum+(Number(item.activity.observations)||0),0);
-    const pathTotal=pathRows.reduce((sum,item)=>sum+(Number(item.activity.observations)||0),0);
-
-    const split=document.createElement("div");split.className="hive-network-activity-split";
-    const renderDirection=(label,items,total,emptyText)=>{
-      const side=document.createElement("div");side.className="hive-network-activity-side";
-      const heading=document.createElement("div");heading.className="hive-network-activity-side-title";heading.textContent=label;
-      side.appendChild(heading);
-      if(!items.length){
-        const empty=document.createElement("div");
-        empty.style.cssText="color:var(--secondary-text-color);font-size:9px;line-height:1.4;";
-        empty.textContent=emptyText;
-        side.appendChild(empty);
-        return side;
-      }
-      for(const item of items){
-        const count=Number(item.activity.observations)||0;
-        const pct=total>0?count/total*100:0;
-        const row=document.createElement("div");row.className="hive-network-top-row";
-        const name=document.createElement("strong");name.textContent=item.name;
-        const value=document.createElement("span");value.textContent=String(Math.round(count))+" · "+pct.toFixed(1)+"%";
-        row.append(name,value);
-        const detail=[
-          "hash "+item.hash,
-          Number.isFinite(Number(item.activity.avg_rssi))?"RSSI "+Number(item.activity.avg_rssi).toFixed(1)+" dBm":"",
-          Number.isFinite(Number(item.activity.avg_snr))?"SNR "+Number(item.activity.avg_snr).toFixed(1)+" dB":"",
-        ].filter(Boolean).join(" · ");
-        row.title=detail;
-        if(item.contact){
-          row.style.cursor="pointer";
-          row.addEventListener("click",()=>{
-            this._activeTab="network";this.__hiveNeighborMapMode="contacts";
-            this.requestUpdate?.();
-            window.setTimeout(()=>this.__focusNodeOnMap(item.contact,true),180);
-          });
-        }
-        side.appendChild(row);
-      }
-      return side;
-    };
-    split.append(
-      renderDirection(
-        "Entrada",
-        inbound,
-        inboundTotal,
-        "Ainda não existem paths recebidos com Repeater de entrada identificado."
-      ),
-      renderDirection(
-        "No percurso",
-        pathRows,
-        pathTotal,
-        "Ainda não existem hashes de Repeaters nos paths RF armazenados."
-      )
-    );
-    trafficPanel.appendChild(split);
-    const trafficNote=document.createElement("div");
-    trafficNote.style.cssText="margin-top:8px;color:var(--secondary-text-color);font-size:9px;line-height:1.35;";
-    trafficNote.textContent="Entrada = último Repeater antes do nosso rádio. Percurso = frequência com que cada hash apareceu nos paths recebidos. A saída não é inferida sem telemetria RF que a confirme.";
-    trafficPanel.appendChild(trafficNote);
-    panels.append(freshness,signals,trafficPanel);
-
-    const events=document.createElement("section");
-    events.className="hive-network-panel";
-    events.style.marginTop="8px";
-    const etitle=document.createElement("div");etitle.className="hive-network-panel-title";
-    etitle.textContent="Alterações observadas · 7 dias";
-    events.appendChild(etitle);
-    const recent=(history.events||[]).slice(0,8);
-    if(!recent.length){
-      const empty=document.createElement("div");
-      empty.style.cssText="color:var(--secondary-text-color);font-size:9px;";
-      empty.textContent="Baseline criado. Novos repeaters, desaparecimentos e alterações de configuração passarão a aparecer aqui.";
-      events.appendChild(empty);
-    }else{
-      const labels={new:"Novo repeater",missing:"Saiu da janela de 7 dias",config:"Configuração alterada"};
-      for(const event of recent){
-        const row=document.createElement("div");row.className="hive-network-event";
-        const time=document.createElement("time");time.textContent=new Date(Number(event.timestamp)).toLocaleString();
-        const textNode=document.createElement("div");
-        textNode.textContent=(labels[event.type]||event.type)+" · "+String(event.name||event.id||"");
-        row.append(time,textNode);events.appendChild(row);
-      }
-    }
-
-    container.append(panels,events);
-  }
-
   async __networkContactAction(contact, action) {
     const handler=this._handleNodeAction;
     if(typeof handler!=="function")return;
@@ -9453,12 +9061,7 @@ class HiveFWPanel extends BasePanel {
       this.__nodesMapContacts=null;
       this.__nodesMapLoadedEntry=null;
       await this.__loadNodesMapContacts();
-      const contactHost=this.__networkOverlay?.querySelector(".hive-network-contacts");
-      if(contactHost)this.__renderNetworkContacts(contactHost);
-      const mapHost=this.__networkOverlay?.querySelector(".hive-neighbors-map");
-      if(mapHost&&this.__hiveNeighborMapMode==="contacts"){
-        void this.__renderHiveNeighborDiscoveryMap(mapHost);
-      }
+      if(this._activeTab==="network")this.__touchNetworkPage();
     }
   }
 
@@ -9475,17 +9078,7 @@ class HiveFWPanel extends BasePanel {
       this.__nodesMapLoadedEntry=null;
       this.__nodesMapSignature="";
       await this.__loadNodesMapContacts();
-
-      const contactHost=this.__networkOverlay?.querySelector(".hive-network-contacts");
-      if(contactHost)this.__renderNetworkContacts(contactHost);
-
-      const analytics=this.__networkOverlay?.querySelector(".hive-network-analytics");
-      if(analytics)this.__renderHiveNetworkAnalytics(analytics);
-
-      const mapHost=this.__networkOverlay?.querySelector(".hive-neighbors-map");
-      if(mapHost&&this.__hiveNeighborMapMode==="contacts"){
-        await this.__renderHiveNeighborDiscoveryMap(mapHost);
-      }
+      if(this._activeTab==="network")this.__touchNetworkPage();
     }catch(error){
       console.warn("HiveFW contact refresh failed",error);
     }finally{
@@ -9495,306 +9088,6 @@ class HiveFWPanel extends BasePanel {
         button.title="Atualizar contactos";
       }
     }
-  }
-
-  __renderNetworkContacts(container) {
-    container.replaceChildren();
-    const rawSource=Array.isArray(this.__nodesMapContacts)?[...this.__nodesMapContacts]:[];
-    const localContact=this.__localRepeaterMapContact?.();
-    const localId=localContact?this.__nodeId(localContact):"";
-    const source=localContact&&localId
-      ? rawSource.map((contact)=>this.__nodeId(contact)===localId?localContact:contact)
-      : rawSource;
-    const query=String(this.__networkContactsSearchQuery||"").trim().toLocaleLowerCase();
-    const contacts=source
-      .filter((contact)=>{
-        if(!query)return true;
-        const haystack=[
-          contact?.adv_name,contact?.name,contact?.pubkey_prefix,contact?.public_key,
-          contact?.added_to_node?"no rádio":"local",
-        ].map((value)=>String(value||"").toLocaleLowerCase()).join(" ");
-        return haystack.includes(query);
-      })
-      .sort((a,b)=>
-        Number(b?.lastmod ?? b?.last_modified ?? 0)-
-        Number(a?.lastmod ?? a?.last_modified ?? 0)
-      );
-
-    const head=document.createElement("div");
-    head.className="hive-discovery-head hive-network-contacts-head";
-    const intro=document.createElement("div");
-    const eyebrow=document.createElement("div");
-    eyebrow.className="hive-discovery-eyebrow";
-    eyebrow.textContent="PASSIVO · COMPANION";
-    const title=document.createElement("div");
-    title.className="hive-discovery-title";
-    title.textContent="Contactos descobertos";
-    const subtitle=document.createElement("div");
-    subtitle.className="hive-discovery-subtitle";
-    subtitle.textContent="Contactos anunciados ao Companion.";
-    intro.append(eyebrow,title,subtitle);
-
-    const tools=document.createElement("div");
-    tools.className="hive-network-contact-tools";
-    const search=document.createElement("button");
-    search.type="button";
-    search.className="hive-network-contact-search-button";
-    search.textContent="⌕";
-    search.title="Pesquisar contactos";
-    search.setAttribute("aria-label","Pesquisar contactos");
-    search.addEventListener("click",()=>{
-      this.__networkContactsSearchOpen=!this.__networkContactsSearchOpen;
-      if(!this.__networkContactsSearchOpen)this.__networkContactsSearchQuery="";
-      this.__renderNetworkContacts(container);
-      if(this.__networkContactsSearchOpen){
-        requestAnimationFrame(()=>container.querySelector(".hive-network-contact-search input")?.focus());
-      }
-    });
-
-    const refreshContacts=document.createElement("button");
-    refreshContacts.type="button";
-    refreshContacts.className="hive-network-contact-search-button";
-    refreshContacts.textContent="↻";
-    refreshContacts.title="Atualizar contactos";
-    refreshContacts.setAttribute("aria-label","Atualizar contactos");
-    refreshContacts.addEventListener("click",()=>void this.__refreshNetworkContacts(refreshContacts));
-
-    const gear=document.createElement("button");
-    gear.type="button";
-    gear.className="hive-network-contact-gear";
-    gear.textContent="⚙";
-    gear.title="Importar / exportar contactos";
-    gear.addEventListener("click",()=>{
-      this.__networkContactsMenuOpen=!this.__networkContactsMenuOpen;
-      this.__renderNetworkContacts(container);
-    });
-    tools.append(search,refreshContacts,gear);
-
-    if(this.__networkContactsMenuOpen){
-      const menu=document.createElement("div");
-      menu.className="hive-network-contact-menu";
-      const exportButton=document.createElement("button");
-      exportButton.type="button";
-      exportButton.textContent="Exportar contactos";
-      exportButton.addEventListener("click",()=>void this.__exportHiveFWContacts(exportButton));
-
-      const importButton=document.createElement("button");
-      importButton.type="button";
-      importButton.textContent="Importar contactos";
-      const input=document.createElement("input");
-      input.type="file";
-      input.accept=".json,application/json";
-      input.hidden=true;
-      input.addEventListener("change",async()=>{
-        const file=input.files?.[0];
-        if(!file)return;
-        await this.__importHiveFWContacts(file,importButton);
-        this.__nodesMapContacts=null;
-        this.__nodesMapLoadedEntry=null;
-        await this.__loadNodesMapContacts();
-        this.__networkContactsMenuOpen=false;
-        this.__renderNetworkContacts(container);
-        const analytics=this.__networkOverlay?.querySelector(".hive-network-analytics");
-        if(analytics)this.__renderHiveNetworkAnalytics(analytics);
-        const mapHost=this.__networkOverlay?.querySelector(".hive-neighbors-map");
-        if(mapHost&&this.__hiveNeighborMapMode==="contacts"){
-          void this.__renderHiveNeighborDiscoveryMap(mapHost);
-        }
-      });
-      importButton.addEventListener("click",()=>input.click());
-      menu.append(exportButton,importButton,input);
-      tools.appendChild(menu);
-    }
-
-    head.append(intro,tools);
-    container.appendChild(head);
-
-    if(this.__networkContactsSearchOpen){
-      const searchWrap=document.createElement("div");
-      searchWrap.className="hive-network-contact-search";
-      const input=document.createElement("input");
-      input.type="search";
-      input.placeholder="Pesquisar nome, prefixo ou chave…";
-      input.value=this.__networkContactsSearchQuery;
-      input.addEventListener("input",()=>{
-        this.__networkContactsSearchQuery=input.value;
-        this.__renderNetworkContacts(container);
-        requestAnimationFrame(()=>{
-          const next=container.querySelector(".hive-network-contact-search input");
-          if(next){next.focus();next.setSelectionRange?.(next.value.length,next.value.length);}
-        });
-      });
-      searchWrap.appendChild(input);
-      container.appendChild(searchWrap);
-    }
-
-    const list=document.createElement("div");
-    list.className="hive-network-contact-list";
-    if(!source.length){
-      const empty=document.createElement("div");
-      empty.className="hive-discovery-empty";
-      empty.textContent=this.__nodesMapLoading?"A carregar contactos…":"Ainda não existem contactos disponíveis.";
-      list.appendChild(empty);
-    }else{
-      for(const contact of contacts){
-        const row=document.createElement("article");
-        row.className="hive-discovery-item hive-network-contact-row";
-        const info=document.createElement("div");
-        info.style.minWidth="0";
-        const name=document.createElement("div");
-        name.className="hive-neighbor-name";
-        name.textContent=String(contact?.adv_name||contact?.name||contact?.pubkey_prefix||"Contacto");
-        const prefix=document.createElement("div");
-        prefix.className="hive-neighbor-prefix";
-        prefix.textContent=String(contact?.pubkey_prefix||String(contact?.public_key||"").slice(0,12)).toUpperCase();
-        const meta=document.createElement("div");
-        meta.className="hive-neighbor-meta";
-        const sourcePill=document.createElement("span");
-        sourcePill.className="hive-neighbor-pill";
-        sourcePill.textContent=contact?.added_to_node?"NO RÁDIO":"LOCAL";
-        meta.appendChild(sourcePill);
-        const rawAge=contact?.age_seconds;
-        const ageSeconds=rawAge == null ? Number.NaN : Number(rawAge);
-        if(Number.isFinite(ageSeconds)){
-          const age=document.createElement("span");
-          age.textContent=this.__age(ageSeconds);
-          meta.appendChild(age);
-        }
-        info.append(name,prefix,meta);
-
-        const side=document.createElement("div");
-        side.className="hive-discovery-signal";
-
-        const gpsRow=document.createElement("div");
-        gpsRow.className="hive-network-contact-gps";
-        const hasGps=Boolean(this.__nodeCoords(contact));
-        const gpsLabel=document.createElement("span");
-        gpsLabel.className="hive-network-contact-gps-label";
-        gpsLabel.textContent="GPS:";
-        const gpsIcon=document.createElement("ha-icon");
-        gpsIcon.icon=hasGps?"mdi:map-marker":"mdi:map-marker-off-outline";
-        gpsIcon.style.color=hasGps?"#2e7d32":"#9e9e9e";
-        gpsIcon.title=hasGps
-          ? "GPS incluído no advert"
-          : "Advert sem localização GPS";
-        gpsRow.append(gpsLabel,gpsIcon);
-
-        const ageRow=document.createElement("div");
-        ageRow.className="hive-network-contact-age-dot";
-        const ageSpacer=document.createElement("span");
-        ageSpacer.className="hive-network-contact-age-spacer";
-        ageSpacer.textContent="GPS:";
-        const dot=document.createElement("span");
-        dot.className="hive-discovery-signal-dot";
-        const clockSkew=String(contact?.age_bucket||"")==="clock_skew";
-        const advertAge=Number.isFinite(ageSeconds)?Math.max(0,ageSeconds):Infinity;
-        // Companion last-heard freshness: 0–24 h green, 24–48 h yellow,
-        // 48–72 h red, then grey. A future/incoherent Companion timestamp
-        // is black so it is visually obvious that recency must be ignored.
-        dot.style.background=clockSkew
-          ? "#000000"
-          : advertAge<24*3600
-            ? "#2e7d32"
-            : advertAge<48*3600
-              ? "#f9a825"
-              : advertAge<72*3600
-                ? "#c62828"
-                : "#757575";
-        dot.title=clockSkew
-          ? "Relógio dessincronizado — ignorar recência"
-          : Number.isFinite(advertAge)
-            ? "Última vez ouvido: há "+this.__age(advertAge)
-            : "Sem lastmod disponível";
-        ageRow.append(ageSpacer,dot);
-
-        side.append(gpsRow,ageRow);
-        row.append(info,side);
-        row.addEventListener("click",()=>{
-          const sameMap=this.__hiveNeighborMapMode==="contacts"&&this.__nodesMapElement?.isConnected;
-          this.__hiveNeighborMapMode="contacts";
-          this.__nodesMapFocusId=this.__nodeId(contact);
-          if(sameMap){
-            this.__focusNodeOnMap(contact,true);
-            return;
-          }
-          const mapHost=this.__networkOverlay?.querySelector(".hive-neighbors-map");
-          if(mapHost)void this.__renderHiveNeighborDiscoveryMap(mapHost).then(()=>{
-            if(this.__nodeCoords(contact))this.__focusNodeOnMap(contact,true);
-          });
-        });
-        list.appendChild(row);
-      }
-    }
-    container.appendChild(list);
-  }
-
-  __ensureNetworkOverlay(container) {
-    if(this.__networkOverlay?.isConnected)return this.__networkOverlay;
-    const overlay=document.createElement("div");
-    overlay.className="hive-network-overlay";
-    container.appendChild(overlay);
-    this.__networkOverlay=overlay;
-    return overlay;
-  }
-
-  __removeNetworkOverlay() {
-    if(this.__networkOverlay?.isConnected)this.__networkOverlay.remove();
-    this.__networkOverlay=null;
-    if(this._activeTab!=="neighbors")this.__stopHiveNeighborDiscoveryPolling();
-  }
-
-  __renderHiveNetwork(container) {
-    container.replaceChildren();
-    const page=document.createElement("div");
-    page.className="mcr-page hive-network-page";
-    page.style.overflow="visible";
-
-    const analytics=document.createElement("section");
-    analytics.className="hive-network-analytics";
-
-    const contacts=document.createElement("section");
-    contacts.className="hive-network-contacts";
-
-    const lower=document.createElement("div");
-    lower.className="hive-network-lower";
-    lower.append(analytics);
-
-    const copy=document.createElement("div");
-    copy.className="hive-network-copy";
-
-    const layout=document.createElement("div");
-    layout.className="hive-neighbors-three";
-    const left=document.createElement("section");
-    left.className="hive-neighbors-column hive-neighbors-passive";
-    const leftScroll=document.createElement("div");
-    leftScroll.className="hive-neighbors-left-scroll";
-    left.appendChild(leftScroll);
-    const middle=document.createElement("section");
-    middle.className="hive-neighbors-column hive-neighbors-discovery";
-    const contactsColumn=document.createElement("section");
-    contactsColumn.className="hive-neighbors-column hive-network-contacts";
-    const right=document.createElement("section");
-    right.className="hive-neighbors-column hive-neighbors-map";
-    layout.append(left,middle,contactsColumn,right);
-    copy.appendChild(layout);
-    page.append(copy,lower);
-    container.appendChild(page);
-
-    // Keep the existing three-column top row unchanged. The merged Nodes
-    // content lives below it, beside Rede, at half width.
-    this.__renderHiveNeighborsLeft(leftScroll);
-    this.__renderHiveNeighborDiscovery(middle);
-    this.__renderNetworkContacts(contactsColumn);
-    void this.__renderHiveNeighborDiscoveryMap(right);
-    this.__renderHiveNetworkAnalytics(analytics);
-  }
-
-  __removeNeighborsOverlay() {
-    if (this.__neighborsOverlay?.isConnected) {
-      this.__neighborsOverlay.remove();
-    }
-    this.__neighborsOverlay = null;
-    if(this._activeTab!=="network")this.__stopHiveNeighborDiscoveryPolling();
   }
 
   async __loadHiveNeighbors() {
@@ -9818,258 +9111,12 @@ class HiveFWPanel extends BasePanel {
     }
   }
 
-  __rerenderHivePage() {
-    if (this._activeTab !== "network") return;
-    const container = this.shadowRoot?.querySelector(".hive-network-host");
-    if (!container) return;
-    const overlay=this.__ensureNetworkOverlay(container);
-    this.__renderHiveNetwork(overlay);
+  __rerenderHiveNeighborsLeftOnly(_renderMap = false) {
+    if (this._activeTab === "network") this.__touchNetworkPage();
   }
 
-  __rerenderHiveNeighborsLeftOnly(renderMap = false) {
-    if (this._activeTab !== "network") return;
-    const overlay = this.__networkOverlay;
-    const left = overlay?.querySelector(".hive-neighbors-passive .hive-neighbors-left-scroll");
-    if (!left) {
-      this.__rerenderHivePage();
-      return;
-    }
-    const scrollTop = left.scrollTop;
-    this.__renderHiveNeighborsLeft(left);
-    left.scrollTop = scrollTop;
-    const analytics=overlay?.querySelector(".hive-network-analytics");
-    if(analytics)this.__renderHiveNetworkAnalytics(analytics);
-    if(renderMap&&this.__hiveNeighborMapMode==="neighbors"){
-      const right=overlay?.querySelector(".hive-neighbors-map");
-      if(right)void this.__renderHiveNeighborDiscoveryMap(right);
-    }
-  }
-
-  __rerenderHiveNeighborDiscoveryOnly(renderMap = false) {
-    if (this._activeTab !== "network") return;
-    const overlay = this.__networkOverlay;
-    const middle = overlay?.querySelector(".hive-neighbors-discovery");
-    if (!middle) {
-      this.__rerenderHivePage();
-      return;
-    }
-
-    const oldScroll = middle.querySelector(".hive-neighbors-discovery-scroll");
-    const scrollTop = oldScroll?.scrollTop || 0;
-    this.__renderHiveNeighborDiscovery(middle);
-    const newScroll = middle.querySelector(".hive-neighbors-discovery-scroll");
-    if (newScroll) {
-      newScroll.scrollTop = scrollTop;
-      requestAnimationFrame(() => {
-        if (newScroll.isConnected) newScroll.scrollTop = scrollTop;
-      });
-    }
-
-    if (renderMap) {
-      const right = overlay?.querySelector(".hive-neighbors-map");
-      if (right) void this.__renderHiveNeighborDiscoveryMap(right);
-    }
-  }
-
-  __signalBarsForSnr(snrValue) {
-    const snr=Number(snrValue);
-    const bars=document.createElement("span");
-    bars.className="hive-signal-bars";
-    let count=0;
-    let color="#757575";
-    let label="Sinal indisponível";
-    if(Number.isFinite(snr)){
-      if(snr>=0){count=4;color="#4caf50";label="Sinal excelente";}
-      else if(snr>=-5){count=3;color="#8bc34a";label="Sinal bom";}
-      else if(snr>=-10){count=2;color="#ff9800";label="Sinal razoável";}
-      else{count=1;color="#f44336";label="Sinal fraco";}
-    }
-    bars.dataset.bars=String(count);
-    bars.style.setProperty("--hive-signal-color",color);
-    bars.title=Number.isFinite(snr)?label+" · SNR "+snr.toFixed(1)+" dB":label;
-    bars.setAttribute("aria-label",bars.title);
-    return bars;
-  }
-
-  __renderHiveNeighbors(container) {
-    container.replaceChildren();
-
-    const page = document.createElement("div");
-    page.className = "mcr-page";
-    page.style.overflow = "hidden";
-
-    const layout = document.createElement("div");
-    layout.className = "hive-neighbors-three";
-
-    const left = document.createElement("section");
-    left.className = "hive-neighbors-column hive-neighbors-passive";
-    const leftScroll = document.createElement("div");
-    leftScroll.className = "hive-neighbors-left-scroll";
-    left.appendChild(leftScroll);
-
-    const middle = document.createElement("section");
-    middle.className = "hive-neighbors-column hive-neighbors-discovery";
-
-    const right = document.createElement("section");
-    right.className = "hive-neighbors-column hive-neighbors-map";
-
-    layout.append(left, middle, right);
-    page.appendChild(layout);
-    container.appendChild(page);
-
-    // Preserve the original Vizinhos page exactly as the passive source in
-    // column one. Active discovery is rendered independently beside it.
-    this.__renderHiveNeighborsLeft(leftScroll);
-    this.__renderHiveNeighborDiscovery(middle);
-    void this.__renderHiveNeighborDiscoveryMap(right);
-  }
-
-  __renderHiveNeighborsLeft(container) {
-    container.replaceChildren();
-
-    const head=document.createElement("div");
-    head.className="hive-discovery-head";
-    head.style.margin="-14px -14px 12px";
-
-    const heading=document.createElement("div");
-    const eyebrow=document.createElement("div");
-    eyebrow.className="hive-discovery-eyebrow";
-    eyebrow.textContent="PASSIVO";
-    const title=document.createElement("div");
-    title.className="hive-discovery-title";
-    title.textContent="Vizinhos";
-    const subtitle=document.createElement("div");
-    subtitle.className="hive-discovery-subtitle";
-    subtitle.textContent="Repeaters ouvidos diretamente nos últimos 7 dias (Zero-Hop)";
-    heading.append(eyebrow,title,subtitle);
-
-    const refresh=document.createElement("button");
-    refresh.type="button";
-    refresh.className="hive-network-contact-search-button";
-    refresh.disabled=this.__hiveNeighborsLoading;
-    refresh.textContent=this.__hiveNeighborsLoading?"…":"↻";
-    refresh.title=this.__hiveNeighborsLoading?"A atualizar vizinhos…":"Atualizar vizinhos";
-    refresh.setAttribute("aria-label","Atualizar vizinhos");
-    refresh.addEventListener("click",()=>void this.__loadHiveNeighbors());
-    head.append(heading,refresh);
-    container.appendChild(head);
-
-    if(this.__hiveNeighborsLoading&&!this.__hiveNeighbors){
-      container.appendChild(this.__state(
-        "A carregar",
-        "A consultar a tabela local de Repeaters ouvidos diretamente."
-      ));
-      return;
-    }
-    if(this.__hiveNeighborsError){
-      container.appendChild(this.__state("Erro ao carregar",this.__hiveNeighborsError));
-      return;
-    }
-
-    const data=this.__hiveNeighbors;
-    if(!data?.supported){
-      container.appendChild(this.__state(
-        "Consulta indisponível",
-        "Esta versão do Companion não disponibiliza a tabela zero-hop."
-      ));
-      return;
-    }
-    if(!data.repeater_enabled){
-      container.appendChild(this.__state(
-        "Modo Repeater desligado",
-        "O rádio está ligado como Companion, mas o modo Repeater encontra-se desligado."
-      ));
-      return;
-    }
-
-    const neighbors=Array.isArray(data.neighbors)?[...data.neighbors]:[];
-
-    const listHead=document.createElement("div");
-    listHead.className="hive-discovery-list-head";
-    const left=document.createElement("div");
-    left.style.cssText="display:flex;align-items:center;gap:7px;min-width:0;";
-    const label=document.createElement("span");
-    label.textContent="Repeaters ouvidos";
-    const count=document.createElement("span");
-    count.className="hive-discovery-count";
-    count.textContent=String(data.count??neighbors.length);
-    left.append(label,count);
-
-    listHead.append(left);
-    container.appendChild(listHead);
-
-    if(!neighbors.length){
-      const empty=document.createElement("div");
-      empty.className="hive-discovery-empty";
-      empty.textContent="Ainda não foi ouvido diretamente nenhum advert de Repeater.";
-      container.appendChild(empty);
-      return;
-    }
-
-    neighbors.sort((a,b)=>Number(a.secs_ago||0)-Number(b.secs_ago||0));
-
-    for(const neighbor of neighbors){
-      const row=document.createElement("article");
-      row.className="hive-discovery-item";
-      row.style.cursor="default";
-
-      const info=document.createElement("div");
-      info.style.minWidth="0";
-      const name=document.createElement("div");
-      name.className="hive-neighbor-name";
-      name.textContent=neighbor.name||neighbor.pubkey_prefix||"Repeater";
-      const prefix=document.createElement("div");
-      prefix.className="hive-neighbor-prefix";
-      prefix.textContent=String(neighbor.pubkey_prefix||"").toUpperCase();
-      const meta=document.createElement("div");
-      meta.className="hive-neighbor-meta";
-
-      const direct=document.createElement("span");
-      direct.className="hive-neighbor-pill";
-      direct.textContent="ZERO-HOP";
-      const age=document.createElement("span");
-      age.textContent=this.__age(Number(neighbor.secs_ago||0));
-      meta.append(direct,age);
-      if(neighbor.known_contact){
-        const known=document.createElement("span");
-        known.textContent="Conhecido";
-        meta.appendChild(known);
-      }
-      info.append(name,prefix,meta);
-
-      const signal=document.createElement("div");
-      signal.className="hive-discovery-signal";
-      const rssi=Number(neighbor.rssi);
-      const snr=Number(neighbor.snr);
-      const values=document.createElement("span");
-      values.className="hive-discovery-signal-values";
-      const snrValue=document.createElement("span");
-      const rssiValue=document.createElement("small");
-      snrValue.textContent=Number.isFinite(snr)?"SNR "+snr.toFixed(1)+" dB":"SNR —";
-      rssiValue.textContent=Number.isFinite(rssi)?"RSSI "+Math.round(rssi)+" dBm":"RSSI —";
-      const bars=this.__signalBarsForSnr(snr);
-      values.append(snrValue,rssiValue);
-      signal.append(values,bars);
-      row.append(info,signal);
-      const lat=Number(neighbor.latitude),lon=Number(neighbor.longitude);
-      if(Number.isFinite(lat)&&Number.isFinite(lon)){
-        row.style.cursor="pointer";
-        row.addEventListener("click",()=>{
-          const id=String(neighbor.pubkey||neighbor.pubkey_prefix||"");
-          const sameMap=this.__hiveNeighborMapMode==="neighbors"&&this.__hiveNeighborMapElement?.isConnected;
-          this.__hiveNeighborMapMode="neighbors";
-          this.__hiveNeighborMapFocusId=id;
-          if(sameMap){
-            this.__hiveNeighborMapElement?.leafletMap?.setView?.([lat,lon],14,{animate:true});
-            this.__hiveNeighborMapLeafletMarkers.get(id)?.openTooltip?.();
-          }else{
-            const mapHost=this.__networkOverlay?.querySelector(".hive-neighbors-map");
-            if(mapHost)void this.__renderHiveNeighborDiscoveryMap(mapHost);
-          }
-        });
-      }
-      container.appendChild(row);
-    }
+  __rerenderHiveNeighborDiscoveryOnly(_renderMap = false) {
+    if (this._activeTab === "network") this.__touchNetworkPage();
   }
 
   async __loadHiveNeighborDiscovery() {
@@ -10201,160 +9248,6 @@ class HiveFWPanel extends BasePanel {
     if (this.__hiveNeighborDiscoveryPollTimer) {
       window.clearInterval(this.__hiveNeighborDiscoveryPollTimer);
       this.__hiveNeighborDiscoveryPollTimer = null;
-    }
-  }
-
-  __renderHiveNeighborDiscovery(container) {
-    container.replaceChildren();
-
-    const head = document.createElement("div");
-    head.className = "hive-discovery-head";
-    const heading = document.createElement("div");
-    const eyebrow = document.createElement("div");
-    eyebrow.className = "hive-discovery-eyebrow";
-    eyebrow.textContent = "ATIVO · RF ZERO-HOP";
-    const title = document.createElement("div");
-    title.className = "hive-discovery-title";
-    title.textContent = "Descobrir Repetidores";
-    const subtitle = document.createElement("div");
-    subtitle.className = "hive-discovery-subtitle";
-    subtitle.textContent = "Pesquisa oficial MeshCore apenas a Repeaters em alcance direto.";
-    heading.append(eyebrow, title, subtitle);
-
-    const discover = document.createElement("button");
-    discover.className = "mcr-btn primary";
-    const active = Boolean(this.__hiveNeighborDiscovery?.active);
-    // O botão fica sempre disponível. Um novo clique substitui a sessão atual.
-    discover.disabled = this.__hiveNeighborDiscoveryStarting;
-    discover.textContent = this.__hiveNeighborDiscoveryStarting ? "A iniciar…" : "Descobrir";
-    discover.addEventListener("click", () => {
-      this.__hiveNeighborMapMode = "discovery";
-      this.__hiveNeighborMapFocusId = "";
-      const mapHost=this.__networkOverlay?.querySelector(".hive-neighbors-map");
-      if(mapHost)void this.__renderHiveNeighborDiscoveryMap(mapHost);
-      void this.__startHiveNeighborDiscovery();
-    });
-    head.append(heading, discover);
-    container.appendChild(head);
-
-    const scroll = document.createElement("div");
-    scroll.className = "hive-neighbors-discovery-scroll";
-    container.appendChild(scroll);
-
-    const state = this.__hiveNeighborDiscovery;
-    const status = document.createElement("div");
-    status.className = "hive-discovery-status";
-    if (state?.error) {
-      status.textContent = "Erro: " + state.error;
-    } else if (active) {
-      status.textContent =
-        "À escuta de respostas · " +
-        String(Math.max(0, Number(state?.remaining_seconds || 0))) +
-        " s restantes.";
-    } else if (state?.started_at) {
-      status.textContent = "Pesquisa concluída.";
-    } else {
-      status.textContent = "Pronto para iniciar uma descoberta zero-hop.";
-    }
-    scroll.appendChild(status);
-
-    const results = Array.isArray(state?.results) ? state.results : [];
-    const listHead = document.createElement("div");
-    listHead.className = "hive-discovery-list-head";
-    const listLabel = document.createElement("span");
-    listLabel.textContent = "Repetidores encontrados";
-    const listCount = document.createElement("span");
-    listCount.className = "hive-discovery-count";
-    listCount.textContent = String(Number(state?.count ?? results.length));
-    listHead.append(listLabel, listCount);
-    scroll.appendChild(listHead);
-
-    if (!results.length) {
-      const empty = document.createElement("div");
-      empty.className = "hive-discovery-empty";
-      empty.textContent = active
-        ? "A aguardar respostas dos Repeaters em alcance…"
-        : state?.started_at
-          ? "A pesquisa terminou sem encontrar Repeaters em alcance direto."
-          : "Ainda não existem resultados de descoberta ativa.";
-      scroll.appendChild(empty);
-      return;
-    }
-
-    for (const item of results) {
-      const row = document.createElement("article");
-      row.className = "hive-discovery-item";
-      const id = String(item.pubkey || item.pubkey_prefix || "");
-      row.classList.toggle("selected", id === this.__hiveNeighborMapFocusId);
-
-      const info = document.createElement("div");
-      const name = document.createElement("div");
-      name.className = "hive-neighbor-name";
-      name.textContent = item.name || item.pubkey_prefix || "Repeater";
-      const prefix = document.createElement("div");
-      prefix.className = "hive-neighbor-prefix";
-      prefix.textContent = String(item.pubkey_prefix || "").toUpperCase();
-      const meta = document.createElement("div");
-      meta.className = "hive-neighbor-meta";
-      const direct = document.createElement("span");
-      direct.className = "hive-neighbor-pill";
-      direct.textContent = "ZERO-HOP";
-      meta.appendChild(direct);
-
-      const known = document.createElement("span");
-      known.textContent = item.known_contact ? "Conhecido" : "Novo";
-      meta.appendChild(known);
-
-      if (Number.isFinite(Number(item.latitude)) && Number.isFinite(Number(item.longitude))) {
-        const gps = document.createElement("span");
-        gps.textContent = "📍 GPS";
-        meta.appendChild(gps);
-      }
-      info.append(name, prefix, meta);
-
-      const signal = document.createElement("div");
-      signal.className = "hive-discovery-signal";
-      const rssi = Number(item.rssi);
-      const snr = Number(item.snr);
-      const signalValues = document.createElement("span");
-      signalValues.className = "hive-discovery-signal-values";
-      const reqValue = document.createElement("small");
-      const snrValue = document.createElement("span");
-      const rssiValue = document.createElement("small");
-      const signalBars = this.__signalBarsForSnr(snr);
-
-      reqValue.textContent = item.request_snr != null && Number.isFinite(Number(item.request_snr))
-        ? "REQ(" + Number(item.request_snr).toFixed(1) + " dB)"
-        : "REQ(—)";
-      snrValue.textContent = Number.isFinite(snr)
-        ? "SNR " + snr.toFixed(1) + " dB"
-        : "SNR —";
-      rssiValue.textContent = Number.isFinite(rssi)
-        ? "RSSI " + Math.round(rssi) + " dBm"
-        : "RSSI —";
-      signal.setAttribute(
-        "aria-label",
-        signalBars.getAttribute("aria-label")+" · "+snrValue.textContent+" · "+rssiValue.textContent
-      );
-
-      signalValues.append(reqValue, snrValue, rssiValue);
-      signal.append(signalValues, signalBars);
-      row.append(info, signal);
-      row.addEventListener("click", () => {
-        this.__hiveNeighborMapMode = "discovery";
-        this.__hiveNeighborMapFocusId = id;
-        this.__rerenderHiveNeighborDiscoveryOnly(true);
-
-        const lat = Number(item.latitude);
-        const lon = Number(item.longitude);
-        const map = this.__hiveNeighborMapElement;
-        if (Number.isFinite(lat) && Number.isFinite(lon)) {
-          map?.leafletMap?.setView?.([lat, lon], 14, { animate:true });
-          const marker = this.__hiveNeighborMapLeafletMarkers.get(id);
-          marker?.openTooltip?.();
-        }
-      });
-      scroll.appendChild(row);
     }
   }
 
@@ -10535,271 +9428,6 @@ class HiveFWPanel extends BasePanel {
     }
 
     return layers;
-  }
-
-  async __renderHiveNeighborDiscoveryMap(container) {
-    const renderSeq=++this.__hiveNeighborMapRenderSeq;
-    container.replaceChildren();
-    this.__hiveNeighborMapElement = null;
-
-    const head = document.createElement("div");
-    head.className = "hive-discovery-head";
-    const title = document.createElement("div");
-    title.className = "hive-discovery-title";
-    title.textContent = "Mapa";
-
-    const actions=document.createElement("div");
-    actions.className="hive-neighbors-map-actions";
-    actions.style.cssText="display:flex;align-items:center;gap:4px;";
-    for(const [mode,label] of [["neighbors","Vizinhos"],["discovery","Descobrir Repetidores"],["contacts","Contactos Descobertos"]]){
-      const button=document.createElement("button");
-      button.type="button";
-      button.className="mcr-btn";
-      button.textContent=label;
-      button.classList.toggle("active",this.__hiveNeighborMapMode===mode);
-      button.setAttribute("aria-pressed",this.__hiveNeighborMapMode===mode?"true":"false");
-      button.addEventListener("click",()=>{
-        if(this.__hiveNeighborMapMode===mode)return;
-        this.__hiveNeighborMapMode=mode;
-        this.__hiveNeighborMapFocusId="";
-        void this.__renderHiveNeighborDiscoveryMap(container);
-      });
-      actions.appendChild(button);
-    }
-    head.append(title,actions);
-    container.appendChild(head);
-
-    const host = document.createElement("div");
-    host.className = "hive-neighbors-map-host";
-    container.appendChild(host);
-
-    const loadingNote=document.createElement("div");
-    loadingNote.className="hive-neighbors-map-note";
-    loadingNote.textContent="A preparar mapa…";
-    host.appendChild(loadingNote);
-
-    const contactsMode=this.__hiveNeighborMapMode==="contacts";
-    if(contactsMode){
-      const ready=await this.__ensureMapLoaded();
-      if(renderSeq!==this.__hiveNeighborMapRenderSeq||!container.isConnected)return;
-      loadingNote.remove();
-      const source=Array.isArray(this.__nodesMapContacts)?this.__nodesMapContacts:[];
-      const contacts=this.__validMapContacts();
-      const local=this.__localRepeaterMapContact();
-      const localId=local?this.__nodeId(local):"";
-      const mapContacts=local
-        ? [local,...contacts.filter((contact)=>this.__nodeId(contact)!==localId)]
-        : contacts;
-
-      if(!ready){
-        const note=document.createElement("div");
-        note.className="hive-neighbors-map-note";
-        note.textContent="Não foi possível carregar o mapa do Home Assistant.";
-        host.appendChild(note);
-        return;
-      }
-      if(!contacts.length){
-        const note=document.createElement("div");
-        note.className="hive-neighbors-map-note";
-        note.textContent=source.length
-          ? "Os contactos existem, mas ainda não têm localização GPS anunciada."
-          : "Ainda não existem contactos para mostrar no mapa.";
-        host.appendChild(note);
-        return;
-      }
-
-      const count=document.createElement("div");
-      count.className="hive-neighbors-map-count";
-      count.textContent=String(contacts.length)+"/"+String(source.length)+" com localização";
-      host.appendChild(count);
-
-      const map=document.createElement("ha-map");
-      // Contactos Descobertos is always local-first. Do not auto-fit every
-      // contact across the country/world; open around the connected repeater.
-      map.autoFit=false;
-      map.clusterMarkers=true;
-      map.scaleRuler=true;
-      map.themeMode="light";
-      host.appendChild(map);
-      this.__nodesMapPane=container;
-      this.__nodesMapElement=map;
-      this.__nodesMapSignature="";
-
-      await new Promise((resolve)=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
-      if(renderSeq!==this.__hiveNeighborMapRenderSeq||!map.isConnected)return;
-
-      const legacyReady="layers" in map
-        ? await this.__waitForLegacyLeaflet(map)
-        : false;
-      if(renderSeq!==this.__hiveNeighborMapRenderSeq||!map.isConnected)return;
-
-      if(legacyReady){
-        map.entities=[];
-        map.layers=this.__legacyLeafletLayers(map,mapContacts,null);
-        const localCoords=local?this.__nodeCoords(local):null;
-        if(localCoords){
-          map.leafletMap?.setView?.(localCoords,16,{animate:false});
-        }else{
-          const firstCoords=mapContacts.map((contact)=>this.__nodeCoords(contact)).find(Boolean);
-          if(firstCoords)map.leafletMap?.setView?.(firstCoords,16,{animate:false});
-        }
-        map.leafletMap?.invalidateSize?.(false);
-      }else{
-        map.entities=this.__mapEntities(mapContacts);
-        if("editableLocations" in map)map.editableLocations=this.__mapLocations(mapContacts);
-        const localCoords=local?this.__nodeCoords(local):null;
-        if(localCoords){
-          map.setView?.(localCoords,16);
-        }else{
-          const firstCoords=mapContacts.map((contact)=>this.__nodeCoords(contact)).find(Boolean);
-          if(firstCoords)map.setView?.(firstCoords,16);
-        }
-      }
-      this.__drawLastTraceRoute();
-      return;
-    }
-
-    // A non-contact map uses the dedicated neighbour/discovery map state.
-    if(this.__nodesMapPane===container){
-      this.__nodesMapPane=null;
-      this.__nodesMapElement=null;
-      this.__nodesMapSignature="";
-    }
-
-    const discoveryMode=this.__hiveNeighborMapMode==="discovery";
-    const located = discoveryMode
-      ? this.__hiveNeighborDiscoveryLocated()
-      : this.__hiveNeighborHistoryLocated();
-    const total = discoveryMode
-      ? (Array.isArray(this.__hiveNeighborDiscovery?.results)?this.__hiveNeighborDiscovery.results.length:0)
-      : (Array.isArray(this.__hiveNeighbors?.neighbors)?this.__hiveNeighbors.neighbors.length:0);
-
-    // Keep the existing discovery behaviour unchanged: while an active
-    // discovery is collecting replies, its map stays hidden. The passive
-    // Vizinhos map remains immediately available and is the default mode.
-    if (discoveryMode && this.__hiveNeighborDiscovery?.active) {
-      loadingNote.remove();
-      const note = document.createElement("div");
-      note.className = "hive-neighbors-map-note";
-      note.textContent =
-        "Mapa oculto durante a descoberta. Será preenchido quando a pesquisa terminar.";
-      host.appendChild(note);
-      return;
-    }
-
-    const ready = await this.__ensureMapLoaded();
-    if (renderSeq!==this.__hiveNeighborMapRenderSeq || !container.isConnected) return;
-    loadingNote.remove();
-
-    if (!ready) {
-      const note = document.createElement("div");
-      note.className = "hive-neighbors-map-note";
-      note.textContent = "Não foi possível carregar o mapa do Home Assistant.";
-      host.appendChild(note);
-      return;
-    }
-
-    if (!located.length) {
-      const note = document.createElement("div");
-      note.className = "hive-neighbors-map-note";
-      if(discoveryMode){
-        note.textContent = total
-          ? String(total) + " Repeater(s) encontrado(s), mas ainda sem localização conhecida."
-          : "Os Repeaters encontrados aparecerão aqui quando a descoberta começar.";
-      }else{
-        note.textContent = total
-          ? String(total) + " Vizinho(s) ouvido(s), mas ainda sem localização conhecida."
-          : "A aguardar anúncios de Vizinhos para mostrar no mapa.";
-      }
-      host.appendChild(note);
-      return;
-    }
-
-    const count = document.createElement("div");
-    count.className = "hive-neighbors-map-count";
-    count.textContent = String(located.length) + "/" + String(total) + " com localização";
-    host.appendChild(count);
-
-    const map = document.createElement("ha-map");
-    map.autoFit = false;
-    map.clusterMarkers = true;
-    map.scaleRuler = true;
-    map.themeMode = "light";
-    host.appendChild(map);
-    this.__hiveNeighborMapElement = map;
-
-    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-    if (renderSeq!==this.__hiveNeighborMapRenderSeq || !map.isConnected) return;
-
-    const legacyReady="layers" in map
-      ? await this.__waitForLegacyLeaflet(map)
-      : false;
-    if (renderSeq!==this.__hiveNeighborMapRenderSeq || !map.isConnected) return;
-
-    if (legacyReady) {
-      map.entities = [];
-      map.layers = this.__hiveNeighborLegacyLeafletLayers(map, located);
-
-      const coords = located.map((item) => [
-        Number(item.latitude),
-        Number(item.longitude),
-      ]);
-      if (coords.length === 1) {
-        map.leafletMap?.setView?.(coords[0], 11, { animate:false });
-      } else if (coords.length > 1 && map.Leaflet?.latLngBounds) {
-        const bounds = map.Leaflet.latLngBounds(coords);
-        map.leafletMap?.fitBounds?.(bounds, {
-          padding:[28,28],
-          maxZoom:12,
-          animate:false,
-        });
-      }
-      map.leafletMap?.invalidateSize?.(false);
-    } else {
-      const entityIds = located
-        .map((item) => item.map_entity_id)
-        .filter((entityId) => entityId && this.hass?.states?.[entityId]);
-      map.entities = entityIds;
-      if ("editableLocations" in map) {
-        const locations = this.__hiveNeighborMapLocations(located);
-        const localPoint = this.__hiveNeighborLocalMapPoint();
-        if (localPoint) {
-          const localElement = document.createElement("div");
-          localElement.textContent = "H";
-          localElement.style.cssText =
-            "width:30px;height:30px;border-radius:50%;display:grid;place-items:center;" +
-            "font-size:10px;font-weight:800;background:var(--warning-color,#ff9800);" +
-            "color:#fff;border:3px solid #fff;box-shadow:0 1px 6px rgba(0,0,0,.4)";
-          locations.unshift({
-            id:"__hivefw_local__",
-            location:[Number(localPoint.latitude), Number(localPoint.longitude)],
-            element:localElement,
-            elementSize:[36,36],
-            title:"HiveFW local · " + localPoint.name,
-            locationEditable:false,
-            activatable:false,
-          });
-        }
-        map.editableLocations = locations;
-      }
-      map.autoFit = true;
-    }
-
-    if (this.__hiveNeighborMapFocusId) {
-      const selected = located.find(
-        (item) =>
-          String(item.pubkey || item.pubkey_prefix || "") ===
-          this.__hiveNeighborMapFocusId
-      );
-      if (selected) {
-        const coords = [Number(selected.latitude), Number(selected.longitude)];
-        if (map.leafletMap) {
-          map.leafletMap.setView(coords, 14, { animate:false });
-        } else {
-          map.setView?.(coords, 14);
-        }
-      }
-    }
   }
 
   __age(seconds) {
