@@ -3,7 +3,7 @@ import 'dart:typed_data';
 
 /// Abstract transport interface for communicating with a MeshCore radio.
 ///
-/// Implementations: BLE, Serial/USB and HiveFW TCP/Wi-Fi.
+/// Implementations: BLE and HiveFW TCP/Wi-Fi.
 abstract class RadioTransport {
   /// Human-readable name for this transport (e.g. "BLE: MeshCore-1234").
   String get displayName;
@@ -13,8 +13,7 @@ abstract class RadioTransport {
 
   /// Whether the transport uses direction+length framing.
   ///
-  /// Serial/USB connections use `[dir][len_lsb][len_msb][payload]` framing.
-  /// BLE sends raw companion protocol payloads without any framing.
+  /// TCP uses direction+length framing; BLE sends raw Companion payloads.
   bool get usesFraming => true;
 
   /// Stream of raw bytes received from the radio.
@@ -41,7 +40,7 @@ abstract class RadioTransport {
 /// Connection state for transport layer.
 enum TransportState { disconnected, scanning, connecting, connected, error }
 
-/// Describes a radio connection target (BLE, Serial or TCP).
+/// Describes a radio connection target (BLE or TCP).
 class RadioDevice {
   const RadioDevice({
     required this.id,
@@ -59,10 +58,4 @@ class RadioDevice {
   String toString() => '$name ($type)';
 }
 
-enum RadioDeviceType { ble, serial, tcp }
-
-/// Framing mode for serial connections.
-///
-/// [companion] — raw MeshCore Companion Radio Protocol v3 frames.
-/// [kiss] — Companion frames wrapped in KISS TNC framing (FEND/FESC escaping).
-enum ConnectionMode { companion, kiss }
+enum RadioDeviceType { ble, tcp }
