@@ -36,6 +36,7 @@
     <!-- Foreground Service — required for persistent "Connected" notification to prevent Doze mode -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
     <application
         android:label="HiveFW"
@@ -84,6 +85,12 @@
             android:exported="false"
             android:foregroundServiceType="connectedDevice"
             android:stopWithTask="true" />
+
+        <!-- Nordic/Adafruit nRF52 DFU service used by Heltec T114. -->
+        <service
+            android:name=".HiveFwDfuService"
+            android:exported="false"
+            android:foregroundServiceType="connectedDevice|dataSync" />
 
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->

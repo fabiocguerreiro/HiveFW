@@ -39,3 +39,5 @@ jobs:
         run: flutter analyze --no-fatal-infos --no-fatal-warnings
       - name: Tests
         run: flutter test
+      - name: Build Android debug APK
+        run: flutter build apk --debug

@@ -84,6 +84,9 @@ flutter {
 
 dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
+    // T114 uses the Adafruit/nRF52 OTA DFU service already present in
+    // the firmware. Nordic's Android DFU library handles the nRFutil ZIP.
+    implementation("no.nordicsemi.android:dfu:2.10.1")
 }
 
 configurations.all {

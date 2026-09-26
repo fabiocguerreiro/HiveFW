@@ -1,5 +1,7 @@
 #include "SerialBLEInterface.h"
 #include "esp_mac.h"
+#include "esp_system.h"
+#include <Update.h>
 
 // See the following for generating UUIDs:
 // https://www.uuidgenerator.net/
@@ -7,6 +9,24 @@
 #define SERVICE_UUID           "6E400001-B5A3-F393-E0A9-E50E24DCCA9E" // UART service UUID
 #define CHARACTERISTIC_UUID_RX "6E400002-B5A3-F393-E0A9-E50E24DCCA9E"
 #define CHARACTERISTIC_UUID_TX "6E400003-B5A3-F393-E0A9-E50E24DCCA9E"
+
+// HiveFW ESP32 BLE OTA service. This UUID is not advertised (the NUS UUID
+// remains the authoritative Companion advertisement), but is discoverable
+// after connecting to a HiveFW V3 BLE radio.
+#define HIVEFW_OTA_SERVICE_UUID "A6ED0401-D344-460A-8075-B9E8EC90D71B"
+#define HIVEFW_OTA_CONTROL_UUID "A6ED0402-D344-460A-8075-B9E8EC90D71B"
+#define HIVEFW_OTA_DATA_UUID    "A6ED0403-D344-460A-8075-B9E8EC90D71B"
+
+#define HIVEFW_OTA_OP_BEGIN 0x01
+#define HIVEFW_OTA_OP_END   0x02
+#define HIVEFW_OTA_OP_ABORT 0x03
+
+#define HIVEFW_OTA_OK            0x00
+#define HIVEFW_OTA_ERR_ARGUMENT  0x01
+#define HIVEFW_OTA_ERR_BEGIN     0x02
+#define HIVEFW_OTA_ERR_WRITE     0x03
+#define HIVEFW_OTA_ERR_SIZE      0x04
+#define HIVEFW_OTA_ERR_END       0x05
 
 #define ADVERT_RESTART_DELAY  1000   // millis
 
@@ -49,6 +69,29 @@ void SerialBLEInterface::begin(const char* prefix, char* name, uint32_t pin_code
   BLECharacteristic * pRxCharacteristic = pService->createCharacteristic(CHARACTERISTIC_UUID_RX, BLECharacteristic::PROPERTY_WRITE);
   pRxCharacteristic->setAccessPermissions(ESP_GATT_PERM_WRITE_ENC_MITM);
   pRxCharacteristic->setCallbacks(this);
+
+  // Optional HiveFW BLE OTA service for the ESP32/V3 BLE build. Both
+  // characteristics inherit the same encrypted+MITM access policy as NUS.
+  // Keeping it on a separate service means legacy Companion clients never see
+  // OTA bytes as Companion frames.
+  pOtaService = pServer->createService(HIVEFW_OTA_SERVICE_UUID);
+
+  pOtaControlCharacteristic = pOtaService->createCharacteristic(
+    HIVEFW_OTA_CONTROL_UUID,
+    BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_NOTIFY
+  );
+  pOtaControlCharacteristic->setAccessPermissions(
+    ESP_GATT_PERM_WRITE_ENC_MITM | ESP_GATT_PERM_READ_ENC_MITM
+  );
+  pOtaControlCharacteristic->addDescriptor(new BLE2902());
+  pOtaControlCharacteristic->setCallbacks(this);
+
+  pOtaDataCharacteristic = pOtaService->createCharacteristic(
+    HIVEFW_OTA_DATA_UUID,
+    BLECharacteristic::PROPERTY_WRITE
+  );
+  pOtaDataCharacteristic->setAccessPermissions(ESP_GATT_PERM_WRITE_ENC_MITM);
+  pOtaDataCharacteristic->setCallbacks(this);
 
   pServer->getAdvertising()->addServiceUUID(SERVICE_UUID);
 }
@@ -104,6 +147,9 @@ void SerialBLEInterface::onMtuChanged(BLEServer* pServer, esp_ble_gatts_cb_param
 void SerialBLEInterface::onDisconnect(BLEServer* pServer) {
   BLE_DEBUG_PRINTLN("onDisconnect()");
   deviceConnected = false;
+  if (_otaActive && !_otaRebootPending) {
+    resetOtaState(true);
+  }
   if (_isEnabled) {
     adv_restart_time = millis() + ADVERT_RESTART_DELAY;
   }
@@ -114,6 +160,15 @@ void SerialBLEInterface::onDisconnect(BLEServer* pServer) {
 void SerialBLEInterface::onWrite(BLECharacteristic* pCharacteristic, esp_ble_gatts_cb_param_t* param) {
   uint8_t* rxValue = pCharacteristic->getData();
   int len = pCharacteristic->getLength();
+
+  if (pCharacteristic == pOtaControlCharacteristic) {
+    handleOtaControl(rxValue, len);
+    return;
+  }
+  if (pCharacteristic == pOtaDataCharacteristic) {
+    handleOtaData(rxValue, len);
+    return;
+  }
 
   if (len > MAX_FRAME_SIZE) {
     BLE_DEBUG_PRINTLN("ERROR: onWrite(), frame too big, len=%d", len);
@@ -126,6 +181,150 @@ void SerialBLEInterface::onWrite(BLECharacteristic* pCharacteristic, esp_ble_gat
       BLE_DEBUG_PRINTLN("ERROR: onWrite(), recv_queue is full!");
     }
   }
+}
+
+void SerialBLEInterface::resetOtaState(bool abortUpdate) {
+  if (abortUpdate && _otaActive) {
+    Update.abort();
+  }
+  _otaActive = false;
+  _otaExpectedSize = 0;
+  _otaReceived = 0;
+  if (!_otaRebootPending) {
+    _otaRebootAt = 0;
+  }
+}
+
+void SerialBLEInterface::notifyOtaStatus(uint8_t opcode, uint8_t status) {
+  if (!pOtaControlCharacteristic || !deviceConnected) return;
+
+  uint8_t reply[6];
+  reply[0] = opcode;
+  reply[1] = status;
+  uint32_t received = (uint32_t)_otaReceived;
+  memcpy(&reply[2], &received, sizeof(received));
+
+  pOtaControlCharacteristic->setValue(reply, sizeof(reply));
+  pOtaControlCharacteristic->notify();
+}
+
+void SerialBLEInterface::handleOtaControl(const uint8_t* data, size_t len) {
+  if (!data || len < 1) return;
+
+  const uint8_t opcode = data[0];
+
+  if (opcode == HIVEFW_OTA_OP_ABORT) {
+    resetOtaState(true);
+    _otaRebootPending = false;
+    notifyOtaStatus(opcode, HIVEFW_OTA_OK);
+    return;
+  }
+
+  if (opcode == HIVEFW_OTA_OP_BEGIN) {
+    // BEGIN = opcode + uint32 little-endian image size + 32 ASCII MD5 chars.
+    if (len != 37 || _otaRebootPending) {
+      notifyOtaStatus(opcode, HIVEFW_OTA_ERR_ARGUMENT);
+      return;
+    }
+
+    uint32_t image_size = 0;
+    memcpy(&image_size, &data[1], sizeof(image_size));
+    if (image_size < 64 * 1024 || image_size > 4 * 1024 * 1024) {
+      notifyOtaStatus(opcode, HIVEFW_OTA_ERR_ARGUMENT);
+      return;
+    }
+
+    char md5[33];
+    memcpy(md5, &data[5], 32);
+    md5[32] = 0;
+    for (int i = 0; i < 32; ++i) {
+      const char c = md5[i];
+      const bool hex =
+        (c >= '0' && c <= '9') ||
+        (c >= 'a' && c <= 'f') ||
+        (c >= 'A' && c <= 'F');
+      if (!hex) {
+        notifyOtaStatus(opcode, HIVEFW_OTA_ERR_ARGUMENT);
+        return;
+      }
+    }
+
+    resetOtaState(true);
+    if (!Update.begin(image_size, U_FLASH)) {
+      BLE_DEBUG_PRINTLN("BLE OTA: Update.begin failed, error=%d", Update.getError());
+      notifyOtaStatus(opcode, HIVEFW_OTA_ERR_BEGIN);
+      return;
+    }
+    if (!Update.setMD5(md5)) {
+      Update.abort();
+      notifyOtaStatus(opcode, HIVEFW_OTA_ERR_ARGUMENT);
+      return;
+    }
+
+    _otaExpectedSize = image_size;
+    _otaReceived = 0;
+    _otaActive = true;
+    BLE_DEBUG_PRINTLN("BLE OTA: begin size=%u", (uint32_t)image_size);
+    notifyOtaStatus(opcode, HIVEFW_OTA_OK);
+    return;
+  }
+
+  if (opcode == HIVEFW_OTA_OP_END) {
+    if (!_otaActive) {
+      notifyOtaStatus(opcode, HIVEFW_OTA_ERR_ARGUMENT);
+      return;
+    }
+    if (_otaReceived != _otaExpectedSize) {
+      BLE_DEBUG_PRINTLN(
+        "BLE OTA: size mismatch received=%u expected=%u",
+        (uint32_t)_otaReceived,
+        (uint32_t)_otaExpectedSize
+      );
+      notifyOtaStatus(opcode, HIVEFW_OTA_ERR_SIZE);
+      resetOtaState(true);
+      return;
+    }
+
+    if (!Update.end(false) || Update.hasError()) {
+      BLE_DEBUG_PRINTLN("BLE OTA: Update.end failed, error=%d", Update.getError());
+      notifyOtaStatus(opcode, HIVEFW_OTA_ERR_END);
+      resetOtaState(false);
+      return;
+    }
+
+    _otaActive = false;
+    _otaRebootPending = true;
+    _otaRebootAt = millis() + 900;
+    BLE_DEBUG_PRINTLN("BLE OTA: complete, reboot scheduled");
+    notifyOtaStatus(opcode, HIVEFW_OTA_OK);
+    return;
+  }
+
+  notifyOtaStatus(opcode, HIVEFW_OTA_ERR_ARGUMENT);
+}
+
+void SerialBLEInterface::handleOtaData(const uint8_t* data, size_t len) {
+  if (!_otaActive || !data || len == 0) return;
+  if (_otaReceived + len > _otaExpectedSize) {
+    notifyOtaStatus(HIVEFW_OTA_OP_BEGIN, HIVEFW_OTA_ERR_SIZE);
+    resetOtaState(true);
+    return;
+  }
+
+  const size_t written = Update.write((uint8_t*)data, len);
+  if (written != len) {
+    BLE_DEBUG_PRINTLN(
+      "BLE OTA: write failed wanted=%u wrote=%u error=%d",
+      (uint32_t)len,
+      (uint32_t)written,
+      Update.getError()
+    );
+    notifyOtaStatus(HIVEFW_OTA_OP_BEGIN, HIVEFW_OTA_ERR_WRITE);
+    resetOtaState(true);
+    return;
+  }
+
+  _otaReceived += written;
 }
 
 // ---------- public methods
@@ -141,7 +340,9 @@ void SerialBLEInterface::enable() {
   _isEnabled = true;
   clearBuffers();
 
-  // Start the service
+  // Start the Companion and OTA services. OTA is not advertised separately;
+  // clients discover it after connecting through the normal NUS advertisement.
+  pOtaService->start();
   pService->start();
 
   // Start advertising
@@ -160,6 +361,9 @@ void SerialBLEInterface::disable() {
 
   pServer->getAdvertising()->stop();
   pServer->disconnect(last_conn_id);
+  if (_otaActive) resetOtaState(true);
+  _otaRebootPending = false;
+  pOtaService->stop();
   pService->stop();
   oldDeviceConnected = deviceConnected = false;
   adv_restart_time = 0;
@@ -193,6 +397,18 @@ bool SerialBLEInterface::isWriteBusy() const {
 }
 
 size_t SerialBLEInterface::checkRecvFrame(uint8_t dest[]) {
+  if (
+    _otaRebootPending &&
+    _otaRebootAt &&
+    millis() >= _otaRebootAt
+  ) {
+    _otaRebootPending = false;
+    _otaRebootAt = 0;
+    delay(20);
+    esp_restart();
+    return 0;
+  }
+
   if (send_queue_len > 0   // first, check send queue
     && millis() >= _last_write + BLE_WRITE_MIN_INTERVAL    // space the writes apart
   ) {

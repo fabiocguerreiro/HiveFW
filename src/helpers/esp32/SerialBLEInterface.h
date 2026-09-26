@@ -12,6 +12,17 @@ class SerialBLEInterface : public BaseSerialInterface, BLESecurityCallbacks, BLE
   BLEServer *pServer;
   BLEService *pService;
   BLECharacteristic * pTxCharacteristic;
+
+  // HiveFW BLE OTA service. It is deliberately separate from the Nordic UART
+  // Companion service so normal Companion framing remains completely intact.
+  BLEService *pOtaService;
+  BLECharacteristic *pOtaControlCharacteristic;
+  BLECharacteristic *pOtaDataCharacteristic;
+  bool _otaActive;
+  bool _otaRebootPending;
+  size_t _otaExpectedSize;
+  size_t _otaReceived;
+  unsigned long _otaRebootAt;
   bool deviceConnected;
   bool oldDeviceConnected;
   bool _isEnabled;
@@ -33,6 +44,10 @@ class SerialBLEInterface : public BaseSerialInterface, BLESecurityCallbacks, BLE
   Frame send_queue[FRAME_QUEUE_SIZE];
 
   void clearBuffers();
+  void resetOtaState(bool abortUpdate);
+  void notifyOtaStatus(uint8_t opcode, uint8_t status);
+  void handleOtaControl(const uint8_t* data, size_t len);
+  void handleOtaData(const uint8_t* data, size_t len);
 
 protected:
   // BLESecurityCallbacks methods
@@ -55,6 +70,14 @@ public:
   SerialBLEInterface() {
     pServer = NULL;
     pService = NULL;
+    pOtaService = NULL;
+    pOtaControlCharacteristic = NULL;
+    pOtaDataCharacteristic = NULL;
+    _otaActive = false;
+    _otaRebootPending = false;
+    _otaExpectedSize = 0;
+    _otaReceived = 0;
+    _otaRebootAt = 0;
     deviceConnected = false;
     oldDeviceConnected = false;
     adv_restart_time = 0;

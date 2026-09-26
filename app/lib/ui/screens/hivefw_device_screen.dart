@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:qr_flutter/qr_flutter.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../l10n/l10n.dart';
@@ -21,6 +22,7 @@ import '../theme.dart';
 part 'parts/settings_notifications.dart';
 part 'parts/settings_appearance.dart';
 part 'parts/settings_app_update.dart';
+part 'parts/settings_about.dart';
 
 /// Device-first surface for the local HiveFW Companion.
 ///
@@ -402,6 +404,10 @@ class _HiveFwDeviceScreenState extends ConsumerState<HiveFwDeviceScreen> {
     final repeatEnabled = (info?.clientRepeat ?? 0) != 0;
     final modelName = (info?.model ?? '').toLowerCase();
     final isHeltecV3 = modelName.contains('heltec') && modelName.contains('v3');
+    final isHeltecT114 = modelName.contains('t114');
+    final lastDevice = ref.watch(lastDeviceProvider);
+    final isBleConnection = connected && lastDevice?.type == 'ble';
+    final isTcpConnection = connected && lastDevice?.type == 'tcp';
     final smartAdvert = _base['auto_advert'] == '1';
     final appsChannelIndex = ref.watch(hiveAppsChannelIndexProvider);
     final selectedAppsChannel = _appsChannel(channels, appsChannelIndex);
@@ -429,31 +435,34 @@ class _HiveFwDeviceScreenState extends ConsumerState<HiveFwDeviceScreen> {
           _CardSection(
             title: 'Energia',
             icon: Icons.bolt,
-            child: Wrap(
-              spacing: 8,
-              runSpacing: 8,
+            child: Row(
               children: [
-                OutlinedButton.icon(
-                  onPressed:
-                      connected
-                          ? () => _sendAction(
-                            () => ref.read(radioServiceProvider)!.reboot(),
-                            'Comando de reinício enviado',
-                          )
-                          : null,
-                  icon: const Icon(Icons.restart_alt),
-                  label: const Text('Reiniciar'),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed:
+                        connected
+                            ? () => _sendAction(
+                              () => ref.read(radioServiceProvider)!.reboot(),
+                              'Comando de reinício enviado',
+                            )
+                            : null,
+                    icon: const Icon(Icons.restart_alt),
+                    label: const Text('Reiniciar'),
+                  ),
                 ),
-                OutlinedButton.icon(
-                  onPressed:
-                      connected
-                          ? () => _sendAction(
-                            () => ref.read(radioServiceProvider)!.shutdown(),
-                            'Comando de desligar enviado',
-                          )
-                          : null,
-                  icon: const Icon(Icons.power_settings_new),
-                  label: const Text('Desligar'),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed:
+                        connected
+                            ? () => _sendAction(
+                              () => ref.read(radioServiceProvider)!.shutdown(),
+                              'Comando de desligar enviado',
+                            )
+                            : null,
+                    icon: const Icon(Icons.power_settings_new),
+                    label: const Text('Desligar'),
+                  ),
                 ),
               ],
             ),
@@ -472,6 +481,25 @@ class _HiveFwDeviceScreenState extends ConsumerState<HiveFwDeviceScreen> {
               enabled: connected,
               onTap:
                   connected ? () => context.push('/settings/radio') : null,
+            ),
+          ),
+          const SizedBox(height: 12),
+          _CardSection(
+            title: 'Localização',
+            icon: Icons.location_on_outlined,
+            child: ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.gps_fixed),
+              title: const Text('Localização do Companion'),
+              subtitle: Text(
+                self?.latitude != null && self?.longitude != null
+                    ? '${self!.latitude!.toStringAsFixed(6)}, ${self.longitude!.toStringAsFixed(6)} · GPS do telemóvel ou coordenadas'
+                    : 'GPS do telemóvel ou coordenadas, sincronizadas com o Companion.',
+              ),
+              trailing: const Icon(Icons.chevron_right),
+              enabled: connected,
+              onTap:
+                  connected ? () => context.push('/hivefw/location') : null,
             ),
           ),
           const SizedBox(height: 12),
@@ -576,7 +604,7 @@ class _HiveFwDeviceScreenState extends ConsumerState<HiveFwDeviceScreen> {
             icon: Icons.dashboard_customize_outlined,
             child: Column(
               children: [
-                if (isHeltecV3)
+                if (isHeltecV3 && isTcpConnection)
                   ListTile(
                     contentPadding: EdgeInsets.zero,
                     leading: const Icon(Icons.router_outlined),
@@ -586,6 +614,19 @@ class _HiveFwDeviceScreenState extends ConsumerState<HiveFwDeviceScreen> {
                     ),
                     trailing: const Icon(Icons.chevron_right),
                     onTap: () => context.push('/hivefw/radio-network'),
+                  ),
+                if ((isHeltecV3 || isHeltecT114) && isBleConnection)
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.system_update_alt),
+                    title: const Text('Atualização de firmware BLE'),
+                    subtitle: Text(
+                      isHeltecT114
+                          ? 'Última release HiveFW para T114 através do DFU Bluetooth.'
+                          : 'Última release HiveFW para V3 diretamente por Bluetooth.',
+                    ),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () => context.push('/hivefw/firmware-ble'),
                   ),
                 ListTile(
                   contentPadding: EdgeInsets.zero,
@@ -640,7 +681,7 @@ class _HiveFwDeviceScreenState extends ConsumerState<HiveFwDeviceScreen> {
                     leading: const Icon(Icons.radar),
                     title: const Text('Vizinhos'),
                     subtitle: const Text(
-                      'Repeaters ouvidos diretamente nos últimos 7 dias (Zero-Hop).',
+                      'Repeaters ouvidos diretamente nas últimas 48h (Zero-Hop).',
                     ),
                     trailing: const Icon(Icons.chevron_right),
                     onTap:
@@ -684,6 +725,8 @@ class _HiveFwDeviceScreenState extends ConsumerState<HiveFwDeviceScreen> {
           const _NotificationsCard(),
           const SizedBox(height: 12),
           const _AppearanceCard(),
+          const SizedBox(height: 12),
+          const _AboutCard(),
           const SizedBox(height: 24),
         ],
       ),
