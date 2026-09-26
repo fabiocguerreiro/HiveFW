@@ -676,13 +676,6 @@ class MessagesNotifier extends StateNotifier<List<ChatMessage>> {
     await StorageService.instance.clearMessages(_channelKey(channelIndex));
   }
 
-  bool _prefixMatch(Uint8List a, Uint8List b) {
-    final len = a.length < b.length ? a.length : b.length;
-    for (var i = 0; i < len; i++) {
-      if (a[i] != b[i]) return false;
-    }
-    return true;
-  }
 }
 
 final messagesProvider =
