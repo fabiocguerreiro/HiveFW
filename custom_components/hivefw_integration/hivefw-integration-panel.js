@@ -8171,7 +8171,7 @@ let e,t,i,a,o,s,r,n,l,d,c,p,h,u,g,v,m,f,_,b,y,x,w,$,k,S,C,M,R,A,z,T,I,N,F,D,E,O,
             @contacts-changed=${0}
             @channels-changed=${0}
             @refresh-channels-requested=${0}
-            @mark-all-read-requested=${0}></hivefw-integration-page>`),this.hass,this._config,[...this._channels,...this._contacts.filter(e=>e.added_to_node)],this._unread,this._pendingChatTarget,this.narrow,this._onActiveEntityChanged,()=>this._loadDeviceData(),()=>this._loadDeviceData(),()=>this._refreshChannelsFromRadio(),this._handleMarkAllReadRequested);case"network":return rr(ps||(ps=vs``));case"state":return rr(hs||(hs=vs`
+            @mark-all-read-requested=${0}></hivefw-integration-page>`),this.hass,this._config,[...this._channels,...this._contacts.filter(e=>e.added_to_node)],this._unread,this._pendingChatTarget,this.narrow,this._onActiveEntityChanged,()=>this._loadDeviceData(),()=>this._loadDeviceData(),()=>this._refreshChannelsFromRadio(),this._handleMarkAllReadRequested);case"network":return rr(ps||(ps=vs`<div class="hive-network-host"></div>`));case"state":return rr(hs||(hs=vs`
           <meshcore-status-page
             .hass=${0}
             .config=${0}
@@ -8635,6 +8635,18 @@ let e,t,i,a,o,s,r,n,l,d,c,p,h,u,g,v,m,f,_,b,y,x,w,$,k,S,C,M,R,A,z,T,I,N,F,D,E,O,
         flex: 1;
         min-width: 0;
         min-height: 0;
+      }
+
+      /* Stable Lit-owned host for the manually enhanced Rede page. Keeping
+         this element in the template prevents Home Assistant hass updates
+         from deleting/recreating the entire Network DOM and ha-map instance. */
+      .hive-network-host {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        min-width: 0;
+        min-height: 0;
+        overflow: hidden;
       }
 
       @media (max-width: 870px) {
