@@ -4266,8 +4266,8 @@ export class SettingsPage extends LitElement {
     this._confirmAction = {
       title: 'Renomear dispositivo',
       message:
-        `Renaming the device will rename all entity IDs ending in _${oldSuffix} to _${newSuffix}. ` +
-        `Any automations, scripts, or dashboards referencing entity IDs by the old name will need updating. ` +
+        `Renomear o dispositivo altera todos os IDs de entidades terminados em _${oldSuffix} para _${newSuffix}. ` +
+        `Quaisquer automatismos, scripts ou dashboards que referenciem IDs pelo sufixo antigo name will need updating. ` +
         `A repair issue will list every renamed entity. Continue?`,
       onConfirm: async () => {
         await this._handleApply('device-name');
@@ -4604,7 +4604,7 @@ export class SettingsPage extends LitElement {
     return html`
       <div class="dialog-overlay">
         <div class="dialog"
-             role="dialog" aria-modal="true" aria-label="Device renamed"
+             role="dialog" aria-modal="true" aria-label="Dispositivo renomeado"
              data-a11y="rename-success"
              @click=${(e: Event) => e.stopPropagation()}>
           <div class="dialog-header">
