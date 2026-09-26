@@ -96,7 +96,7 @@ HiveFW/
 | BLE Companion | **Sim, build BLE** | **Sim** |
 | Home Assistant direto | **TCP/Wi-Fi ou BLE** | **BLE** |
 | Web OTA / update pela integração | **Só build Wi-Fi/TCP** | Não |
-| Atualização da build BLE | **USB / flash manual** | **BLE DFU / UF2** |
+| Atualização da build BLE | **App HiveFW / BLE OTA**¹ | **App HiveFW / BLE DFU / UF2** |
 | UF2 | Não | **Sim** |
 | Versão HiveFW | **Comum** | **Comum** |
 
@@ -223,7 +223,11 @@ A build **BLE** usa o mesmo modelo Companion + Repeater do T114, mas sobre o ESP
 - mesma configuração Repeater, Regions, Smart Advert, diagnóstico e protocolo Companion;
 - não inicializa Wi-Fi, portal `/wifi` nem Web OTA;
 - **não permite atualização de firmware através da integração Home Assistant**;
-- atualização feita manualmente por USB/serial, usando o `.bin` ou `-merged.bin` publicado na Release.
+- expõe um serviço HiveFW BLE OTA separado do Nordic UART/Companion;
+- a App HiveFW descarrega o `.bin` BLE da última Release, valida SHA-256 e MD5 e atualiza o V3 diretamente por Bluetooth;
+- versões V3 BLE anteriores à introdução deste serviço requerem um único flash USB de bootstrap; depois disso os updates seguintes podem ser feitos pela App.
+
+¹ O primeiro update para um V3 BLE ainda sem o serviço HiveFW BLE OTA requer USB uma vez.
 
 As duas builds usam o mesmo hardware e a mesma versão HiveFW; o transporte Companion é escolhido no momento de compilar/instalar o firmware.
 
@@ -262,8 +266,10 @@ Heltec_t114_companion_radio_ble
 
 O Companion utiliza BLE. Atualizações são produzidas em:
 
-- `.zip` — BLE DFU, método recomendado;
+- `.zip` — BLE DFU, método recomendado e instalável diretamente pela App HiveFW;
 - `.uf2` — alternativa UF2.
+
+A App usa o serviço `BLEDfu`/bootloader Adafruit já presente no T114 e o pacote nRFutil oficial da Release; o protocolo Companion/NUS não é alterado durante o DFU.
 
 O código específico do ESP32 — Wi-Fi, NVS de rede e Web OTA — não é compilado para o T114.
 
