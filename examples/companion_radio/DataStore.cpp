@@ -66,6 +66,7 @@ void DataStore::begin() {
 #if defined(ESP32)
   #include <SPIFFS.h>
   #include <nvs_flash.h>
+  #include <nvs.h>
 #elif defined(RP2040_PLATFORM)
   #include <LittleFS.h>
 #elif defined(NRF52_PLATFORM) || defined(STM32_PLATFORM)
@@ -189,6 +190,45 @@ bool DataStore::saveMainIdentity(const mesh::LocalIdentity &identity) {
   return identity_store.save("_main", identity);
 }
 
+#if defined(ESP32)
+static const char* HIVEFW_NVS_NAMESPACE = "hivefw";
+static const char* HIVEFW_NVS_POWER_NOTIFY_KEY = "pwr_notify";
+
+static bool loadHiveFWPowerNotifyNvs(uint8_t& enabled) {
+  nvs_handle_t handle;
+  if (nvs_open(HIVEFW_NVS_NAMESPACE, NVS_READONLY, &handle) != ESP_OK) {
+    return false;
+  }
+
+  uint8_t value = 0;
+  const esp_err_t err =
+    nvs_get_u8(handle, HIVEFW_NVS_POWER_NOTIFY_KEY, &value);
+  nvs_close(handle);
+
+  if (err != ESP_OK) return false;
+  enabled = value ? 1 : 0;
+  return true;
+}
+
+static bool saveHiveFWPowerNotifyNvs(uint8_t enabled) {
+  nvs_handle_t handle;
+  if (nvs_open(HIVEFW_NVS_NAMESPACE, NVS_READWRITE, &handle) != ESP_OK) {
+    return false;
+  }
+
+  esp_err_t err = nvs_set_u8(
+    handle,
+    HIVEFW_NVS_POWER_NOTIFY_KEY,
+    enabled ? 1 : 0
+  );
+  if (err == ESP_OK) {
+    err = nvs_commit(handle);
+  }
+  nvs_close(handle);
+  return err == ESP_OK;
+}
+#endif
+
 static const char* HIVEFW_MESH_TIME_PREF_FILE = "/hivefw_mesh_time";
 static const uint8_t HIVEFW_MESH_TIME_MAGIC[4] = { 'H', 'M', 'T', '1' };
 
@@ -248,6 +288,15 @@ void DataStore::loadPrefs(NodePrefs& prefs) {
   if (loadHiveFWMeshTimePref(_fs, mesh_time)) {
     prefs.mesh_time_sync = mesh_time;
   }
+
+#if defined(ESP32)
+  // Keep power-failure notification mirrored in ESP32 NVS so the V3 retains
+  // the setting even when the Companion preferences file is regenerated.
+  uint8_t power_notify = prefs.isPowerNotifyEn() ? 1 : 0;
+  if (loadHiveFWPowerNotifyNvs(power_notify)) {
+    prefs.setPowerNotifyEn(power_notify != 0);
+  }
+#endif
 }
 
 void DataStore::loadPrefsInt(const char *filename, NodePrefs& _prefs) {
@@ -302,7 +351,14 @@ bool DataStore::savePrefs(NodePrefs& _prefs) {
   const bool mesh_time_saved =
     saveHiveFWMeshTimePref(_fs, _prefs.mesh_time_sync);
 
-  return success && mesh_time_saved;
+#if defined(ESP32)
+  const bool power_notify_saved =
+    saveHiveFWPowerNotifyNvs(_prefs.isPowerNotifyEn() ? 1 : 0);
+#else
+  const bool power_notify_saved = true;
+#endif
+
+  return success && mesh_time_saved && power_notify_saved;
 }
 
 
