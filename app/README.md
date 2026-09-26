@@ -14,9 +14,7 @@ O alvo principal são rádios Companion, em especial dispositivos nRF52/T114 por
 
 - **Bluetooth LE — principal e recomendado**: descoberta por UUID NUS e nomes `HiveFW-*` / `MeshCore-*`
 - **Wi-Fi/TCP — opcional**, porta HiveFW Companion `5000`
-- USB/Serial e Web Serial continuam disponíveis onde a plataforma os suporta
-
-O protocolo Companion é o mesmo nas várias ligações; BLE envia payloads Companion diretamente e Serial/TCP usam framing `<|>|uint16_le|payload`.
+O protocolo Companion é o mesmo nas duas ligações; BLE envia payloads Companion diretamente e TCP usa framing de direção + comprimento.
 
 ## Funções principais
 
@@ -69,7 +67,7 @@ As páginas de **Vizinhos** e **Canais observados** consultam a cache local do r
 
 ## Android
 
-O Android é a plataforma prioritária.
+Android é a única plataforma suportada pela App.
 
 ### Preview APK
 
@@ -117,7 +115,7 @@ A aplicação mantém as camadas MeshCore genéricas e acrescenta extensões Hiv
 ```text
 lib/
 ├── protocol/        Companion protocol + extensões HiveFW
-├── transport/       BLE, Serial, Web Serial e HiveFW TCP
+├── transport/       BLE e HiveFW TCP
 ├── services/        RadioService e serviços da aplicação
 ├── providers/       estado Riverpod
 └── ui/
