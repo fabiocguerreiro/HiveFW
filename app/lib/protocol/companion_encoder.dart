@@ -210,6 +210,12 @@ class CompanionEncoder {
   static Uint8List reboot() =>
       _frame(cmdReboot, Uint8List.fromList(utf8.encode('reboot')));
 
+  /// SHUTDOWN — power off / system-off the radio until a hardware wake source.
+  /// HiveFW reuses CMD_REBOOT with an explicit "shutdown" verb so older
+  /// firmware simply ignores/rejects it instead of colliding with another opcode.
+  static Uint8List shutdown() =>
+      _frame(cmdReboot, Uint8List.fromList(utf8.encode('shutdown')));
+
   /// ADD_UPDATE_CONTACT — manually add or update a contact entry on the radio.
   /// Builds the full 147-byte contact struct that mirrors the radio's storage layout.
   static Uint8List addUpdateContact(Contact contact) {
