@@ -146,11 +146,6 @@ final routerProvider = Provider<GoRouter>((ref) {
                 path: '/apps/homeassistant',
                 builder: (context, state) => const HiveFwHomeAssistantScreen(),
               ),
-              if (FeatureToggles.appRxLog)
-                GoRoute(
-                  path: '/apps/rxlog',
-                  builder: (context, state) => const RxLogScreen(),
-                ),
               if (FeatureToggles.appNoiseFloor)
                 GoRoute(
                   path: '/apps/noisefloor',
@@ -174,9 +169,18 @@ final routerProvider = Provider<GoRouter>((ref) {
                 path: '/settings/radio',
                 builder: (context, state) => const RadioSettingsScreen(),
               ),
+              if (FeatureToggles.appRxLog)
+                GoRoute(
+                  path: '/settings/rxlog',
+                  builder: (context, state) => const RxLogScreen(),
+                ),
             ],
           ),
         ],
+      ),
+      GoRoute(
+        path: '/apps/rxlog',
+        redirect: (context, state) => '/settings/rxlog',
       ),
       GoRoute(
         path: '/map',
