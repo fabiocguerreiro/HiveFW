@@ -1452,9 +1452,10 @@ export class SettingsPage extends LitElement {
       // this as the single authoritative read for the native Settings page.
       await this._readRepeaterStatus(false, false);
 
-      // Radio Setup has one source of truth: get_device_config(), which performs
-      // a fresh Companion APPSTART plus DEVICE_INFO read. Repeater status is
-      // supplemental only (RX boost/ADC/etc.) and must never overwrite RF values.
+      // Both config reads are fresh and serialized. The Repeater status snapshot
+      // includes the RF tuple read in the same local-radio transaction as the
+      // remaining Repeater settings, so the Radio UI prefers that snapshot and
+      // falls back to get_device_config() when it is unavailable.
       try {
         this._localRegions = await getLocalRegions(
           this.hass,
@@ -1889,7 +1890,7 @@ export class SettingsPage extends LitElement {
         </div>
 
       </div>
-    `;`;
+    `;
   }
 
   private async _loadSoftwareUpdateStatus() {
@@ -4233,9 +4234,9 @@ export class SettingsPage extends LitElement {
   private async _copyToClipboard(text: string) {
     try {
       await navigator.clipboard.writeText(text);
-      this._showStatusMessage('Copied to clipboard', 'success');
+      this._showStatusMessage('Copiado para a área de transferência.', 'success');
     } catch {
-      this._showStatusMessage('Failed to copy', 'error');
+      this._showStatusMessage('Falha ao copiar.', 'error');
     }
   }
 
@@ -4263,7 +4264,7 @@ export class SettingsPage extends LitElement {
     const oldSuffix = sanitize(oldName ?? '');
     const newSuffix = sanitize(String(newName));
     this._confirmAction = {
-      title: 'Rename Device',
+      title: 'Renomear dispositivo',
       message:
         `Renaming the device will rename all entity IDs ending in _${oldSuffix} to _${newSuffix}. ` +
         `Any automations, scripts, or dashboards referencing entity IDs by the old name will need updating. ` +
@@ -4607,28 +4608,25 @@ export class SettingsPage extends LitElement {
              data-a11y="rename-success"
              @click=${(e: Event) => e.stopPropagation()}>
           <div class="dialog-header">
-            <div class="dialog-header-title">Device renamed</div>
+            <div class="dialog-header-title">Dispositivo renomeado</div>
           </div>
           <div class="dialog-body">
             <p style="margin: 0 0 12px 0;">
-              The HiveFW device was renamed from
+              O dispositivo HiveFW foi renomeado de
               <code>${r.old_name}</code> to <code>${r.new_name}</code>.
             </p>
             <p style="margin: 0 0 12px 0;">
               ${r.count}
-              ${r.count === 1 ? 'entity ID was' : 'entity IDs were'}
-              automatically migrated from the
-              <code>_${r.old_suffix}</code> suffix to
+              ${r.count === 1 ? 'ID de entidade foi' : 'IDs de entidades foram'}
+              migrados automaticamente do sufixo
+              <code>_${r.old_suffix}</code> para
               <code>_${r.new_suffix}</code>.
             </p>
             <p style="margin: 0 0 12px 0;">
-              If you have automations, scripts, or dashboards
-              referencing the old entity IDs, you will need to
-              update them manually to use the new suffix.
+              Se tiveres automatismos, scripts ou dashboards que referenciem os IDs de entidades antigos, terás de os atualizar manualmente para usar o novo sufixo.
             </p>
             <p style="margin: 0; color: var(--secondary-text-color); font-size: 13px;">
-              The full list of renamed entity IDs is available in
-              Settings → Repairs.
+              A lista completa dos IDs de entidades renomeados está disponível em Definições → Reparações.
             </p>
           </div>
           <div class="dialog-footer">
@@ -4646,7 +4644,7 @@ export class SettingsPage extends LitElement {
       try {
         await this._confirmAction.onConfirm();
       } catch (error) {
-        this._error = `Error: ${String(error)}`;
+        this._error = `Erro: ${String(error)}`;
       }
     }
     this._confirmAction = null;
