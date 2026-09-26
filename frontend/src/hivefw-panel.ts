@@ -9266,7 +9266,15 @@ class HiveFWPanel extends BasePanel {
     signals.className="hive-network-panel";
     const stitle=document.createElement("div");stitle.className="hive-network-panel-title";stitle.textContent="Distribuição de sinal";
     signals.appendChild(stitle);
-    const signalRows=all.map((n)=>this.__networkSignalFor(n)).filter((s)=>s.snr!=null||s.rssi!=null);
+    const signalCache=new Map();
+    const signalFor=(neighbor)=>{
+      const id=this.__networkNeighborId(neighbor);
+      if(signalCache.has(id))return signalCache.get(id);
+      const signal=this.__networkSignalFor(neighbor);
+      signalCache.set(id,signal);
+      return signal;
+    };
+    const signalRows=all.map((n)=>signalFor(n)).filter((s)=>s.snr!=null||s.rssi!=null);
     const good=signalRows.filter((s)=>s.snr!=null?s.snr>=-5:s.rssi>=-100).length;
     const medium=signalRows.filter((s)=>{
       if(s.snr!=null)return s.snr<-5&&s.snr>=-12;
@@ -9297,21 +9305,25 @@ class HiveFWPanel extends BasePanel {
     const contactSource=Array.isArray(this.__nodesMapContacts)
       ? this.__nodesMapContacts
       : (Array.isArray(this._contacts)?this._contacts:[]);
+    const resolvedHashCache=new Map();
     const resolveHash=(rawHash)=>{
       const hash=String(rawHash||"").trim().replace(/^0x/i,"").toLowerCase();
       if(!hash)return null;
+      if(resolvedHashCache.has(hash))return resolvedHashCache.get(hash);
       const matches=contactSource.filter((contact)=>{
         const key=String(contact?.public_key||"").trim().toLowerCase();
         const prefix=String(contact?.pubkey_prefix||key.slice(0,12)).trim().toLowerCase();
         return (key&&key.startsWith(hash))||(prefix&&prefix.startsWith(hash));
       });
-      return matches.length===1?matches[0]:null;
+      const resolved=matches.length===1?matches[0]:null;
+      resolvedHashCache.set(hash,resolved);
+      return resolved;
     };
     const rowsFromHashes=(source)=>{
       return Object.entries(source||{}).map(([hash,activity])=>{
         const contact=resolveHash(hash);
         const neighbor=all.find((candidate)=>{
-          const signal=this.__networkSignalFor(candidate);
+          const signal=signalFor(candidate);
           return contact&&signal.contact&&this.__nodeId(signal.contact)===this.__nodeId(contact);
         })||null;
         return {
