@@ -370,8 +370,7 @@ class _ContactsScreenState extends ConsumerState<ContactsScreen> {
                       ),
                     ),
                   ),
-                  if (_view == _ContactsView.added)
-                    PopupMenuButton<_AdvertType>(
+                  PopupMenuButton<_AdvertType>(
                       icon: const Icon(Icons.broadcast_on_personal),
                       tooltip: context.l10n.contactsSendAdvert,
                       onSelected: (type) {
