@@ -379,51 +379,95 @@ class _RepeaterDiscoveryScreenState
               ),
             )
           else
-            ...results.map(
-              (result) => Card(
-                child: ListTile(
+            ...results.map((result) {
+              final contact = _contactFor(result.publicKey);
+              final hasGps =
+                  contact != null &&
+                  (contact.latitude != 0 || contact.longitude != 0);
+              final prefix = _hex(result.publicKey.sublist(0, 6));
+
+              return Card(
+                clipBehavior: Clip.antiAlias,
+                child: InkWell(
                   onTap: () => _showRepeaterInfo(result),
-                  leading: const CircleAvatar(
-                    child: Icon(Icons.cell_tower, size: 18),
-                  ),
-                  title: Text(_nameFor(result.publicKey)),
-                  subtitle: Builder(
-                    builder: (context) {
-                      final contact = _contactFor(result.publicKey);
-                      final hasGps =
-                          contact != null &&
-                          (contact.latitude != 0 || contact.longitude != 0);
-                      return Text(
-                        '${_hex(result.publicKey.sublist(0, 6))}\n'
-                        'ZERO-HOP · ${contact != null ? 'Conhecido' : 'Novo'}'
-                        '${hasGps ? ' · 📍 GPS' : ''}\n'
-                        'REQ ${result.requesterSnrAtRepeater.toStringAsFixed(1)} dB · '
-                        'RSSI ${result.rssi} dBm',
-                      );
-                    },
-                  ),
-                  isThreeLine: true,
-                  trailing: Tooltip(
-                    message:
-                        'REQ ${result.requesterSnrAtRepeater.toStringAsFixed(1)} dB · '
-                        'SNR ${result.snr.toStringAsFixed(1)} dB · '
-                        'RSSI ${result.rssi} dBm',
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      crossAxisAlignment: CrossAxisAlignment.end,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 12,
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
                       children: [
-                        _DiscoverySignalBars(snr: result.snr),
-                        const SizedBox(height: 3),
-                        Text(
-                          'SNR ${result.snr.toStringAsFixed(1)}',
-                          style: Theme.of(context).textTheme.labelSmall,
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                _nameFor(result.publicKey),
+                                style: theme.textTheme.titleSmall?.copyWith(
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                prefix,
+                                style: theme.textTheme.labelSmall?.copyWith(
+                                  fontFamily: 'monospace',
+                                  color: theme.colorScheme.onSurfaceVariant,
+                                ),
+                              ),
+                              const SizedBox(height: 7),
+                              Wrap(
+                                spacing: 6,
+                                runSpacing: 5,
+                                crossAxisAlignment: WrapCrossAlignment.center,
+                                children: [
+                                  _DiscoveryPill(
+                                    label: 'ZERO-HOP',
+                                    emphasized: true,
+                                  ),
+                                  _DiscoveryPill(
+                                    label: contact != null ? 'Conhecido' : 'Novo',
+                                  ),
+                                  if (hasGps)
+                                    const _DiscoveryPill(label: '📍 GPS'),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 14),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            Text(
+                              'REQ(${result.requesterSnrAtRepeater.toStringAsFixed(1)} dB)',
+                              style: theme.textTheme.labelSmall?.copyWith(
+                                color: theme.colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                            Text(
+                              'SNR ${result.snr.toStringAsFixed(1)} dB',
+                              style: theme.textTheme.labelMedium?.copyWith(
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            Text(
+                              'RSSI ${result.rssi} dBm',
+                              style: theme.textTheme.labelSmall?.copyWith(
+                                color: theme.colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                            const SizedBox(height: 5),
+                            _DiscoverySignalBars(snr: result.snr),
+                          ],
                         ),
                       ],
                     ),
                   ),
                 ),
-              ),
-            ),
+              );
+            }),
         ],
       ),
     );
@@ -451,6 +495,41 @@ class _DiscoveredRepeater {
   final double requesterSnrAtRepeater;
 
   final DateTime receivedAt;
+}
+
+class _DiscoveryPill extends StatelessWidget {
+  const _DiscoveryPill({
+    required this.label,
+    this.emphasized = false,
+  });
+
+  final String label;
+  final bool emphasized;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+      decoration: BoxDecoration(
+        color:
+            emphasized
+                ? scheme.primaryContainer
+                : scheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        label,
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+          fontWeight: emphasized ? FontWeight.w700 : FontWeight.w500,
+          color:
+              emphasized
+                  ? scheme.onPrimaryContainer
+                  : scheme.onSurfaceVariant,
+        ),
+      ),
+    );
+  }
 }
 
 class _DiscoverySignalBars extends StatelessWidget {
