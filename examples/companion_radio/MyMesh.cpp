@@ -5695,11 +5695,22 @@ void MyMesh::handleCmdFrame(size_t len) {
       savePrefs();
       writeOKFrame();
     }
-  } else if (cmd_frame[0] == CMD_REBOOT && memcmp(&cmd_frame[1], "reboot", 6) == 0) {
+  } else if (cmd_frame[0] == CMD_REBOOT && len >= 7 && memcmp(&cmd_frame[1], "reboot", 6) == 0) {
     if (dirty_contacts_expiry) { // is there are pending dirty contacts write needed?
       saveContacts();
     }
     board.reboot();
+  } else if (cmd_frame[0] == CMD_REBOOT && len >= 9 && memcmp(&cmd_frame[1], "shutdown", 8) == 0) {
+    // HiveFW uses the existing power-control command family for a real board
+    // power-off/system-off operation. This is not a timed sleep: on ESP32 it
+    // enters deep sleep without a wake timer; on nRF52/T114 it enters System OFF.
+    if (dirty_contacts_expiry) {
+      saveContacts();
+      dirty_contacts_expiry = 0;
+    }
+    writeOKFrame();
+    delay(100);
+    board.powerOff();
   } else if (cmd_frame[0] == CMD_GET_BATT_AND_STORAGE) {
     uint8_t reply[11];
     int i = 0;
@@ -8994,9 +9005,20 @@ void MyMesh::loop() {
       power_loss_samples = 0;
     } else if (last_external_power) {
       if (++power_loss_samples >= 3) {
-        last_external_power = false;
-        power_loss_samples = 0;
-        sendPowerFailureNotification();
+        // Do not consume the power-loss event until the APPS/SOS message was
+        // actually queued. Packet-pool/radio pressure can make a single
+        // sendGroupMessage() attempt fail; keeping last_external_power=true
+        // makes the firmware retry after another debounce window instead of
+        // silently losing the notification until mains power returns.
+        if (sendPowerFailureNotification()) {
+          last_external_power = false;
+          power_loss_samples = 0;
+        } else {
+          power_loss_samples = 0;
+          MESH_DEBUG_PRINTLN(
+            "HiveFW power notify: send failed; retrying while power remains absent"
+          );
+        }
       }
     } else {
       power_loss_samples = 0;
