@@ -242,6 +242,10 @@ class RadioService {
     await _send(CompanionEncoder.reboot());
   }
 
+  Future<void> shutdown() async {
+    await _send(CompanionEncoder.shutdown());
+  }
+
   // --- HiveFW local Companion extensions ---
 
   Future<void> requestHiveCustomVars() async {
