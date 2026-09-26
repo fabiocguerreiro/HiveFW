@@ -24,7 +24,7 @@ class RepeaterDiscoveryScreen extends ConsumerStatefulWidget {
 
 class _RepeaterDiscoveryScreenState
     extends ConsumerState<RepeaterDiscoveryScreen> {
-  static const _scanWindow = Duration(seconds: 15);
+  static const _scanWindow = Duration(seconds: 30);
 
   final Map<String, _DiscoveredRepeater> _results = {};
   StreamSubscription<CompanionResponse>? _responseSub;
