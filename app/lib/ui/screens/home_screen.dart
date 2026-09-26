@@ -92,13 +92,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     );
     final currentPath = widget.currentPath;
     final tabIndex = widget.navigationShell.currentIndex;
-    final isIos = defaultTargetPlatform == TargetPlatform.iOS;
     final isChannelsChatPage = currentPath.startsWith('/channels/');
     final isContactsChatPage =
         currentPath.startsWith('/chat/') ||
         currentPath.startsWith('/room/') ||
         currentPath.startsWith('/repeater/');
-    final showIosChatBack = isIos && (isChannelsChatPage || isContactsChatPage);
+    final showChatBack = isChannelsChatPage || isContactsChatPage;
 
     // When inside an apps sub-page, show a back arrow and the app's name.
     final appSubTitle = _appSubTitle(context, currentPath);
@@ -139,7 +138,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       child: Scaffold(
         appBar: AppBar(
           leading:
-              showIosChatBack
+              showChatBack
                   ? IconButton(
                     icon: const Icon(Icons.arrow_back_ios_new_rounded),
                     tooltip: context.l10n.commonBack,
