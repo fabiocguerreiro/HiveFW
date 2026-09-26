@@ -30,8 +30,10 @@ part 'parts/map_contact_sheets.dart';
 part 'parts/map_cluster.dart';
 part 'parts/map_trace_card.dart';
 
-/// Full-screen map showing all contacts with GPS coordinates and the device's
-/// own position.  Uses OpenStreetMap tiles via flutter_map (no API key needed).
+enum _MapContactMode { discovered, added, neighbours }
+
+/// Full-screen map showing contacts with GPS coordinates and the device's
+/// own position. Uses OpenStreetMap tiles via flutter_map.
 class MapScreen extends ConsumerStatefulWidget {
   const MapScreen({super.key});
 
@@ -43,6 +45,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   final _mapController = MapController();
   final _mapRepaintKey = GlobalKey();
   bool _sharing = false;
+  _MapContactMode _contactMode = _MapContactMode.discovered;
 
   late final TileProvider _tileProvider =
       kIsWeb
@@ -396,18 +399,43 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       ),
     );
     final selfInfo = ref.watch(selfInfoProvider);
+    final deviceInfo = ref.watch(deviceInfoProvider);
     final traceResult = ref.watch(traceResultProvider);
     final hidden = ref.watch(mapHiddenContactsProvider);
+    final radioKeys = ref.watch(radioContactsSnapshotProvider);
     final theme = Theme.of(context);
+    final repeatEnabled = (deviceInfo?.clientRepeat ?? 0) != 0;
 
-    // Apply hidden filter
+    final modeGpsContacts = switch (_contactMode) {
+      _MapContactMode.discovered => gpsContacts
+          .where(
+            (c) =>
+                c.lastAdvertTimestamp > 0 &&
+                !radioKeys.contains(_pubKeyHex(c.publicKey)),
+          )
+          .toList(),
+      _MapContactMode.added => gpsContacts
+          .where((c) => radioKeys.contains(_pubKeyHex(c.publicKey)))
+          .toList(),
+      _MapContactMode.neighbours => repeatEnabled
+          ? gpsContacts
+              .where(
+                (c) =>
+                    c.isRepeater &&
+                    _zeroHopPrefixes.contains(_prefix6(c.publicKey)),
+              )
+              .toList()
+          : <Contact>[],
+    };
+
+    // Apply per-contact hidden filter after choosing the map source.
     final visibleGpsContacts =
-        gpsContacts
+        modeGpsContacts
             .where((c) => !hidden.contains(_pubKeyHex(c.publicKey)))
             .toList();
 
     final directGpsRepeaters =
-        visibleGpsContacts
+        gpsContacts
             .where(
               (c) =>
                   c.isRepeater &&
@@ -602,9 +630,54 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                 ],
               ),
 
-              if (traceResult == null && _zeroHopTotal > 0)
+              if (traceResult == null)
                 Positioned(
                   top: 16,
+                  right: 16,
+                  child: Card(
+                    margin: EdgeInsets.zero,
+                    child: PopupMenuButton<_MapContactMode>(
+                      tooltip: 'Escolher conteúdo do mapa',
+                      initialValue: _contactMode,
+                      icon: const Icon(Icons.menu),
+                      onSelected: (mode) => setState(() => _contactMode = mode),
+                      itemBuilder: (context) => [
+                        const PopupMenuItem(
+                          value: _MapContactMode.discovered,
+                          child: ListTile(
+                            dense: true,
+                            contentPadding: EdgeInsets.zero,
+                            leading: Icon(Icons.radar_outlined),
+                            title: Text('Contactos descobertos'),
+                          ),
+                        ),
+                        const PopupMenuItem(
+                          value: _MapContactMode.added,
+                          child: ListTile(
+                            dense: true,
+                            contentPadding: EdgeInsets.zero,
+                            leading: Icon(Icons.contacts_outlined),
+                            title: Text('Contactos adicionados'),
+                          ),
+                        ),
+                        if (repeatEnabled)
+                          const PopupMenuItem(
+                            value: _MapContactMode.neighbours,
+                            child: ListTile(
+                              dense: true,
+                              contentPadding: EdgeInsets.zero,
+                              leading: Icon(Icons.cell_tower),
+                              title: Text('Vizinhos'),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+
+              if (traceResult == null && _zeroHopTotal > 0)
+                Positioned(
+                  top: 72,
                   right: 16,
                   child: Card(
                     child: Padding(
