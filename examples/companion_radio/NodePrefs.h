@@ -271,7 +271,10 @@ public:
   void setAutoAdvertEn(bool en) { repeat.auto_advert = en ? 1 : 0; }
 
   bool isPowerNotifyEn() const { return repeat.power_notify == 1; }
-  void setPowerNotifyEn(bool en) { repeat.power_notify = en ? 1 : 0; }
+  void setPowerNotifyEn(bool en) {
+    repeat.power_notify = en ? 1 : 0;
+    if (!en) repeat.power_alert_armed = 0;
+  }
 
   bool isPowerAlertArmed() const { return repeat.power_alert_armed == 1; }
   void setPowerAlertArmed(bool armed) {
