@@ -69,7 +69,6 @@ App -> rádio:  '<' + uint16 little-endian + payload
 Rádio -> app:  '>' + uint16 little-endian + payload
 ```
 
-USB/Serial e Web Serial continuam disponíveis nas plataformas que os suportam.
 
 ## Ecrã Dispositivo
 
@@ -127,7 +126,7 @@ As passwords **Admin/Guest não são exportadas** porque o firmware as trata com
 
 ## Android
 
-Android é a plataforma prioritária.
+Android é a única plataforma suportada pela App.
 
 Para desenvolvimento:
 
@@ -148,7 +147,7 @@ Não há AAB nem dependência da Play Store.
 ```text
 lib/
 ├── protocol/        Companion protocol + extensões HiveFW
-├── transport/       BLE, Serial, Web Serial e HiveFW TCP
+├── transport/       BLE e HiveFW TCP
 ├── services/        coordenação do rádio e serviços da aplicação
 ├── providers/       estado Riverpod + backup/restore
 └── ui/
@@ -160,6 +159,6 @@ O firmware HiveFW é a fonte de verdade das capacidades específicas. A aplicaç
 
 ## Origem e licença
 
-Este projeto deriva tecnicamente da **LusoApp**, distribuída sob licença MIT. O repositório **HiveFW-app** é independente e preserva os avisos de origem e a licença do trabalho original em [LICENSE](LICENSE).
+Este projeto deriva tecnicamente da **LusoApp**, distribuída sob licença MIT. O código atual vive em `app/` no monorepo **HiveFW** e preserva os avisos de origem e a licença do trabalho original em [LICENSE](LICENSE).
 
 As alterações HiveFW mantêm essa base licenciada e acrescentam a identidade HiveFW, transportes, UI e suporte às extensões do firmware.
