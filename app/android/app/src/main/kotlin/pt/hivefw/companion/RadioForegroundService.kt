@@ -110,6 +110,7 @@ class RadioForegroundService : Service() {
             .setContentTitle(getString(R.string.radio_notification_title, currentRadioName))
             .setContentText(contentText)
             .setSmallIcon(R.drawable.ic_hivefw_notification)
+            .setGroup("hivefw_notifications")
             .setOngoing(true)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
 
