@@ -481,6 +481,25 @@ class _HiveFwDeviceScreenState extends ConsumerState<HiveFwDeviceScreen> {
           ),
           const SizedBox(height: 12),
           _CardSection(
+            title: 'Localização',
+            icon: Icons.location_on_outlined,
+            child: ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.gps_fixed),
+              title: const Text('Localização do Companion'),
+              subtitle: Text(
+                self?.latitude != null && self?.longitude != null
+                    ? '${self!.latitude!.toStringAsFixed(6)}, ${self.longitude!.toStringAsFixed(6)} · GPS do telemóvel ou coordenadas'
+                    : 'GPS do telemóvel ou coordenadas, sincronizadas com o Companion.',
+              ),
+              trailing: const Icon(Icons.chevron_right),
+              enabled: connected,
+              onTap:
+                  connected ? () => context.push('/hivefw/location') : null,
+            ),
+          ),
+          const SizedBox(height: 12),
+          _CardSection(
             title: 'Modo Repeater',
             icon: Icons.repeat,
             trailing:
