@@ -51,6 +51,10 @@ class _TelemetryScreenState extends ConsumerState<TelemetryScreen> {
     final batteryMv = ref.watch(batteryProvider);
     final battHistoryRaw = ref.watch(batteryHistoryProvider);
     final stats = ref.watch(networkStatsProvider);
+    final deviceInfo = ref.watch(deviceInfoProvider);
+    final selfInfo = ref.watch(selfInfoProvider);
+    final storage = ref.watch(storageProvider);
+    final radioConfig = ref.watch(radioConfigProvider);
     final telemetry = ref.watch(telemetryProvider);
     final statsCore = ref.watch(radioStatsCoreProvider);
     final statsRadio = ref.watch(radioStatsRadioProvider);
@@ -60,6 +64,71 @@ class _TelemetryScreenState extends ConsumerState<TelemetryScreen> {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
+        // ---- Device status summary ----
+        _SectionHeader(
+          label: 'Estado',
+          icon: Icons.dashboard_outlined,
+        ),
+        const SizedBox(height: 8),
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Wrap(
+              spacing: 18,
+              runSpacing: 12,
+              children: [
+                _StatusMetric(
+                  label: 'Dispositivo',
+                  value: selfInfo?.name ?? deviceInfo?.deviceName ?? 'HiveFW',
+                  detail: deviceInfo?.model ?? '—',
+                  icon: Icons.memory,
+                ),
+                _StatusMetric(
+                  label: 'Firmware',
+                  value: deviceInfo?.versionString ?? '—',
+                  detail: deviceInfo?.firmwareBuild ?? '',
+                  icon: Icons.system_update_alt,
+                ),
+                _StatusMetric(
+                  label: 'Uptime',
+                  value: statsCore == null
+                      ? '—'
+                      : _formatStatusUptime(statsCore.uptimeSecs),
+                  detail: statsCore == null ? '' : '${statsCore.uptimeSecs}s',
+                  icon: Icons.schedule,
+                ),
+                _StatusMetric(
+                  label: 'Storage',
+                  value: storage.$2 == null
+                      ? '—'
+                      : '${storage.$1 ?? 0} / ${storage.$2} KB',
+                  detail: 'Utilização local',
+                  icon: Icons.storage,
+                ),
+                _StatusMetric(
+                  label: 'Rádio',
+                  value: radioConfig == null
+                      ? '—'
+                      : '${radioConfig.frequencyMHz.toStringAsFixed(3)} MHz',
+                  detail: radioConfig == null
+                      ? ''
+                      : 'BW ${radioConfig.bandwidthKHz} kHz · SF${radioConfig.spreadingFactor} · 4/${radioConfig.codingRate} · ${radioConfig.txPowerDbm} dBm',
+                  icon: Icons.settings_input_antenna,
+                ),
+                _StatusMetric(
+                  label: 'Modo Repeater',
+                  value: (deviceInfo?.clientRepeat ?? 0) != 0 ? 'Ativo' : 'Inativo',
+                  detail: (deviceInfo?.clientRepeat ?? 0) != 0
+                      ? 'Funções Repeater disponíveis'
+                      : 'Modo Companion',
+                  icon: Icons.repeat,
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 20),
+
         // ---- Battery section ----
         _SectionHeader(
           label: context.l10n.telemetryBattery,
@@ -147,6 +216,70 @@ class _TelemetryScreenState extends ConsumerState<TelemetryScreen> {
           for (final entry in telemetry)
             _TelemetryEntryCard(entry: entry, theme: theme),
       ],
+    );
+  }
+}
+
+
+String _formatStatusUptime(int seconds) {
+  final days = seconds ~/ 86400;
+  final hours = (seconds % 86400) ~/ 3600;
+  final minutes = (seconds % 3600) ~/ 60;
+  if (days > 0) return '${days}d ${hours}h';
+  if (hours > 0) return '${hours}h ${minutes}m';
+  return '${minutes}m';
+}
+
+class _StatusMetric extends StatelessWidget {
+  const _StatusMetric({
+    required this.label,
+    required this.value,
+    required this.detail,
+    required this.icon,
+  });
+
+  final String label;
+  final String value;
+  final String detail;
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return SizedBox(
+      width: 220,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 20, color: theme.colorScheme.primary),
+          const SizedBox(width: 9),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label, style: theme.textTheme.labelSmall),
+                Text(
+                  value,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                if (detail.isNotEmpty)
+                  Text(
+                    detail,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
