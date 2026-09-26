@@ -412,14 +412,22 @@ class HiveFWPanel extends BasePanel {
       if (!this.__hiveNeighborDiscovery && !this.__hiveNeighborDiscoveryLoading) {
         void this.__loadHiveNeighborDiscovery();
       }
-      if (
-        !this.__repeaterLoading &&
-        (!this.__repeaterStatus || !this.__repeaterStatusLoadedAt || Date.now()-this.__repeaterStatusLoadedAt>30000)
-      ) {
+      // Rede only needs a cached local Repeater snapshot for labels/analytics.
+      // Do not re-query the radio every 30 seconds just because Home Assistant
+      // produced a hass update; those full status reads contend with neighbour
+      // and map actions and made the page appear to freeze periodically.
+      if (!this.__repeaterLoading && !this.__repeaterStatus) {
         void this.__loadRepeaterStatus();
       }
       if (this.__peerActivityLoadedEntry !== entryId && !this.__peerActivityLoading) {
         void this.__loadPeerActivity();
+      }
+      // The base Lit panel already loaded contacts through the exact same
+      // get_contacts endpoint. Seed the Network cache immediately so the map
+      // can render without a duplicate round-trip on first entry.
+      if (!Array.isArray(this.__nodesMapContacts) && Array.isArray(this._contacts)) {
+        this.__nodesMapContacts=this._contacts;
+        this.__nodesMapLoadedEntry=entryId;
       }
       if ((!Array.isArray(this.__nodesMapContacts) || this.__nodesMapLoadedEntry !== entryId) && !this.__nodesMapLoading) {
         void this.__loadNodesMapContacts().then(() => {
