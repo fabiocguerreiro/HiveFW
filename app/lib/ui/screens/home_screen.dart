@@ -133,7 +133,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       ),
                       title: Text(participant.key),
                       subtitle: Text(
-                        '${participant.value} mensagem${participant.value == 1 ? '' : 's'} observada${participant.value == 1 ? '' : 's'}',
+                        '${participant.value} ${participant.value == 1 ? 'mensagem observada' : 'mensagens observadas'}',
                       ),
                       trailing: IconButton(
                         tooltip:
@@ -441,7 +441,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                                   ?.copyWith(fontWeight: FontWeight.w700),
                             ),
                             Text(
-                              '${channelMessages.length} mensagem${channelMessages.length == 1 ? '' : 's'}',
+                              '${channelMessages.length} ${channelMessages.length == 1 ? 'mensagem' : 'mensagens'}',
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: Theme.of(context).textTheme.bodySmall,
