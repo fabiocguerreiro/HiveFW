@@ -20,10 +20,8 @@ enum AppFeature {
   topology,
   neighbours,
   homeassistant,
-  telemetry,
   rxlog,
   noisefloor,
-  dataexport,
 }
 
 final class FeatureToggles {
@@ -79,9 +77,7 @@ final class FeatureToggles {
     AppFeature.topology => appTopology,
     AppFeature.neighbours => appNeighbours,
     AppFeature.homeassistant => appHomeAssistant,
-    AppFeature.telemetry => appTelemetry,
     AppFeature.rxlog => appRxLog,
     AppFeature.noisefloor => appNoiseFloor,
-    AppFeature.dataexport => appDataExport,
   };
 }
