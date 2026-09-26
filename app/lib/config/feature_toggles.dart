@@ -16,6 +16,7 @@
 library;
 
 enum AppFeature {
+  map,
   topology,
   neighbours,
   homeassistant,
@@ -74,6 +75,7 @@ final class FeatureToggles {
   static const bool appHomeAssistant = true;
 
   static bool isEnabled(AppFeature feature) => switch (feature) {
+    AppFeature.map => true,
     AppFeature.topology => appTopology,
     AppFeature.neighbours => appNeighbours,
     AppFeature.homeassistant => appHomeAssistant,
