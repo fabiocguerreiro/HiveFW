@@ -6,13 +6,14 @@ part of '../telemetry_screen.dart';
 class _RadioCoreStatsCard extends StatelessWidget {
   const _RadioCoreStatsCard({required this.stats, required this.theme});
 
-  final StatsCoreResponse stats;
+  final StatsCoreResponse? stats;
   final ThemeData theme;
 
   @override
   Widget build(BuildContext context) {
-    final uptime = _formatUptime(stats.uptimeSecs);
-    final volts = (stats.batteryMv / 1000.0).toStringAsFixed(3);
+    final s = stats;
+    final uptime = s == null ? '—' : _formatUptime(s.uptimeSecs);
+    final volts = s == null ? '—' : (s.batteryMv / 1000.0).toStringAsFixed(3);
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -26,7 +27,7 @@ class _RadioCoreStatsCard extends StatelessWidget {
                   icon: Icons.battery_charging_full,
                   color: Colors.green.shade600,
                   label: context.l10n.telemetryBattery,
-                  value: '$volts V',
+                  value: s == null ? '—' : '$volts V',
                   theme: theme,
                 ),
                 _VertDivider(),
@@ -42,12 +43,12 @@ class _RadioCoreStatsCard extends StatelessWidget {
                   icon: Icons.inbox,
                   color: theme.colorScheme.secondary,
                   label: context.l10n.telemetryTxQueue,
-                  value: '${stats.queueLen}',
+                  value: s == null ? '—' : '${s.queueLen}',
                   theme: theme,
                 ),
               ],
             ),
-            if (stats.errors != 0) ...[
+            if (s != null && s.errors != 0) ...[
               const SizedBox(height: 10),
               Row(
                 children: [
@@ -58,7 +59,7 @@ class _RadioCoreStatsCard extends StatelessWidget {
                   ),
                   const SizedBox(width: 6),
                   Text(
-                    '${context.l10n.telemetryErrorsPrefix} 0x${stats.errors.toRadixString(16).padLeft(4, '0').toUpperCase()}',
+                    '${context.l10n.telemetryErrorsPrefix} 0x${s.errors.toRadixString(16).padLeft(4, '0').toUpperCase()}',
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: Colors.orange.shade700,
                     ),
@@ -90,14 +91,15 @@ class _RadioCoreStatsCard extends StatelessWidget {
 class _RadioRfStatsCard extends StatelessWidget {
   const _RadioRfStatsCard({required this.stats, required this.theme});
 
-  final StatsRadioResponse stats;
+  final StatsRadioResponse? stats;
   final ThemeData theme;
 
   @override
   Widget build(BuildContext context) {
-    final snr = stats.lastSnrDb.toStringAsFixed(2);
-    final txAir = _formatAirtime(stats.txAirSecs);
-    final rxAir = _formatAirtime(stats.rxAirSecs);
+    final s = stats;
+    final snr = s == null ? '—' : s.lastSnrDb.toStringAsFixed(2);
+    final txAir = s == null ? '—' : _formatAirtime(s.txAirSecs);
+    final rxAir = s == null ? '—' : _formatAirtime(s.rxAirSecs);
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -108,9 +110,9 @@ class _RadioRfStatsCard extends StatelessWidget {
               children: [
                 _StatCell(
                   icon: Icons.signal_cellular_alt,
-                  color: _rssiColor(stats.lastRssi, theme),
+                  color: s == null ? theme.colorScheme.onSurfaceVariant : _rssiColor(s.lastRssi, theme),
                   label: context.l10n.telemetryRSSI,
-                  value: '${stats.lastRssi} dBm',
+                  value: s == null ? '—' : '${s.lastRssi} dBm',
                   theme: theme,
                 ),
                 _VertDivider(),
@@ -118,15 +120,15 @@ class _RadioRfStatsCard extends StatelessWidget {
                   icon: Icons.noise_aware,
                   color: theme.colorScheme.onSurfaceVariant,
                   label: context.l10n.telemetryNoise,
-                  value: '${stats.noiseFloor} dBm',
+                  value: s == null ? '—' : '${s.noiseFloor} dBm',
                   theme: theme,
                 ),
                 _VertDivider(),
                 _StatCell(
                   icon: Icons.show_chart,
-                  color: _snrColor(stats.lastSnrDb, theme),
+                  color: s == null ? theme.colorScheme.onSurfaceVariant : _snrColor(s.lastSnrDb, theme),
                   label: context.l10n.telemetrySNR,
-                  value: '$snr dB',
+                  value: s == null ? '—' : '$snr dB',
                   theme: theme,
                 ),
               ],
@@ -186,11 +188,12 @@ class _RadioRfStatsCard extends StatelessWidget {
 class _RadioPacketStatsCard extends StatelessWidget {
   const _RadioPacketStatsCard({required this.stats, required this.theme});
 
-  final StatsPacketsResponse stats;
+  final StatsPacketsResponse? stats;
   final ThemeData theme;
 
   @override
   Widget build(BuildContext context) {
+    final s = stats;
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -203,7 +206,7 @@ class _RadioPacketStatsCard extends StatelessWidget {
                   icon: Icons.arrow_downward,
                   color: Colors.green.shade600,
                   label: context.l10n.telemetryRXTotal,
-                  value: '${stats.recv}',
+                  value: s == null ? '—' : '${s.recv}',
                   theme: theme,
                 ),
                 _VertDivider(),
@@ -211,16 +214,16 @@ class _RadioPacketStatsCard extends StatelessWidget {
                   icon: Icons.arrow_upward,
                   color: theme.colorScheme.primary,
                   label: context.l10n.telemetryTXTotal,
-                  value: '${stats.sent}',
+                  value: s == null ? '—' : '${s.sent}',
                   theme: theme,
                 ),
-                if (stats.recvErrors != null) ...[
+                if (s?.recvErrors != null) ...[
                   _VertDivider(),
                   _StatCell(
                     icon: Icons.error_outline,
                     color: Colors.red.shade600,
                     label: context.l10n.telemetryErrorsRX,
-                    value: '${stats.recvErrors}',
+                    value: '${s!.recvErrors}',
                     theme: theme,
                   ),
                 ],
@@ -234,7 +237,7 @@ class _RadioPacketStatsCard extends StatelessWidget {
                   icon: Icons.waves,
                   color: theme.colorScheme.secondary,
                   label: context.l10n.telemetryFloodTX,
-                  value: '${stats.floodTx}',
+                  value: s == null ? '—' : '${s.floodTx}',
                   theme: theme,
                 ),
                 _VertDivider(),
@@ -242,7 +245,7 @@ class _RadioPacketStatsCard extends StatelessWidget {
                   icon: Icons.waves,
                   color: Colors.teal.shade600,
                   label: context.l10n.telemetryFloodRX,
-                  value: '${stats.floodRx}',
+                  value: s == null ? '—' : '${s.floodRx}',
                   theme: theme,
                 ),
                 _VertDivider(),
@@ -250,7 +253,7 @@ class _RadioPacketStatsCard extends StatelessWidget {
                   icon: Icons.alt_route,
                   color: Colors.indigo.shade400,
                   label: context.l10n.telemetryDirectTX,
-                  value: '${stats.directTx}',
+                  value: s == null ? '—' : '${s.directTx}',
                   theme: theme,
                 ),
                 _VertDivider(),
@@ -258,7 +261,7 @@ class _RadioPacketStatsCard extends StatelessWidget {
                   icon: Icons.alt_route,
                   color: Colors.cyan.shade600,
                   label: context.l10n.telemetryDirectRX,
-                  value: '${stats.directRx}',
+                  value: s == null ? '—' : '${s.directRx}',
                   theme: theme,
                 ),
               ],
