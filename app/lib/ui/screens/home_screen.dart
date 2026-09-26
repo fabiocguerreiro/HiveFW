@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -104,9 +103,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final isAppsSubPage = appSubTitle != null;
     final shortestSide = MediaQuery.sizeOf(context).shortestSide;
     final isTablet = shortestSide >= 600;
-    final isWindowsDesktop =
-        !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
-    final useLargeNav = kIsWeb || isWindowsDesktop || isTablet;
+    final useLargeNav = isTablet;
     final useExtendedRail = MediaQuery.sizeOf(context).width >= 1280;
 
     final channelsIcon = Badge(
