@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../providers/radio_providers.dart';
+import '../../services/discovered_contacts_import.dart';
 import '../../transport/radio_transport.dart';
 
 class HiveFwBackupScreen extends ConsumerStatefulWidget {
@@ -243,6 +244,82 @@ class _HiveFwBackupScreenState extends ConsumerState<HiveFwBackupScreen> {
     }
   }
 
+  String _hex32(Uint8List key) =>
+      key.take(32).map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+
+  Future<void> _exportDiscoveredContacts() async {
+    setState(() => _busy = 'discovered-export');
+    try {
+      final radioKeys = ref.read(radioContactsSnapshotProvider);
+      final contacts = ref
+          .read(contactsProvider)
+          .where(
+            (contact) =>
+                contact.lastAdvertTimestamp > 0 &&
+                !radioKeys.contains(_hex32(contact.publicKey)),
+          )
+          .toList();
+      final payload = <String, dynamic>{
+        'format': 'hivefw_discovered_contacts',
+        'version': 1,
+        'exported_at': DateTime.now().toIso8601String(),
+        'discovered_contacts': [
+          for (final contact in contacts)
+            {
+              'public_key': _hex32(contact.publicKey),
+              'type': contact.type,
+              'flags': contact.flags,
+              'name': contact.name,
+              'last_advert': contact.lastAdvertTimestamp,
+              'last_modified':
+                  contact.lastModified ?? contact.lastAdvertTimestamp,
+              'latitude': contact.latitude,
+              'longitude': contact.longitude,
+            },
+        ],
+      };
+      await _shareJson(
+        payload,
+        'hivefw_discovered_contacts.json',
+        'HiveFW discovered contacts',
+      );
+      _toast('Contactos descobertos exportados: ${contacts.length}.');
+    } catch (e) {
+      _toast('Exportar contactos descobertos: $e', error: true);
+    } finally {
+      if (mounted) setState(() => _busy = null);
+    }
+  }
+
+  Future<void> _importDiscoveredContacts() async {
+    setState(() => _busy = 'discovered-import');
+    try {
+      final result = await FilePicker.pickFiles(type: FileType.any, withData: true);
+      if (result == null || result.files.isEmpty) return;
+      final file = result.files.single;
+      final bytes = file.bytes;
+      if (bytes == null || bytes.isEmpty) {
+        _toast('Não foi possível ler o ficheiro.', error: true);
+        return;
+      }
+      final parsed = DiscoveredContactsImport.parseBytes(bytes);
+      final imported = ref
+          .read(contactsProvider.notifier)
+          .importLocalContacts(parsed.contacts);
+      _toast(
+        'Contactos descobertos: ${imported.imported} importados · '
+        '${imported.duplicates} duplicados'
+        '${parsed.invalidEntries > 0 ? ' · inválidos ${parsed.invalidEntries}' : ''}.',
+      );
+    } on FormatException catch (e) {
+      _toast('Ficheiro de contactos inválido: ${e.message}', error: true);
+    } catch (e) {
+      _toast('Importar contactos descobertos: $e', error: true);
+    } finally {
+      if (mounted) setState(() => _busy = null);
+    }
+  }
+
   void _toast(String message, {bool error = false}) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -321,6 +398,27 @@ class _HiveFwBackupScreenState extends ConsumerState<HiveFwBackupScreen> {
                 onPressed: connected && !_isBusy ? _restoreCompanion : null,
                 icon: _busyIcon('companion-restore', Icons.restore),
                 label: const Text('Restaurar Companion'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          _BackupCard(
+            icon: Icons.contacts_outlined,
+            title: 'Contactos descobertos',
+            description:
+                'Exporta ou importa a cache local de contactos descobertos no formato HiveFW.',
+            warning:
+                'Ficheiro: hivefw_discovered_contacts.json. A importação é aditiva e não substitui contactos existentes.',
+            children: [
+              FilledButton.icon(
+                onPressed: !_isBusy ? _exportDiscoveredContacts : null,
+                icon: _busyIcon('discovered-export', Icons.save_outlined),
+                label: const Text('Exportar contactos'),
+              ),
+              OutlinedButton.icon(
+                onPressed: !_isBusy ? _importDiscoveredContacts : null,
+                icon: _busyIcon('discovered-import', Icons.restore),
+                label: const Text('Importar contactos'),
               ),
             ],
           ),
