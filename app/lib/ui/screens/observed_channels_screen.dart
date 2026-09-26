@@ -1,6 +1,11 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:typed_data';
+
+import 'package:crypto/crypto.dart';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../protocol/protocol.dart';
@@ -19,6 +24,7 @@ class _ObservedChannelsScreenState
   bool _loading = false;
   String? _error;
   List<_ObservedChannel> _rows = const [];
+  Map<int, List<_ChannelCandidate>>? _catalog;
 
   @override
   void initState() {
@@ -52,6 +58,110 @@ class _ObservedChannelsScreenState
     }
   }
 
+  Future<Map<int, List<_ChannelCandidate>>> _loadCatalog() async {
+    final cached = _catalog;
+    if (cached != null) return cached;
+
+    final raw = await rootBundle.loadString(
+      'assets/data/channel_catalog.json',
+    );
+    final decoded = jsonDecode(raw);
+    final rows =
+        decoded is Map<String, dynamic> && decoded['channels'] is List
+            ? decoded['channels'] as List
+            : const <dynamic>[];
+
+    final indexed = <int, List<_ChannelCandidate>>{};
+    for (final row in rows) {
+      if (row is! Map) continue;
+      final name = (row['name'] ?? '').toString().trim();
+      if (name.isEmpty) continue;
+
+      Uint8List secret;
+      try {
+        if (name.startsWith('#')) {
+          secret = Uint8List.fromList(
+            sha256.convert(utf8.encode(name)).bytes.take(16).toList(),
+          );
+        } else {
+          final encoded = (row['key'] ?? '').toString().trim();
+          if (encoded.isEmpty) continue;
+          final bytes = base64Decode(encoded);
+          if (bytes.length != 16) continue;
+          secret = Uint8List.fromList(bytes);
+        }
+      } catch (_) {
+        continue;
+      }
+
+      final hash = sha256.convert(secret).bytes.first;
+      indexed.putIfAbsent(hash, () => <_ChannelCandidate>[]).add(
+        _ChannelCandidate(
+          name: name.toLowerCase() == 'public' ? 'Public' : name,
+          secret: secret,
+        ),
+      );
+    }
+
+    _catalog = indexed;
+    return indexed;
+  }
+
+  Future<bool> _verifyCandidate(
+    int channelHash,
+    Uint8List secret,
+  ) async {
+    final radio = ref.read(radioServiceProvider);
+    if (radio == null || !radio.isConnected) return false;
+
+    final completer = Completer<bool>();
+    late StreamSubscription<CompanionResponse> sub;
+    sub = radio.responses.listen((response) {
+      if (completer.isCompleted) return;
+      if (response is OkResponse) {
+        completer.complete(true);
+      } else if (response is ErrorResponse) {
+        completer.complete(false);
+      }
+    });
+
+    try {
+      await radio.verifyObservedChannel(channelHash, secret);
+      return await completer.future.timeout(
+        const Duration(seconds: 2),
+        onTimeout: () => false,
+      );
+    } finally {
+      await sub.cancel();
+    }
+  }
+
+  Future<List<_ObservedChannel>> _resolveVerifiedNames(
+    List<_ObservedChannel> rows,
+  ) async {
+    final catalog = await _loadCatalog();
+    final resolved = <_ObservedChannel>[];
+
+    for (final row in rows) {
+      final hash = int.tryParse(row.hashHex, radix: 16);
+      if (hash == null) {
+        resolved.add(row);
+        continue;
+      }
+
+      String? verifiedName;
+      for (final candidate in catalog[hash] ?? const <_ChannelCandidate>[]) {
+        if (await _verifyCandidate(hash, candidate.secret)) {
+          verifiedName = candidate.name;
+          break;
+        }
+      }
+      resolved.add(row.withVerifiedName(verifiedName));
+    }
+
+    return resolved;
+  }
+
   Future<void> _load() async {
     if (_loading) return;
     setState(() {
@@ -78,8 +188,9 @@ class _ObservedChannelsScreenState
         offset += count;
       } while (offset < total && offset < 64);
 
+      final resolvedRows = await _resolveVerifiedNames(rows);
       if (!mounted) return;
-      setState(() => _rows = rows);
+      setState(() => _rows = resolvedRows);
     } catch (error) {
       if (!mounted) return;
       setState(() => _error = error.toString().replaceFirst('Bad state: ', ''));
@@ -114,7 +225,7 @@ class _ObservedChannelsScreenState
       builder: (ctx) {
         final hops = row.routeHashes;
         return AlertDialog(
-          title: Text('Trace · #${row.hashHex}'),
+          title: Text('Trace · ${row.verifiedName ?? '#${row.hashHex}'}'),
           content: SizedBox(
             width: 460,
             child: SingleChildScrollView(
@@ -250,7 +361,7 @@ class _ObservedChannelsScreenState
                     leading: CircleAvatar(
                       child: Text('#${row.hashHex}'),
                     ),
-                    title: Text('Canal #${row.hashHex}'),
+                    title: Text(row.verifiedName ?? 'Canal #${row.hashHex}'),
                     subtitle: Text(
                       'Ouvido há ${_age(row.secondsAgo)} · '
                       '${row.messageCount} mensagem(ns)\n'
@@ -278,6 +389,7 @@ class _ObservedChannel {
     required this.hopCount,
     required this.pathHex,
     required this.ingressPrefix,
+    this.verifiedName,
   });
 
   final String hashHex;
@@ -287,6 +399,18 @@ class _ObservedChannel {
   final int hopCount;
   final String pathHex;
   final String ingressPrefix;
+  final String? verifiedName;
+
+  _ObservedChannel withVerifiedName(String? name) => _ObservedChannel(
+    hashHex: hashHex,
+    secondsAgo: secondsAgo,
+    messageCount: messageCount,
+    hashSize: hashSize,
+    hopCount: hopCount,
+    pathHex: pathHex,
+    ingressPrefix: ingressPrefix,
+    verifiedName: name,
+  );
 
   List<String> get routeHashes {
     if (hashSize <= 0 || hopCount <= 0 || pathHex.isEmpty) return const [];
@@ -314,4 +438,15 @@ class _ObservedChannel {
       ingressPrefix: parts.length > 6 ? parts[6] : '',
     );
   }
+}
+
+
+class _ChannelCandidate {
+  const _ChannelCandidate({
+    required this.name,
+    required this.secret,
+  });
+
+  final String name;
+  final Uint8List secret;
 }
