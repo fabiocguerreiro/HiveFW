@@ -13,7 +13,6 @@ import '../../l10n/l10n.dart';
 import '../../protocol/protocol.dart';
 import '../../providers/radio_providers.dart';
 import '../../services/hivefw_local_data_service.dart';
-import '../widgets/canned_message_picker.dart';
 
 part 'parts/channel_message_bubble.dart';
 part 'parts/channel_paths_sheet.dart';
@@ -906,7 +905,7 @@ class _ChannelChatScreenState extends ConsumerState<ChannelChatScreen> {
               for (final m in channelMessages.where((m) => !m.isOutgoing))
                 _senderFromMessage(m),
             }..remove('Canal'),
-            onSendLocation: _sendLocation,
+            onSendLocation: isAppsChannel ? _sendLocation : null,
             onQuickCommands: isAppsChannel ? _showQuickCommands : null,
           ),
       ],
@@ -1484,6 +1483,42 @@ class _ChatInputBarState extends State<_ChatInputBar> {
     setState(() => _suggestions = []);
   }
 
+  Future<void> _showActionMenu() async {
+    if (widget.onQuickCommands == null || widget.onSendLocation == null) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
+        child: Wrap(
+          children: [
+            ListTile(
+              leading: const CircleAvatar(
+                child: Icon(Icons.terminal_outlined),
+              ),
+              title: const Text('Enviar comando'),
+              subtitle: const Text('Escolher um comando configurado no Companion'),
+              onTap: () {
+                Navigator.pop(ctx);
+                widget.onQuickCommands?.call();
+              },
+            ),
+            ListTile(
+              leading: const CircleAvatar(
+                child: Icon(Icons.location_on_outlined),
+              ),
+              title: const Text('Enviar localização'),
+              subtitle: const Text('Enviar a localização atual para o canal'),
+              onTap: () {
+                Navigator.pop(ctx);
+                widget.onSendLocation?.call();
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -1540,69 +1575,72 @@ class _ChatInputBarState extends State<_ChatInputBar> {
                       onCancel: widget.onCancelReply!,
                       theme: theme,
                     ),
-                  Row(
-                    children: [
-                      if (widget.onQuickCommands != null) ...[
-                        IconButton(
-                          tooltip: 'Comandos rápidos',
-                          onPressed: widget.onQuickCommands,
-                          icon: const Icon(Icons.bolt_outlined),
-                        ),
-                        const SizedBox(width: 2),
-                      ],
-                      if (widget.onSendLocation != null) ...[
-                        IconButton(
-                          tooltip: 'Enviar localização',
-                          onPressed: widget.onSendLocation,
-                          icon: const Icon(Icons.location_on_outlined),
-                        ),
-                        const SizedBox(width: 2),
-                      ],
-                      Expanded(
-                        child: TextField(
-                          controller: widget.controller,
-                          decoration: InputDecoration(
-                            hintText: widget.hintText,
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(24),
+                  TextField(
+                    controller: widget.controller,
+                    decoration: InputDecoration(
+                      hintText: widget.hintText,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(26),
+                      ),
+                      contentPadding: EdgeInsets.only(
+                        left: widget.onQuickCommands != null ? 4 : 16,
+                        right: 4,
+                        top: 10,
+                        bottom: 10,
+                      ),
+                      prefixIcon:
+                          widget.onQuickCommands != null &&
+                                  widget.onSendLocation != null
+                              ? Padding(
+                                padding: const EdgeInsets.all(7),
+                                child: InkWell(
+                                  borderRadius: BorderRadius.circular(18),
+                                  onTap: _showActionMenu,
+                                  child: Container(
+                                    width: 34,
+                                    height: 34,
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      color: theme.colorScheme.surfaceContainerHighest,
+                                    ),
+                                    child: const Icon(Icons.add, size: 21),
+                                  ),
+                                ),
+                              )
+                              : null,
+                      suffixIcon: Padding(
+                        padding: const EdgeInsets.all(7),
+                        child: SizedBox(
+                          width: 34,
+                          height: 34,
+                          child: IconButton.filled(
+                            tooltip: 'Enviar',
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints.tightFor(
+                              width: 34,
+                              height: 34,
                             ),
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 16,
-                              vertical: 10,
-                            ),
+                            onPressed: widget.onSend,
+                            icon: const Icon(Icons.send, size: 16),
                           ),
-                          keyboardType: TextInputType.multiline,
-                          textInputAction: TextInputAction.newline,
-                          minLines: 1,
-                          maxLines: 5,
-                          maxLength: 140,
-                          buildCounter:
-                              (
-                                _, {
-                                required int currentLength,
-                                required bool isFocused,
-                                required int? maxLength,
-                              }) => null,
                         ),
                       ),
-                      CannedMessagePicker(
-                        onPick: (text) {
-                          widget.controller.text = text;
-                          widget
-                              .controller
-                              .selection = TextSelection.fromPosition(
-                            TextPosition(offset: text.length),
-                          );
-                        },
-                      ),
-                      IconButton.filled(
-                        onPressed: widget.onSend,
-                        icon: const Icon(Icons.send),
-                      ),
-                    ],
+                    ),
+                    keyboardType: TextInputType.multiline,
+                    textInputAction: TextInputAction.newline,
+                    minLines: 1,
+                    maxLines: 5,
+                    maxLength: 140,
+                    buildCounter:
+                        (
+                          _, {
+                          required int currentLength,
+                          required bool isFocused,
+                          required int? maxLength,
+                        }) => null,
                   ),
                   Padding(
-                    padding: const EdgeInsets.only(top: 2, right: 96),
+                    padding: const EdgeInsets.only(top: 2, right: 10),
                     child: Align(
                       alignment: Alignment.centerRight,
                       child: Text(
