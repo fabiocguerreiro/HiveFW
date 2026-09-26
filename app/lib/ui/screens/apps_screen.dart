@@ -14,6 +14,15 @@ class AppsScreen extends ConsumerWidget {
 
   static const _apps = [
     _AppEntry(
+      id: 'map',
+      title: 'Mapa',
+      subtitle: 'Contactos descobertos, adicionados e vizinhos',
+      icon: Icons.map_outlined,
+      color: Color(0xFF0EA5E9),
+      route: '/apps/map',
+      feature: AppFeature.map,
+    ),
+    _AppEntry(
       id: 'discovery',
       title: 'Descobrir repetidores',
       subtitle: 'Pesquisa ativa zero-hop',
@@ -41,24 +50,6 @@ class AppsScreen extends ConsumerWidget {
       feature: AppFeature.topology,
     ),
     _AppEntry(
-      id: 'telemetry',
-      title: 'Telemetria',
-      subtitle: 'Bateria, RF e contadores',
-      icon: Icons.analytics_outlined,
-      color: Color(0xFF14B8A6),
-      route: '/apps/telemetry',
-      feature: AppFeature.telemetry,
-    ),
-    _AppEntry(
-      id: 'rxlog',
-      title: 'RX Log',
-      subtitle: 'Captura e exporta PCAP',
-      icon: Icons.radar,
-      color: Color(0xFF4F46E5),
-      route: '/apps/rxlog',
-      feature: AppFeature.rxlog,
-    ),
-    _AppEntry(
       id: 'noisefloor',
       title: 'RSSI / Noise Floor',
       subtitle: 'RSSI e ruído de fundo em tempo real',
@@ -66,15 +57,6 @@ class AppsScreen extends ConsumerWidget {
       color: Color(0xFF22C55E),
       route: '/apps/noisefloor',
       feature: AppFeature.noisefloor,
-    ),
-    _AppEntry(
-      id: 'dataexport',
-      title: 'Exportar Dados',
-      subtitle: 'Contactos, mensagens e mapa',
-      icon: Icons.upload_file_outlined,
-      color: Color(0xFFF59E0B),
-      route: '/apps/dataexport',
-      feature: AppFeature.dataexport,
     ),
   ];
 
