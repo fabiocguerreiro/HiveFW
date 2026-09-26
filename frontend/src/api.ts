@@ -241,6 +241,34 @@ export async function getManagedDevices(
   }
 }
 
+export interface SoftwareUpdateStatus {
+  supported: boolean;
+  entity_id?: string | null;
+  update_available: boolean;
+  installed_version?: string | null;
+  latest_version?: string | null;
+  release_url?: string | null;
+  friendly_name?: string | null;
+}
+
+export async function getSoftwareUpdateStatus(
+  hass: HomeAssistant,
+): Promise<SoftwareUpdateStatus> {
+  return hass.callWS<SoftwareUpdateStatus>({
+    type: 'hivefw_integration/get_software_update_status',
+  });
+}
+
+export async function installLatestSoftware(
+  hass: HomeAssistant,
+  restart = true,
+): Promise<{ success: boolean; entity_id?: string; restart_scheduled?: boolean }> {
+  return hass.callWS({
+    type: 'hivefw_integration/install_latest_software',
+    restart,
+  });
+}
+
 /**
  * Get device configuration
  */
