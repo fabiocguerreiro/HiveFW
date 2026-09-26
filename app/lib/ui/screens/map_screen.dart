@@ -3,7 +3,6 @@ import 'dart:io';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -21,7 +20,6 @@ import '../../l10n/l10n.dart';
 import '../../providers/gps_sharing_provider.dart';
 import '../../providers/map_visibility_provider.dart';
 import '../../providers/radio_providers.dart';
-import '../../services/discovered_contacts_import.dart';
 import '../../services/gps_sharing_service.dart';
 import '../../services/hivefw_local_data_service.dart';
 import '../../transport/radio_transport.dart' show TransportState;
@@ -56,7 +54,6 @@ class _MapScreenState extends ConsumerState<MapScreen> {
 
   LatLng? _myLocation;
   bool _loadingLocation = false;
-  bool _importingContacts = false;
   bool _loadingZeroHop = false;
   int _zeroHopTotal = 0;
   Set<String> _zeroHopPrefixes = const {};
@@ -197,50 +194,6 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       });
     } finally {
       if (mounted) setState(() => _loadingZeroHop = false);
-    }
-  }
-
-  Future<void> _importDiscoveredContacts() async {
-    if (_importingContacts) return;
-    final picked = await FilePicker.pickFiles(
-      type: FileType.any,
-      withData: true,
-    );
-    if (picked == null || picked.files.isEmpty) return;
-
-    final file = picked.files.single;
-    // MeshCore's native export is commonly named *.discovered_contacts
-    // (without .json). Validate the payload itself instead of rejecting a
-    // perfectly valid export because of its filename.
-    final bytes = file.bytes;
-    if (bytes == null || bytes.isEmpty) {
-      _showSnack('Não foi possível ler o ficheiro.');
-      return;
-    }
-
-    setState(() => _importingContacts = true);
-    try {
-      final parsed = DiscoveredContactsImport.parseBytes(bytes);
-      final result =
-          ref
-              .read(contactsProvider.notifier)
-              .importLocalContacts(parsed.contacts);
-
-      // If a Companion is connected, refresh the direct-heard cache so newly
-      // imported GPS contacts can immediately receive ZERO-HOP highlighting.
-      await _refreshZeroHop();
-
-      _showSnack(
-        'Cache local: ${result.imported} importados · '
-        '${result.duplicates} duplicados'
-        '${parsed.invalidEntries > 0 ? ' · inválidos ${parsed.invalidEntries}' : ''}',
-      );
-    } on FormatException catch (e) {
-      _showSnack('Ficheiro inválido: ${e.message}');
-    } catch (_) {
-      _showSnack('Falha ao importar discovered_contacts.');
-    } finally {
-      if (mounted) setState(() => _importingContacts = false);
     }
   }
 
@@ -781,20 +734,6 @@ class _MapScreenState extends ConsumerState<MapScreen> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              FloatingActionButton.small(
-                heroTag: 'map_import_discovered',
-                onPressed: _importingContacts ? null : _importDiscoveredContacts,
-                tooltip: 'Importar discovered_contacts',
-                child:
-                    _importingContacts
-                        ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                        : const Icon(Icons.file_upload_outlined),
-              ),
-              const SizedBox(height: 8),
               FloatingActionButton.small(
                 heroTag: 'map_share',
                 onPressed: _sharing ? null : _shareMap,
