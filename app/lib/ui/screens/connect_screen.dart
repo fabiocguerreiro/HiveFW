@@ -964,12 +964,6 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
                 ],
               ),
               const SizedBox(height: 16),
-              Text(
-                'HiveFW Companion',
-                style: theme.textTheme.bodyLarge?.copyWith(
-                  color: theme.colorScheme.onSurface.withAlpha(180),
-                ),
-              ),
               SizedBox(height: showScanAreaExpanded ? 20 : 48),
 
               if (state == TransportState.connecting)
