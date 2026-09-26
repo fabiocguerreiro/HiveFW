@@ -167,7 +167,7 @@ export class HiveFWNetworkPage extends LitElement {
           <div class="hive-discovery-eyebrow">PASSIVO</div>
           <div class="hive-discovery-title">Vizinhos</div>
           <div class="hive-discovery-subtitle">
-            Repeaters ouvidos diretamente nos últimos 7 dias (Zero-Hop)
+            Repeaters ouvidos diretamente nas últimas 48h (Zero-Hop)
           </div>
         </div>
         <button type="button"
@@ -575,8 +575,8 @@ export class HiveFWNetworkPage extends LitElement {
     const new48 = Object.values(safeHistory.nodes || {}).filter((node: any) =>
       Number(node?.first_seen_at) > 0 && now - Number(node.first_seen_at) <= 2 * 86400000
     ).length;
-    const missing7 = Object.values(safeHistory.nodes || {}).filter((node: any) =>
-      Number(node?.missing_since) > 0 && now - Number(node.missing_since) <= 7 * 86400000
+    const missing48 = Object.values(safeHistory.nodes || {}).filter((node: any) =>
+      Number(node?.missing_since) > 0 && now - Number(node.missing_since) <= 48 * 3600000
     ).length;
     const active1 = all.filter((neighbor) => Number(neighbor?.secs_ago || 0) <= 3600).length;
     const adverts1h = (safeHistory.advert_events || []).filter((event: any) =>
@@ -606,8 +606,8 @@ export class HiveFWNetworkPage extends LitElement {
       ['< 1h', all.filter((n) => Number(n?.secs_ago || 0) < 3600).length],
       ['1–6h', all.filter((n) => Number(n?.secs_ago || 0) >= 3600 && Number(n?.secs_ago || 0) < 21600).length],
       ['6–24h', all.filter((n) => Number(n?.secs_ago || 0) >= 21600 && Number(n?.secs_ago || 0) < 86400).length],
-      ['1–3 dias', all.filter((n) => Number(n?.secs_ago || 0) >= 86400 && Number(n?.secs_ago || 0) < 3 * 86400).length],
-      ['3–7 dias', all.filter((n) => Number(n?.secs_ago || 0) >= 3 * 86400 && Number(n?.secs_ago || 0) <= 7 * 86400).length],
+      ['24–36h', all.filter((n) => Number(n?.secs_ago || 0) >= 86400 && Number(n?.secs_ago || 0) < 36 * 3600).length],
+      ['36–48h', all.filter((n) => Number(n?.secs_ago || 0) >= 36 * 3600 && Number(n?.secs_ago || 0) <= 48 * 3600).length],
     ];
     const freshMax = Math.max(1, ...freshBuckets.map(([, value]) => value));
 
@@ -731,7 +731,7 @@ export class HiveFWNetworkPage extends LitElement {
     const recent = (safeHistory.events || []).slice(0, 8);
     const labels: Record<string, string> = {
       new: 'Novo repeater',
-      missing: 'Saiu da janela de 7 dias',
+      missing: 'Saiu da janela de 48h',
       config: 'Configuração alterada',
     };
 
@@ -747,7 +747,7 @@ export class HiveFWNetworkPage extends LitElement {
           </p>
         </div>
         <div class="hive-network-range">
-          ${[6, 24, 48, 168].map((value) => html`
+          ${[6, 24, 48].map((value) => html`
             <button type="button"
               class=${hours === value ? 'active' : ''}
               @click=${() => {
@@ -762,7 +762,7 @@ export class HiveFWNetworkPage extends LitElement {
         ${this._metric('Vizinhos ' + hours + 'H', visible.length, 'zero-hop observados')}
         ${this._metric('Ativos <1H', active1, 'advert recente')}
         ${this._metric('Novos 24H', new24, new48 + ' em 48H · desde o baseline')}
-        ${this._metric('Desaparecidos', missing7, 'últimos 7 dias')}
+        ${this._metric('Desaparecidos', missing48, 'últimas 48H')}
         ${this._metric('Adverts/H', adverts1h, 'eventos observados')}
         ${this._metric('Flood/H', floodHour, floodHour === '—' ? 'sem métrica' : 'RX + TX atual')}
         ${this._metric('Airtime', airtimePrimary, airtimeDetail)}
@@ -820,7 +820,7 @@ export class HiveFWNetworkPage extends LitElement {
       </div>
 
       <section class="hive-network-panel" style="margin-top:8px;">
-        <div class="hive-network-panel-title">Alterações observadas · 7 dias</div>
+        <div class="hive-network-panel-title">Alterações observadas · 48 horas</div>
         ${!recent.length
           ? html`<div style="color:var(--secondary-text-color);font-size:9px;">
               Baseline criado. Novos repeaters, desaparecimentos e alterações
