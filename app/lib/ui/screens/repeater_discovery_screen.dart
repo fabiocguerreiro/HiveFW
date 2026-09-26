@@ -387,41 +387,39 @@ class _RepeaterDiscoveryScreenState
                     child: Icon(Icons.cell_tower, size: 18),
                   ),
                   title: Text(_nameFor(result.publicKey)),
-                  subtitle: Text(
-                    '${_hex(result.publicKey.sublist(0, 6))} · '
-                    'RSSI ${result.rssi} dBm · '
-                    'SNR RX ${result.snr.toStringAsFixed(1)} dB\n'
-                    'O repeater ouviu o pedido a '
-                    '${result.requesterSnrAtRepeater.toStringAsFixed(1)} dB',
+                  subtitle: Builder(
+                    builder: (context) {
+                      final contact = _contactFor(result.publicKey);
+                      final hasGps =
+                          contact != null &&
+                          (contact.latitude != 0 || contact.longitude != 0);
+                      return Text(
+                        '${_hex(result.publicKey.sublist(0, 6))}\n'
+                        'ZERO-HOP · ${contact != null ? 'Conhecido' : 'Novo'}'
+                        '${hasGps ? ' · 📍 GPS' : ''}\n'
+                        'REQ ${result.requesterSnrAtRepeater.toStringAsFixed(1)} dB · '
+                        'RSSI ${result.rssi} dBm',
+                      );
+                    },
                   ),
                   isThreeLine: true,
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Tooltip(
-                        message: 'RSSI ${result.rssi} dBm',
-                        child: Icon(
-                          _signalIcon(result.rssi),
-                          color: _signalColor(context, result.rssi),
+                  trailing: Tooltip(
+                    message:
+                        'REQ ${result.requesterSnrAtRepeater.toStringAsFixed(1)} dB · '
+                        'SNR ${result.snr.toStringAsFixed(1)} dB · '
+                        'RSSI ${result.rssi} dBm',
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        _DiscoverySignalBars(snr: result.snr),
+                        const SizedBox(height: 3),
+                        Text(
+                          'SNR ${result.snr.toStringAsFixed(1)}',
+                          style: Theme.of(context).textTheme.labelSmall,
                         ),
-                      ),
-                      PopupMenuButton<String>(
-                        tooltip: 'Mais informação',
-                        onSelected: (_) => _showRepeaterInfo(result),
-                        itemBuilder:
-                            (_) => const [
-                              PopupMenuItem(
-                                value: 'info',
-                                child: ListTile(
-                                  dense: true,
-                                  contentPadding: EdgeInsets.zero,
-                                  leading: Icon(Icons.info_outline),
-                                  title: Text('Mais informação'),
-                                ),
-                              ),
-                            ],
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -453,4 +451,36 @@ class _DiscoveredRepeater {
   final double requesterSnrAtRepeater;
 
   final DateTime receivedAt;
+}
+
+class _DiscoverySignalBars extends StatelessWidget {
+  const _DiscoverySignalBars({required this.snr});
+  final double snr;
+
+  @override
+  Widget build(BuildContext context) {
+    final bars = snr >= 0 ? 4 : snr >= -5 ? 3 : snr >= -10 ? 2 : 1;
+    final color = Theme.of(context).colorScheme.primary;
+    return SizedBox(
+      width: 24,
+      height: 18,
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: List.generate(4, (index) {
+          final active = index < bars;
+          return Container(
+            width: 4,
+            height: 4.5 * (index + 1),
+            decoration: BoxDecoration(
+              color: active ? color : color.withAlpha(45),
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(1.5),
+              ),
+            ),
+          );
+        }),
+      ),
+    );
+  }
 }
