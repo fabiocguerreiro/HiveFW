@@ -182,7 +182,7 @@ export class SettingsPage extends LitElement {
   @state() private _renameSuccess: SetDeviceConfigRenameResult | null = null;
 
   // Status toast
-  @state() private _statusMessage: { text: string; type: 'success' | 'error' } | null = null;
+  @state() private _statusMensagem: { text: string; type: 'success' | 'error' } | null = null;
   private _statusMessageTimeout: number | null = null;
 
   constructor() {
@@ -4105,7 +4105,7 @@ export class SettingsPage extends LitElement {
             <button class="danger-button"
               ?disabled=${!this._editValues['name'] || this._editValues['name'] === this._deviceConfig.name}
               @click=${this._handleNameSave}>
-              Rename
+              Renomear
             </button>
           </div>
         </div>
@@ -4115,7 +4115,7 @@ export class SettingsPage extends LitElement {
             Cria um novo par de chaves. Todos os contactos terão de voltar a adicionar este nó. Os IDs das entidades também serão alterados, pelo que automatismos, scripts e dashboards podem precisar de atualização.
           </div>
           <button class="danger-button" @click=${this._showRegenIdentityConfirm}>
-            Regenerate Identity
+            Gerar nova identidade
           </button>
         </div>
         <div class="danger-zone" style="margin-top: 0;">
@@ -4136,7 +4136,7 @@ export class SettingsPage extends LitElement {
               class="danger-button"
               ?disabled=${!this._importKeyValue.trim()}
               @click=${this._handleImportKeyConfirm}>
-              Import
+              Importar
             </button>
           </div>
         </div>
@@ -4340,8 +4340,8 @@ export class SettingsPage extends LitElement {
 
   private _showRegenIdentityConfirm() {
     this._confirmAction = {
-      title: 'Regenerate Identity',
-      message: 'This will create a new cryptographic identity, reboot the device, and migrate all entity IDs to the new key prefix. Existing automations referencing entity IDs by the old prefix will need updating. All contacts must re-add this device. This cannot be undone.',
+      title: 'Gerar nova identidade',
+      message: 'Será criada uma nova identidade criptográfica, o dispositivo será reiniciado e os IDs das entidades serão migrados para o novo prefixo. Automatismos que usem os IDs antigos terão de ser atualizados. Todos os contactos terão de voltar a adicionar este dispositivo. Esta operação não pode ser anulada.',
       requireTyped: 'REGENERATE',
       onConfirm: async () => {
         if (!this.hass) return;
@@ -4360,16 +4360,16 @@ export class SettingsPage extends LitElement {
     const raw = this._importKeyValue.trim().replace(/\s+/g, '');
     if (!raw) return;
     if (raw.length !== 64 && raw.length !== 128) {
-      this._showStatusMessage('Private key must be 64 or 128 hex characters', 'error');
+      this._showStatusMessage('A chave privada deve ter 64 ou 128 caracteres hexadecimais.', 'error');
       return;
     }
     if (!/^[0-9a-fA-F]+$/.test(raw)) {
-      this._showStatusMessage('Private key must be hex (0-9, a-f)', 'error');
+      this._showStatusMessage('A chave privada deve estar em hexadecimal (0-9, a-f).', 'error');
       return;
     }
     this._confirmAction = {
-      title: 'Import Private Key',
-      message: 'Importing a private key will replace the device identity, reboot the device, and migrate all entity IDs to the new key prefix. Existing automations referencing entity IDs by the old prefix will need updating. All contacts must re-add this device.',
+      title: 'Importar chave privada',
+      message: 'Importar uma chave privada substitui a identidade do dispositivo, reinicia o rádio e migra os IDs das entidades para o novo prefixo. Automatismos que usem os IDs antigos terão de ser atualizados. Todos os contactos terão de voltar a adicionar este dispositivo.',
       requireTyped: 'IMPORT',
       onConfirm: () => this._importIdentityKey(),
     };
@@ -4467,9 +4467,9 @@ export class SettingsPage extends LitElement {
     const state = this._identityFlowState;
     if (state.kind === 'closed') return nothing;
 
-    const flowLabel = state.flow === 'regenerate' ? 'Regenerate Identity' : 'Import Private Key';
-    const inFlightTitle = state.flow === 'regenerate' ? 'Regenerating Identity' : 'Importing Identity';
-    const successTitle = state.flow === 'regenerate' ? 'Identity Regenerated' : 'Identity Imported';
+    const flowLabel = state.flow === 'regenerate' ? 'Gerar nova identidade' : 'Importar chave privada';
+    const inFlightTitle = state.flow === 'regenerate' ? 'A gerar identidade' : 'A importar identidade';
+    const successTitle = state.flow === 'regenerate' ? 'Identidade gerada' : 'Identidade importada';
     const failureTitle = state.flow === 'regenerate' ? 'Identity Regeneration Failed' : 'Identity Import Failed';
 
     let body;
@@ -4507,24 +4507,24 @@ export class SettingsPage extends LitElement {
       body = html`
         <div style="font-size: 32px; text-align: center; margin-bottom: 8px;">✅</div>
         <div style="font-size: 14px; margin-bottom: 16px;">
-          The device's identity has been replaced and verified.
+          A identidade do dispositivo foi substituída e verificada.
         </div>
         <div style="font-family: monospace; font-size: 12px; background: var(--card-background-color, #f5f5f5); padding: 8px 12px; border-radius: 4px; margin-bottom: 12px;">
-          <div><span style="color: var(--secondary-text-color);">Old key:</span> ${state.oldPubkey.slice(0, 12)}…</div>
-          <div><span style="color: var(--secondary-text-color);">New key:</span> ${state.newPubkey.slice(0, 12)}… <span style="color: var(--success-color, #28a745); font-size: 11px;">(verified after reload)</span></div>
+          <div><span style="color: var(--secondary-text-color);">Chave anterior:</span> ${state.oldPubkey.slice(0, 12)}…</div>
+          <div><span style="color: var(--secondary-text-color);">Nova chave:</span> ${state.newPubkey.slice(0, 12)}… <span style="color: var(--success-color, #28a745); font-size: 11px;">(verificada após recarregar)</span></div>
         </div>
         ${state.warning ? html`
           <div style="font-size: 13px; color: var(--secondary-text-color); margin-top: 12px; padding: 8px 12px; border-left: 3px solid var(--warning-color, #f0ad4e); background: var(--warning-color-bg, rgba(240, 173, 78, 0.08));">
-            <strong>Follow-up:</strong>
+            <strong>Próximos passos:</strong>
             <ul style="margin: 4px 0 0 16px; padding: 0;">
               <li>${state.warning}</li>
-              <li>Check Settings → Repairs for the entity-ID migration list.</li>
+              <li>Consulta Definições → Reparações para ver a lista de IDs de entidades migrados.</li>
             </ul>
           </div>
         ` : nothing}
       `;
       footer = html`
-        <button class="modal-action" @click=${this._closeIdentityFlowModal}>Close</button>
+        <button class="modal-action" @click=${this._closeIdentityFlowModal}>Fechar</button>
       `;
     } else {
       // failure
@@ -4532,16 +4532,16 @@ export class SettingsPage extends LitElement {
         <div style="font-size: 32px; text-align: center; margin-bottom: 8px;">❌</div>
         <div style="font-size: 14px; margin-bottom: 12px;">
           ${state.flow === 'regenerate'
-            ? 'The device firmware rejected the new key. Your device identity is unchanged.'
-            : 'The import did not take effect. Your device identity may be unchanged.'}
+            ? 'O firmware rejeitou a nova chave. A identidade do dispositivo não foi alterada.'
+            : 'A importação não foi aplicada. A identidade do dispositivo poderá não ter sido alterada.'}
         </div>
         <div style="font-family: monospace; font-size: 12px; background: var(--card-background-color, #f5f5f5); padding: 8px 12px; border-radius: 4px;">
-          <div><span style="color: var(--secondary-text-color);">Error code:</span> ${state.code}</div>
-          <div style="margin-top: 4px; word-break: break-word;"><span style="color: var(--secondary-text-color);">Message:</span> ${state.message}</div>
+          <div><span style="color: var(--secondary-text-color);">Código de erro:</span> ${state.code}</div>
+          <div style="margin-top: 4px; word-break: break-word;"><span style="color: var(--secondary-text-color);">Mensagem:</span> ${state.message}</div>
         </div>
       `;
       footer = html`
-        <button class="modal-action" @click=${this._closeIdentityFlowModal}>Close</button>
+        <button class="modal-action" @click=${this._closeIdentityFlowModal}>Fechar</button>
       `;
     }
 
@@ -4558,7 +4558,7 @@ export class SettingsPage extends LitElement {
           <div class="modal-header">
             <span class="modal-title">${headerTitle}</span>
             ${state.kind === 'progress' ? nothing : html`
-              <button class="modal-close" aria-label="Close" @click=${this._closeIdentityFlowModal}>&times;</button>
+              <button class="modal-close" aria-label="Fechar" @click=${this._closeIdentityFlowModal}>&times;</button>
             `}
           </div>
           <div class="modal-body" style="padding: 20px;">
@@ -4633,7 +4633,7 @@ export class SettingsPage extends LitElement {
           </div>
           <div class="dialog-footer">
             <button class="dialog-button primary"
-                    @click=${this._closeRenameSuccessModal}>Close</button>
+                    @click=${this._closeRenameSuccessModal}>Fechar</button>
           </div>
         </div>
       </div>
