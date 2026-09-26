@@ -143,6 +143,7 @@ export class SettingsPage extends LitElement {
   @state() private _firmwareDownloadTarget: 'v3-wifi' | 'v3-ble' | 't114-ble' = 'v3-wifi';
   @state() private _softwareUpdateStatus: SoftwareUpdateStatus | null = null;
   @state() private _softwareUpdateBusy = false;
+  @state() private _softwareUpdateChecking = false;
   @state() private _dutyCycleValue = 10;
   @state() private _dutyCycleBusy: 'read' | 'apply' | null = null;
   @state() private _adminPasswordDraft = '';
@@ -1862,16 +1863,24 @@ export class SettingsPage extends LitElement {
                 </div>
               </div>
             </div>
-            <button
-              class="apply-button firmware-primary-action"
-              ?disabled=${this._softwareUpdateBusy || !this._softwareUpdateStatus.update_available}
-              @click=${this._installLatestSoftware}>
-              ${this._softwareUpdateBusy
-                ? 'A atualizar software…'
-                : this._softwareUpdateStatus.update_available
-                  ? 'Atualizar e reiniciar Home Assistant'
-                  : 'Software atualizado'}
-            </button>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+              <button
+                class="action-btn"
+                ?disabled=${this._softwareUpdateBusy || this._softwareUpdateChecking}
+                @click=${this._checkSoftwareUpdates}>
+                ${this._softwareUpdateChecking ? 'A verificar…' : 'Verificar atualização'}
+              </button>
+              <button
+                class="apply-button firmware-primary-action"
+                ?disabled=${this._softwareUpdateBusy || this._softwareUpdateChecking || !this._softwareUpdateStatus.update_available}
+                @click=${this._installLatestSoftware}>
+                ${this._softwareUpdateBusy
+                  ? 'A atualizar software…'
+                  : this._softwareUpdateStatus.update_available
+                    ? 'Atualizar e reiniciar Home Assistant'
+                    : 'Software atualizado'}
+              </button>
+            </div>
           ` : html`
             <div class="firmware-empty">
               ${this._softwareUpdateStatus
@@ -1880,9 +1889,9 @@ export class SettingsPage extends LitElement {
             </div>
             <button
               class="action-btn"
-              ?disabled=${this._softwareUpdateBusy}
-              @click=${this._loadSoftwareUpdateStatus}>
-              Verificar software
+              ?disabled=${this._softwareUpdateBusy || this._softwareUpdateChecking}
+              @click=${this._checkSoftwareUpdates}>
+              ${this._softwareUpdateChecking ? 'A verificar…' : 'Verificar atualização'}
             </button>
           `}
         </div>
@@ -1903,6 +1912,34 @@ export class SettingsPage extends LitElement {
         `Software HiveFW: ${error instanceof Error ? error.message : String(error)}`,
         'error',
       );
+    }
+  }
+
+  private async _checkSoftwareUpdates() {
+    if (!this.hass || this._softwareUpdateChecking) return;
+    this._softwareUpdateChecking = true;
+    try {
+      this._softwareUpdateStatus = await getSoftwareUpdateStatus(this.hass, true);
+      if (this._softwareUpdateStatus.supported) {
+        this._showStatusMessage(
+          this._softwareUpdateStatus.update_available
+            ? `Nova versão disponível: ${this._softwareUpdateStatus.latest_version || 'desconhecida'}.`
+            : 'Integração HiveFW atualizada.',
+          'success',
+        );
+      } else {
+        this._showStatusMessage(
+          'Não foi encontrada uma entidade update do HiveFW.',
+          'error',
+        );
+      }
+    } catch (error) {
+      this._showStatusMessage(
+        `Verificação da integração: ${error instanceof Error ? error.message : String(error)}`,
+        'error',
+      );
+    } finally {
+      this._softwareUpdateChecking = false;
     }
   }
 
