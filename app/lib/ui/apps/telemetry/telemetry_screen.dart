@@ -59,148 +59,193 @@ class _TelemetryScreenState extends ConsumerState<TelemetryScreen> {
     final statsCore = ref.watch(radioStatsCoreProvider);
     final statsRadio = ref.watch(radioStatsRadioProvider);
     final statsPackets = ref.watch(radioStatsPacketsProvider);
+    final contacts = ref.watch(contactsProvider);
+    final channels = ref.watch(channelsProvider);
     final theme = Theme.of(context);
+
+    final effectiveBatteryMv =
+        statsCore?.batteryMv != null && statsCore!.batteryMv > 0
+            ? statsCore.batteryMv
+            : batteryMv;
+    final pathHashLabel = switch (deviceInfo?.pathHashMode) {
+      0 => '1 byte',
+      1 => '2 bytes',
+      2 => '3 bytes',
+      _ => '—',
+    };
+    final protocolLabel =
+        deviceInfo == null ? '—' : 'v${deviceInfo.firmwareVersion}';
+    final repeaterActive = (deviceInfo?.clientRepeat ?? 0) != 0;
+    final storageValue =
+        storage.$2 == null ? '—' : '${storage.$1 ?? 0} / ${storage.$2} KB';
+    final batteryValue =
+        effectiveBatteryMv > 0
+            ? '${batteryPercentFromMv(effectiveBatteryMv)}%'
+            : '—';
+    final batteryDetail =
+        effectiveBatteryMv > 0
+            ? '${(effectiveBatteryMv / 1000).toStringAsFixed(3)} V'
+            : 'A aguardar leitura';
+    final rfValue =
+        statsRadio == null ? '—' : '${statsRadio.lastRssi} dBm';
+    final rfDetail =
+        statsRadio == null
+            ? 'SNR —'
+            : 'SNR ${statsRadio.lastSnrDb.toStringAsFixed(1)} dB';
+    final radioValue =
+        radioConfig == null
+            ? '—'
+            : '${radioConfig.frequencyMHz.toStringAsFixed(3)} MHz';
+    final radioDetail =
+        radioConfig == null
+            ? 'A aguardar configuração'
+            : 'BW ${radioConfig.bandwidthKHz} kHz · SF${radioConfig.spreadingFactor} · CR 4/${radioConfig.codingRate}';
+    final capacityValue =
+        deviceInfo == null
+            ? '—'
+            : '${contacts.length}/${deviceInfo.maxContacts ?? '—'} contactos';
+    final capacityDetail =
+        deviceInfo == null
+            ? 'Canais —'
+            : '${channels.length}/${deviceInfo.maxChannels ?? '—'} canais';
 
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        // ---- Device status summary ----
-        _SectionHeader(
-          label: 'Estado',
-          icon: Icons.dashboard_outlined,
-        ),
+        _SectionHeader(label: 'Estado', icon: Icons.dashboard_outlined),
         const SizedBox(height: 8),
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(14),
-            child: Wrap(
-              spacing: 18,
-              runSpacing: 12,
-              children: [
-                _StatusMetric(
-                  label: 'Dispositivo',
-                  value: selfInfo?.name ?? deviceInfo?.deviceName ?? 'HiveFW',
-                  detail: deviceInfo?.model ?? '—',
-                  icon: Icons.memory,
-                ),
-                _StatusMetric(
-                  label: 'Firmware',
-                  value: deviceInfo?.versionString ?? '—',
-                  detail: deviceInfo?.firmwareBuild ?? '',
-                  icon: Icons.system_update_alt,
-                ),
-                _StatusMetric(
-                  label: 'Uptime',
-                  value: statsCore == null
+        _OverviewGrid(
+          items: [
+            _OverviewMetricData(
+              label: 'Bateria',
+              value: batteryValue,
+              detail: batteryDetail,
+              icon: Icons.battery_charging_full,
+            ),
+            _OverviewMetricData(
+              label: 'Uptime',
+              value:
+                  statsCore == null
                       ? '—'
                       : _formatStatusUptime(statsCore.uptimeSecs),
-                  detail: statsCore == null ? '' : '${statsCore.uptimeSecs}s',
-                  icon: Icons.schedule,
-                ),
-                _StatusMetric(
-                  label: 'Storage',
-                  value: storage.$2 == null
-                      ? '—'
-                      : '${storage.$1 ?? 0} / ${storage.$2} KB',
-                  detail: 'Utilização local',
-                  icon: Icons.storage,
-                ),
-                _StatusMetric(
-                  label: 'Rádio',
-                  value: radioConfig == null
-                      ? '—'
-                      : '${radioConfig.frequencyMHz.toStringAsFixed(3)} MHz',
-                  detail: radioConfig == null
-                      ? ''
-                      : 'BW ${radioConfig.bandwidthKHz} kHz · SF${radioConfig.spreadingFactor} · 4/${radioConfig.codingRate} · ${radioConfig.txPowerDbm} dBm',
-                  icon: Icons.settings_input_antenna,
-                ),
-                _StatusMetric(
-                  label: 'Modo Repeater',
-                  value: (deviceInfo?.clientRepeat ?? 0) != 0 ? 'Ativo' : 'Inativo',
-                  detail: (deviceInfo?.clientRepeat ?? 0) != 0
-                      ? 'Funções Repeater disponíveis'
-                      : 'Modo Companion',
-                  icon: Icons.repeat,
-                ),
-              ],
+              detail:
+                  statsCore == null
+                      ? 'A aguardar estatísticas'
+                      : 'Fila TX ${statsCore.queueLen}',
+              icon: Icons.schedule,
             ),
-          ),
+            _OverviewMetricData(
+              label: 'Sinal',
+              value: rfValue,
+              detail: rfDetail,
+              icon: Icons.signal_cellular_alt,
+            ),
+            _OverviewMetricData(
+              label: 'Noise floor',
+              value:
+                  statsRadio == null
+                      ? '—'
+                      : '${statsRadio.noiseFloor} dBm',
+              detail: 'Ruído de fundo RF',
+              icon: Icons.noise_aware,
+            ),
+            _OverviewMetricData(
+              label: 'Rádio',
+              value: radioValue,
+              detail: radioDetail,
+              icon: Icons.settings_input_antenna,
+            ),
+            _OverviewMetricData(
+              label: 'Potência TX',
+              value:
+                  radioConfig == null
+                      ? '—'
+                      : '${radioConfig.txPowerDbm} dBm',
+              detail:
+                  selfInfo?.maxTxPower == null
+                      ? 'Limite —'
+                      : 'Máx. ${selfInfo!.maxTxPower} dBm',
+              icon: Icons.bolt,
+            ),
+            _OverviewMetricData(
+              label: 'Repeater',
+              value: deviceInfo == null ? '—' : (repeaterActive ? 'Ativo' : 'Inativo'),
+              detail: deviceInfo == null ? 'A aguardar dispositivo' : (repeaterActive ? 'Modo Repeater' : 'Modo Companion'),
+              icon: Icons.repeat,
+            ),
+            _OverviewMetricData(
+              label: 'Protocolo / Path',
+              value: protocolLabel,
+              detail: 'Path hash $pathHashLabel',
+              icon: Icons.alt_route,
+            ),
+            _OverviewMetricData(
+              label: 'Capacidade',
+              value: capacityValue,
+              detail: capacityDetail,
+              icon: Icons.people_alt_outlined,
+            ),
+            _OverviewMetricData(
+              label: 'Storage',
+              value: storageValue,
+              detail: 'Memória persistente',
+              icon: Icons.storage,
+            ),
+            _OverviewMetricData(
+              label: 'Firmware',
+              value: deviceInfo?.versionString ?? '—',
+              detail: deviceInfo?.firmwareBuild?.isNotEmpty == true
+                  ? deviceInfo!.firmwareBuild!
+                  : 'A aguardar identificação',
+              icon: Icons.system_update_alt,
+            ),
+            _OverviewMetricData(
+              label: 'Hardware',
+              value: deviceInfo?.model?.isNotEmpty == true
+                  ? deviceInfo!.model!
+                  : (deviceInfo?.deviceName ?? '—'),
+              detail: selfInfo?.name?.isNotEmpty == true
+                  ? selfInfo!.name
+                  : 'HiveFW',
+              icon: Icons.memory,
+            ),
+          ],
         ),
         const SizedBox(height: 20),
 
-        // ---- Battery section ----
         _SectionHeader(
           label: context.l10n.telemetryBattery,
           icon: Icons.battery_charging_full,
         ),
         const SizedBox(height: 8),
         _BatteryCard(
-          currentMv: batteryMv,
+          currentMv: effectiveBatteryMv,
           history: battHistoryRaw,
           theme: theme,
         ),
         const SizedBox(height: 20),
 
-        // ---- Network stats section ----
-        _SectionHeader(
-          label: context.l10n.telemetryNetStats,
-          icon: Icons.bar_chart,
-        ),
-        const SizedBox(height: 8),
-        _NetworkStatsCard(stats: stats, theme: theme),
-        const SizedBox(height: 20),
-
-        // ---- Radio core stats section ----
-        _SectionHeader(
-          label: context.l10n.telemetryRadioState,
-          icon: Icons.memory,
-        ),
-        const SizedBox(height: 8),
-        if (statsCore == null)
-          _EmptyHint(
-            icon: Icons.hourglass_empty,
-            message: context.l10n.telemetryRadioWaiting,
-            theme: theme,
-          )
-        else
-          _RadioCoreStatsCard(stats: statsCore, theme: theme),
-        const SizedBox(height: 20),
-
-        // ---- Radio RF stats section ----
         _SectionHeader(
           key: _rfSectionKey,
-          label: context.l10n.telemetryRadioRF,
+          label: 'Rádio e RF',
           icon: Icons.cell_tower,
         ),
         const SizedBox(height: 8),
-        if (statsRadio == null)
-          _EmptyHint(
-            icon: Icons.hourglass_empty,
-            message: context.l10n.telemetryRFWaiting,
-            theme: theme,
-          )
-        else
-          _RadioRfStatsCard(stats: statsRadio, theme: theme),
+        _RadioRfStatsCard(stats: statsRadio, theme: theme),
+        const SizedBox(height: 8),
+        _RadioCoreStatsCard(stats: statsCore, theme: theme),
         const SizedBox(height: 20),
 
-        // ---- Packet counters section ----
         _SectionHeader(
-          label: context.l10n.telemetryPacketCounters,
+          label: 'Tráfego',
           icon: Icons.swap_horiz,
         ),
         const SizedBox(height: 8),
-        if (statsPackets == null)
-          _EmptyHint(
-            icon: Icons.hourglass_empty,
-            message: context.l10n.telemetryCountersWaiting,
-            theme: theme,
-          )
-        else
-          _RadioPacketStatsCard(stats: statsPackets, theme: theme),
+        _NetworkStatsCard(stats: stats, theme: theme),
+        const SizedBox(height: 8),
+        _RadioPacketStatsCard(stats: statsPackets, theme: theme),
         const SizedBox(height: 20),
 
-        // ---- CayenneLPP sensor readings ----
         _SectionHeader(
           label: context.l10n.telemetrySensors,
           icon: Icons.sensors,
@@ -230,8 +275,9 @@ String _formatStatusUptime(int seconds) {
   return '${minutes}m';
 }
 
-class _StatusMetric extends StatelessWidget {
-  const _StatusMetric({
+
+class _OverviewMetricData {
+  const _OverviewMetricData({
     required this.label,
     required this.value,
     required this.detail,
@@ -242,44 +288,96 @@ class _StatusMetric extends StatelessWidget {
   final String value;
   final String detail;
   final IconData icon;
+}
+
+class _OverviewGrid extends StatelessWidget {
+  const _OverviewGrid({required this.items});
+
+  final List<_OverviewMetricData> items;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final columns =
+            constraints.maxWidth >= 900
+                ? 4
+                : constraints.maxWidth >= 600
+                ? 3
+                : 2;
+        final spacing = 8.0;
+        final width =
+            (constraints.maxWidth - spacing * (columns - 1)) / columns;
+        return Wrap(
+          spacing: spacing,
+          runSpacing: spacing,
+          children: [
+            for (final item in items)
+              SizedBox(width: width, child: _OverviewMetric(item: item)),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _OverviewMetric extends StatelessWidget {
+  const _OverviewMetric({required this.item});
+
+  final _OverviewMetricData item;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return SizedBox(
-      width: 220,
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, size: 20, color: theme.colorScheme.primary),
-          const SizedBox(width: 9),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(label, style: theme.textTheme.labelSmall),
-                Text(
-                  value,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                if (detail.isNotEmpty)
-                  Text(
-                    detail,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
+    return Card(
+      margin: EdgeInsets.zero,
+      child: SizedBox(
+        height: 102,
+        child: Padding(
+          padding: const EdgeInsets.all(11),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(item.icon, size: 19, color: theme.colorScheme.primary),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      item.label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
                     ),
-                  ),
-              ],
-            ),
+                    const SizedBox(height: 3),
+                    Text(
+                      item.value,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      item.detail,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
 }
+
