@@ -24,7 +24,6 @@ import '../theme.dart';
 
 part 'parts/settings_notifications.dart';
 part 'parts/settings_appearance.dart';
-part 'parts/settings_keybackup.dart';
 part 'parts/settings_app_update.dart';
 
 /// Device-first surface for the local HiveFW Companion.
@@ -454,52 +453,6 @@ class _HiveFwDeviceScreenState extends ConsumerState<HiveFwDeviceScreen> {
                 self != null ? () => _showOwnQrCode(context, self) : null,
           ),
           const SizedBox(height: 12),
-          _MetricGrid(
-            metrics: [
-              _Metric(
-                'Bateria',
-                batteryMv > 0 ? '${_batteryPercent(batteryMv)}%' : '—',
-                batteryMv > 0
-                    ? '${(batteryMv / 1000).toStringAsFixed(3)} V'
-                    : '',
-                Icons.battery_5_bar,
-              ),
-              _Metric(
-                'Uptime',
-                core != null ? _uptime(core.uptimeSecs) : '—',
-                core != null ? '${core.uptimeSecs}s' : '',
-                Icons.schedule,
-              ),
-              _Metric(
-                'RSSI',
-                radio != null ? '${radio.lastRssi} dBm' : '—',
-                radio != null ? 'NF ${radio.noiseFloor} dBm' : '',
-                Icons.network_cell,
-              ),
-              _Metric(
-                'SNR',
-                radio != null ? '${radio.lastSnrDb.toStringAsFixed(1)} dB' : '—',
-                packets != null ? '${packets.recv} RX · ${packets.sent} TX' : '',
-                Icons.multiline_chart,
-              ),
-              _Metric(
-                'Storage',
-                storage.$2 != null ? '${storage.$1 ?? 0} / ${storage.$2} KB' : '—',
-                'Utilização local',
-                Icons.storage,
-              ),
-              _Metric(
-                'Rádio',
-                config != null
-                    ? '${config.frequencyMHz.toStringAsFixed(3)} MHz'
-                    : '—',
-                config != null
-                    ? 'BW ${config.bandwidthKHz} kHz · SF${config.spreadingFactor} · 4/${config.codingRate} · ${config.txPowerDbm} dBm'
-                    : '',
-                Icons.settings_input_antenna,
-              ),
-            ],
-          ),
           const SizedBox(height: 12),
           _CardSection(
             title: 'Ações',
@@ -667,19 +620,6 @@ class _HiveFwDeviceScreenState extends ConsumerState<HiveFwDeviceScreen> {
               children: [
                 ListTile(
                   contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.wifi_find),
-                  title: const Text('Descobrir repetidores'),
-                  subtitle: const Text(
-                    'Pesquisa ativa zero-hop a repetidores próximos.',
-                  ),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap:
-                      connected
-                          ? () => context.push('/apps/discovery')
-                          : null,
-                ),
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
                   leading: const Icon(Icons.router_outlined),
                   title: const Text('Wi-Fi e firmware do rádio'),
                   subtitle: const Text(
@@ -690,29 +630,13 @@ class _HiveFwDeviceScreenState extends ConsumerState<HiveFwDeviceScreen> {
                 ),
                 ListTile(
                   contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.analytics_outlined),
-                  title: const Text('Telemetria'),
+                  leading: const Icon(Icons.radar_outlined),
+                  title: const Text('RX Log'),
                   subtitle: const Text(
-                    'Bateria, RF, contadores e sensores do Companion.',
+                    'Captura RF e exportação PCAP para diagnóstico.',
                   ),
                   trailing: const Icon(Icons.chevron_right),
-                  onTap:
-                      connected
-                          ? () => context.push('/apps/telemetry')
-                          : null,
-                ),
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.home_outlined),
-                  title: const Text('Home Assistant'),
-                  subtitle: const Text(
-                    'Comandos e integração através do canal APPS / SOS.',
-                  ),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap:
-                      connected
-                          ? () => context.push('/apps/homeassistant')
-                          : null,
+                  onTap: connected ? () => context.push('/apps/rxlog') : null,
                 ),
                 ListTile(
                   contentPadding: EdgeInsets.zero,
@@ -720,8 +644,8 @@ class _HiveFwDeviceScreenState extends ConsumerState<HiveFwDeviceScreen> {
                   title: const Text('Backup & Restore'),
                   subtitle: Text(
                     repeatEnabled
-                        ? 'Backup Companion e configuração específica do Repeater.'
-                        : 'Identidade, rádio, canais e contactos do Companion.',
+                        ? 'Companion, Repeater, identidade e contactos descobertos.'
+                        : 'Companion, identidade e contactos descobertos.',
                   ),
                   trailing: const Icon(Icons.chevron_right),
                   onTap:
@@ -798,26 +722,9 @@ class _HiveFwDeviceScreenState extends ConsumerState<HiveFwDeviceScreen> {
           const SizedBox(height: 12),
           const _AppUpdateCard(),
           const SizedBox(height: 12),
-          _CardSection(
-            title: 'Comunicação e segurança',
-            icon: Icons.health_and_safety_outlined,
-            child: ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.sos_outlined),
-              title: const Text('Mensagens, SOS, GPS e contactos'),
-              subtitle: const Text(
-                'Mensagens rápidas, SOS, partilha GPS e limpeza automática de contactos.',
-              ),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () => context.push('/settings/app'),
-            ),
-          ),
-          const SizedBox(height: 12),
           const _NotificationsCard(),
           const SizedBox(height: 12),
           const _AppearanceCard(),
-          const SizedBox(height: 12),
-          const _KeyBackupCard(),
           const SizedBox(height: 24),
         ],
       ),
