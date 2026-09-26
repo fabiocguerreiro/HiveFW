@@ -301,6 +301,11 @@ class _DiscoverContactsScreenState
         ),
         actions: [
           IconButton(
+            tooltip: 'Backup & Restore',
+            icon: const Icon(Icons.save_outlined),
+            onPressed: () => context.push('/hivefw/backup'),
+          ),
+          IconButton(
             tooltip: context.l10n.discoverCleanTooltip,
             icon: const Icon(Icons.cleaning_services_outlined),
             onPressed: () => _openCleanSheet(context, discovered),
