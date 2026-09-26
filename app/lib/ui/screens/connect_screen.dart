@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart'
     show FlutterBluePlus, BluetoothAdapterState, FlutterBluePlusException;
@@ -60,57 +59,18 @@ String _safeUiName(String? value, {required String fallback}) {
 /// Web Serial variants mirror their native serial counterparts but dispatch
 /// to [connectWebSerial] so the browser's Web Serial API is used instead of
 /// the native flutter_libserialport driver.
-enum _ConnectType {
-  ble,
-  tcp,
-  serialCompanion,
-  serialKiss,
-  webSerial, // Web Serial API — MeshCore Companion framing
-  webSerialKiss, // Web Serial API — KISS TNC framing
-}
+enum _ConnectType { ble, tcp }
 
 class _ConnectTarget {
   const _ConnectTarget({required this.device, required this.type});
   final RadioDevice device;
   final _ConnectType type;
 
-  /// Human-readable label shown in the recent-devices list and connection UI.
-  String get typeLabel {
-    switch (type) {
-      case _ConnectType.ble:
-        return 'Bluetooth LE';
-      case _ConnectType.tcp:
-        return 'Wi-Fi / TCP';
-      case _ConnectType.serialCompanion:
-        return 'Série USB — Companion';
-      case _ConnectType.serialKiss:
-        return 'KISS TNC';
-      // Web Serial uses the browser's navigator.serial API (Chrome/Edge only).
-      case _ConnectType.webSerial:
-        return 'Web USB — Companion';
-      case _ConnectType.webSerialKiss:
-        return 'Web USB — KISS TNC';
-    }
-  }
+  String get typeLabel =>
+      type == _ConnectType.ble ? 'Bluetooth LE' : 'Wi-Fi / TCP';
 
-  /// Icon shown next to the device name in the connection UI.
-  IconData get icon {
-    switch (type) {
-      case _ConnectType.ble:
-        return Icons.bluetooth;
-      case _ConnectType.tcp:
-        return Icons.wifi;
-      case _ConnectType.serialCompanion:
-        return Icons.usb;
-      case _ConnectType.serialKiss:
-        return Icons.podcasts;
-      // cable icon differentiates Web Serial from native USB (usb icon).
-      case _ConnectType.webSerial:
-        return Icons.cable;
-      case _ConnectType.webSerialKiss:
-        return Icons.cable;
-    }
-  }
+  IconData get icon =>
+      type == _ConnectType.ble ? Icons.bluetooth : Icons.wifi;
 }
 
 // ---------------------------------------------------------------------------
@@ -127,10 +87,6 @@ class ConnectScreen extends ConsumerStatefulWidget {
 class _ConnectScreenState extends ConsumerState<ConnectScreen> {
   bool _scanning = false;
 
-  /// True while the browser's Web Serial port-picker is open.
-  /// Kept separate from [_scanning] so the USB button can show its own
-  /// spinner without disabling the BLE scan indicator.
-  bool _usbScanning = false;
   bool _showOtherRecentsExpanded = false;
 
   final List<_ConnectTarget> _targets = [];
@@ -196,34 +152,17 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
           ),
     );
 
-    if (!mounted) return;
-    if (enable == true) {
-      if (Platform.isAndroid) {
-        try {
-          // turnOn() shows the system dialog and awaits BluetoothAdapterState.on.
-          // Throws FlutterBluePlusException if the user denies.
-          await FlutterBluePlus.turnOn();
-        } on FlutterBluePlusException catch (_) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(context.l10n.connectBluetoothDeniedMessage),
-                duration: const Duration(seconds: 3),
-              ),
-            );
-          }
-        }
-      } else {
-        // iOS and Windows do not allow programmatic BT enable — direct the
-        // user to open system settings and toggle it manually.
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(context.l10n.connectBluetoothDeniedMessage),
-              duration: const Duration(seconds: 4),
-            ),
-          );
-        }
+    if (!mounted || enable != true) return;
+    try {
+      await FlutterBluePlus.turnOn();
+    } on FlutterBluePlusException catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(context.l10n.connectBluetoothDeniedMessage),
+            duration: const Duration(seconds: 3),
+          ),
+        );
       }
     }
   }
@@ -232,7 +171,6 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
   /// Shows a snackbar and returns false when BT is confirmed off, so callers
   /// can abort scan/connect early with clear user feedback.
   bool _checkBluetoothOn() {
-    if (!Platform.isAndroid) return true;
     final currentState = FlutterBluePlus.adapterStateNow;
     if (currentState == BluetoothAdapterState.off) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -254,8 +192,6 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
   }
 
   Future<void> _showTcpConnectDialog() async {
-    if (kIsWeb) return;
-
     final hostController = TextEditingController();
     final portController = TextEditingController(text: '5000');
 
@@ -337,30 +273,7 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
       _targets.clear();
     });
 
-    // On web, BLE scan = browser requestDevice() picker.
-    // The picker is both scan and selection: await the single result and
-    // connect immediately without an intermediate list.
-    if (kIsWeb) {
-      try {
-        // Use a long timeout so the user has time to interact with the picker.
-        final device =
-            await BleTransport.scan(timeout: const Duration(minutes: 2)).first;
-        if (!mounted) return;
-        setState(() => _scanning = false);
-        await _connectTo(
-          _ConnectTarget(device: device, type: _ConnectType.ble),
-        );
-      } catch (_) {
-        // User dismissed the picker or scan failed — just stop spinning.
-        if (mounted) setState(() => _scanning = false);
-      }
-      return;
-    }
-
-    // Request Bluetooth permissions on Android before attempting any scan.
-    // Without these, startScan silently returns no results on Android 6+.
-    // Platform.isAndroid must not be called on web (dart:io throws there).
-    if (Platform.isAndroid) {
+    // Request Bluetooth permissions before attempting any scan.
       // Request Bluetooth permissions. On Android 12+ (API 31+) the manifest
       // declares BLUETOOTH_SCAN with neverForLocation, so location is NOT
       // required for BLE scanning. On Android 11 and below, location IS
@@ -410,7 +323,6 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
           );
         }
       }
-    }
 
     // BLE scan — one entry per device, but the stream may re-emit a device
     // with an improved name (e.g. when a Windows scan-response PDU arrives
@@ -445,64 +357,6 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
       },
     );
 
-    // Serial devices — not available on mobile or web.
-    if (!Platform.isAndroid && !Platform.isIOS) {
-      try {
-        final serialDevices = await SerialTransport.listDevices();
-        if (mounted) {
-          setState(() {
-            for (final d in serialDevices) {
-              _targets.add(
-                _ConnectTarget(device: d, type: _ConnectType.serialCompanion),
-              );
-              _targets.add(
-                _ConnectTarget(device: d, type: _ConnectType.serialKiss),
-              );
-            }
-          });
-        }
-      } catch (_) {
-        // Serial not available on this platform (e.g. web)
-      }
-    }
-  }
-
-  /// Opens the browser's USB port-picker (Web Serial API) and adds Companion
-  /// and KISS targets for the selected port.
-  ///
-  /// Only called on web — the button that triggers this is guarded by [kIsWeb].
-  /// [SerialTransport.listDevices] calls navigator.serial.requestPort() which
-  /// shows the browser's native dialog; the user selects one port and we get
-  /// back a single [RadioDevice] registered in the static port registry.
-  ///
-  /// Both framing modes (Companion and KISS) are added to [_targets] so the
-  /// user can choose which one to use, matching the native serial scan UX.
-  Future<void> _startWebSerialScan() async {
-    setState(() => _usbScanning = true);
-    try {
-      final devices = await SerialTransport.listDevices();
-      if (!mounted) return;
-
-      if (devices.isEmpty) {
-        // User cancelled the browser picker or Web Serial is unavailable.
-        return;
-      }
-
-      // Each port gets two entries — one per framing mode.
-      setState(() {
-        for (final d in devices) {
-          _targets.add(_ConnectTarget(device: d, type: _ConnectType.webSerial));
-          _targets.add(
-            _ConnectTarget(device: d, type: _ConnectType.webSerialKiss),
-          );
-        }
-      });
-    } catch (_) {
-      // Web Serial not supported in this browser (Firefox, Safari) or
-      // the user denied port access.
-    } finally {
-      if (mounted) setState(() => _usbScanning = false);
-    }
   }
 
   Future<void> _connectTo(_ConnectTarget target) async {
@@ -527,33 +381,8 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
           uri.host,
           port: uri.hasPort ? uri.port : 5000,
         );
-      case _ConnectType.serialCompanion:
-        ok = await connection.connectSerial(
-          target.device.id,
-          name,
-          mode: ConnectionMode.companion,
-        );
-      case _ConnectType.serialKiss:
-        ok = await connection.connectSerial(
-          target.device.id,
-          name,
-          mode: ConnectionMode.kiss,
-        );
-      // Web Serial: same framing modes as native serial, but routed through
-      // the browser's Web Serial API via connectWebSerial.
-      case _ConnectType.webSerial:
-        ok = await connection.connectWebSerial(
-          target.device.id,
-          name,
-          mode: ConnectionMode.companion,
-        );
-      case _ConnectType.webSerialKiss:
-        ok = await connection.connectWebSerial(
-          target.device.id,
-          name,
-          mode: ConnectionMode.kiss,
-        );
     }
+
 
     if (ok && mounted) {
       context.go('/channels');
@@ -584,124 +413,61 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
   }
 
   Future<void> _connectToLastDevice(LastDevice last) async {
-    // Web Serial ports live in an in-memory JS registry that is cleared on
-    // every page refresh. Detect this before starting the connecting animation
-    // so the user gets a targeted message and a direct shortcut to re-scan,
-    // instead of a generic "connection failed" snackbar after several seconds.
-    if ((last.type == 'webSerial' || last.type == 'webSerialKiss') &&
-        !SerialTransport.isRegistered(last.id)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Row(
-            children: [
-              const Icon(Icons.cable, color: Colors.white),
-              const SizedBox(width: 12),
-              Expanded(child: Text(context.l10n.connectWebUsbExpiredMessage)),
-            ],
+    if (last.type != 'ble' && last.type != 'tcp') {
+      await _removeRecentDevice(last);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Ligação antiga removida. A App suporta apenas Bluetooth e Wi-Fi/TCP.'),
           ),
-          // Action button takes the user straight to the USB port-picker.
-          action: SnackBarAction(
-            label: context.l10n.connectWebUsbAction,
-            onPressed: _startWebSerialScan,
-          ),
-          duration: const Duration(seconds: 8),
-        ),
-      );
+        );
+      }
       return;
     }
 
+    final safeLastName = _safeUiName(last.name, fallback: last.id);
     setState(() {
-      final safeLastName = _safeUiName(last.name, fallback: last.id);
       _connectingTarget = _ConnectTarget(
         device: RadioDevice(
           id: last.id,
           name: safeLastName,
-          type:
-              last.type == 'ble'
-                  ? RadioDeviceType.ble
-                  : last.type == 'tcp'
-                  ? RadioDeviceType.tcp
-                  : RadioDeviceType.serial,
+          type: last.type == 'ble' ? RadioDeviceType.ble : RadioDeviceType.tcp,
         ),
-        // Map the persisted type string back to a _ConnectType enum value.
-        // Web Serial variants are kept separate from native serial so the
-        // reconnect button calls the correct notifier entry point.
-        type:
-            last.type == 'ble'
-                ? _ConnectType.ble
-                : last.type == 'tcp'
-                ? _ConnectType.tcp
-                : last.type == 'serialKiss'
-                ? _ConnectType.serialKiss
-                : last.type == 'webSerial'
-                ? _ConnectType.webSerial
-                : last.type == 'webSerialKiss'
-                ? _ConnectType.webSerialKiss
-                : _ConnectType.serialCompanion,
+        type: last.type == 'ble' ? _ConnectType.ble : _ConnectType.tcp,
       );
       _cachedContactCount = ref.read(radioContactsSnapshotProvider).length;
       _cachedChannelCount = ref.read(radioChannelsSnapshotProvider).length;
     });
+
     if (last.type == 'ble' && !_checkBluetoothOn()) return;
     _cancelledByUser = false;
-
     final connection = ref.read(connectionProvider.notifier);
-    final safeLastName = _safeUiName(last.name, fallback: last.id);
-    bool ok;
+    final bool ok;
     if (last.type == 'ble') {
       ok = await connection.connectBle(last.id, safeLastName);
-    } else if (last.type == 'tcp') {
+    } else {
       final uri = Uri.parse(last.id);
       ok = await connection.connectTcp(
         uri.host,
         port: uri.hasPort ? uri.port : 5000,
       );
-    } else if (last.type == 'webSerial' || last.type == 'webSerialKiss') {
-      // Port is confirmed in-registry by the isRegistered guard above.
-      // No browser picker is shown — the existing JS handle is reused.
-      ok = await connection.connectWebSerial(
-        last.id,
-        safeLastName,
-        mode:
-            last.type == 'webSerialKiss'
-                ? ConnectionMode.kiss
-                : ConnectionMode.companion,
-      );
-    } else {
-      ok = await connection.connectSerial(
-        last.id,
-        safeLastName,
-        mode:
-            last.type == 'serialKiss'
-                ? ConnectionMode.kiss
-                : ConnectionMode.companion,
-      );
     }
+
     if (ok && mounted) {
       context.go('/channels');
     } else if (mounted) {
       setState(() => _connectingTarget = null);
-      if (_cancelledByUser) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Row(
-              children: [
-                const Icon(Icons.cancel_outlined, color: Colors.white),
-                const SizedBox(width: 12),
-                Expanded(child: Text(context.l10n.connectCancelledMessage)),
-              ],
-            ),
-            duration: const Duration(seconds: 3),
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            _cancelledByUser
+                ? context.l10n.connectCancelledMessage
+                : context.l10n.connectLastFailTitle,
           ),
-        );
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(context.l10n.connectLastFailTitle),
-            backgroundColor: Theme.of(context).colorScheme.error,
-          ),
-        );
-      }
+          backgroundColor:
+              _cancelledByUser ? null : Theme.of(context).colorScheme.error,
+        ),
+      );
     }
   }
 
@@ -715,137 +481,6 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
       ref.read(lastDeviceProvider.notifier).state =
           updated.isNotEmpty ? updated.first : null;
     }
-  }
-
-  // ---------------------------------------------------------------------------
-  // Windows-only grouped scan results list
-  // ---------------------------------------------------------------------------
-
-  /// Builds a grouped device list with "BLUETOOTH" and "USB / SÉRIE" sections.
-  /// Only rendered on Windows where BLE and Serial devices are discovered
-  /// together in a single scan and would otherwise be interleaved.
-  Widget _buildWindowsGroupedList(ThemeData theme) {
-    final bleTargets =
-        _targets.where((t) => t.type == _ConnectType.ble).toList();
-    final serialTargets =
-        _targets
-            .where(
-              (t) =>
-                  t.type == _ConnectType.serialCompanion ||
-                  t.type == _ConnectType.serialKiss,
-            )
-            .toList();
-
-    return ListView(
-      children: [
-        if (bleTargets.isNotEmpty) ...[
-          _buildSectionHeader(
-            context.l10n.connectSectionBluetooth,
-            Icons.bluetooth_searching,
-            theme,
-          ),
-          ...bleTargets.map((t) => _buildBleTile(t, theme)),
-        ],
-        if (serialTargets.isNotEmpty) ...[
-          if (bleTargets.isNotEmpty) const SizedBox(height: 4),
-          _buildSectionHeader(
-            context.l10n.connectSectionSerial,
-            Icons.usb,
-            theme,
-          ),
-          ...serialTargets.map((t) => _buildSerialTile(t, theme)),
-        ],
-      ],
-    );
-  }
-
-  /// Small label row used as a section header in the grouped scan list.
-  Widget _buildSectionHeader(String label, IconData icon, ThemeData theme) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(4, 12, 4, 2),
-      child: Row(
-        children: [
-          Icon(
-            icon,
-            size: 14,
-            color: theme.colorScheme.onSurface.withAlpha(130),
-          ),
-          const SizedBox(width: 6),
-          Text(
-            label,
-            style: theme.textTheme.labelSmall?.copyWith(
-              color: theme.colorScheme.onSurface.withAlpha(130),
-              letterSpacing: 1.2,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// BLE device tile for the Windows grouped list.
-  ///
-  /// Title: saved radio name from recent devices if the MAC address matches,
-  ///        otherwise the BLE advertisement name (often the generic "MESHCORE").
-  /// Subtitle: MAC address + RSSI so the user can identify multiple radios
-  ///           that all advertise the same generic name.
-  Widget _buildBleTile(_ConnectTarget target, ThemeData theme) {
-    // Prefer the name stored from a previous successful connection.
-    // The radio's configured node name is saved on connect; the BLE
-    // advertisement only carries the firmware default ("MESHCORE").
-    final recent = ref.read(recentDevicesProvider);
-    final savedName =
-        recent
-            .where(
-              (r) =>
-                  r.id.toUpperCase() == target.device.id.toUpperCase() &&
-                  r.name.isNotEmpty,
-            )
-            .firstOrNull
-            ?.name;
-    final displayName = _safeUiName(
-      savedName ?? target.device.name,
-      fallback: target.device.id,
-    );
-
-    // Subtitle: MAC address + signal strength to distinguish radios.
-    final rssi = target.device.rssi;
-    final subtitle =
-        rssi != null ? '${target.device.id} · $rssi dBm' : target.device.id;
-
-    return Card(
-      child: ListTile(
-        leading: CircleAvatar(
-          backgroundColor: theme.colorScheme.primaryContainer,
-          child: Icon(
-            Icons.bluetooth,
-            color: theme.colorScheme.onPrimaryContainer,
-          ),
-        ),
-        title: Text(displayName),
-        subtitle: Text(subtitle, style: theme.textTheme.bodySmall),
-        trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-        onTap: () => _connectTo(target),
-      ),
-    );
-  }
-
-  /// Serial device tile for the Windows grouped list.
-  Widget _buildSerialTile(_ConnectTarget target, ThemeData theme) {
-    return Card(
-      child: ListTile(
-        leading: CircleAvatar(
-          backgroundColor: theme.colorScheme.primaryContainer,
-          child: Icon(target.icon, color: theme.colorScheme.onPrimaryContainer),
-        ),
-        title: Text(
-          _safeUiName(target.device.name, fallback: target.device.id),
-        ),
-        subtitle: Text(target.typeLabel, style: theme.textTheme.bodySmall),
-        trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-        onTap: () => _connectTo(target),
-      ),
-    );
   }
 
   @override
@@ -923,7 +558,10 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
               else ...[
                 Builder(
                   builder: (context) {
-                    final recent = ref.watch(recentDevicesProvider);
+                    final recent = ref
+                        .watch(recentDevicesProvider)
+                        .where((d) => d.type == 'ble' || d.type == 'tcp')
+                        .toList();
                     if (recent.isEmpty) return const SizedBox.shrink();
                     final last = recent.first;
                     final others = recent.skip(1).toList();
@@ -937,11 +575,7 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
                             color: theme.colorScheme.primaryContainer,
                             child: ListTile(
                               leading: Icon(
-                                last.type == 'ble'
-                                    ? Icons.bluetooth
-                                    : last.type == 'tcp'
-                                    ? Icons.wifi
-                                    : Icons.usb,
+                                last.type == 'ble' ? Icons.bluetooth : Icons.wifi,
                                 color: theme.colorScheme.onPrimaryContainer,
                               ),
                               title: Text(
@@ -1029,33 +663,14 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
                                               .colorScheme
                                               .surfaceContainerHighest,
                                       child: Icon(
-                                        d.type == 'ble'
-                                            ? Icons.bluetooth
-                                            : d.type == 'tcp'
-                                            ? Icons.wifi
-                                            // cable icon for Web Serial;
-                                            // usb icon for native serial.
-                                            : (d.type == 'webSerial' ||
-                                                d.type == 'webSerialKiss')
-                                            ? Icons.cable
-                                            : Icons.usb,
+                                        d.type == 'ble' ? Icons.bluetooth : Icons.wifi,
                                       ),
                                     ),
                                     title: Text(
                                       _safeUiName(d.name, fallback: d.id),
                                     ),
                                     subtitle: Text(
-                                      d.type == 'ble'
-                                          ? 'Bluetooth LE'
-                                          : d.type == 'tcp'
-                                          ? 'Wi-Fi / TCP'
-                                          : d.type == 'serialKiss'
-                                          ? 'KISS TNC'
-                                          : d.type == 'webSerial'
-                                          ? 'Web USB — Companion'
-                                          : d.type == 'webSerialKiss'
-                                          ? 'Web USB — KISS TNC'
-                                          : 'Série USB',
+                                      d.type == 'ble' ? 'Bluetooth LE' : 'Wi-Fi / TCP',
                                       style: theme.textTheme.bodySmall,
                                     ),
                                     trailing: Row(
@@ -1102,7 +717,7 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
                 FilledButton.icon(
                   // Disabled while either scan is in progress — only one
                   // browser picker can be open at a time.
-                  onPressed: (_scanning || _usbScanning) ? null : _startScan,
+                  onPressed: _scanning ? null : _startScan,
                   icon:
                       _scanning
                           ? const SizedBox(
@@ -1118,51 +733,11 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
                 const SizedBox(height: 10),
                 TextButton(
                   onPressed:
-                      (_scanning || _usbScanning)
+                      _scanning
                           ? null
                           : () => context.push('/hivefw/radio-network'),
                   child: const Text('Configurar via Wi-Fi'),
                 ),
-                if (kIsWeb) ...[
-                  const SizedBox(height: 4),
-                  Text(
-                    'O browser irá mostrar um seletor de dispositivos Bluetooth.',
-                    textAlign: TextAlign.center,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurface.withAlpha(140),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  // Web Serial USB button — only meaningful on Chrome/Edge.
-                  // Opens the browser's USB port-picker via navigator.serial.
-                  OutlinedButton.icon(
-                    onPressed:
-                        (_scanning || _usbScanning)
-                            ? null
-                            : _startWebSerialScan,
-                    icon:
-                        _usbScanning
-                            ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                            : const Icon(Icons.cable),
-                    label: Text(
-                      _usbScanning
-                          ? context.l10n.connectWebUsbScanning
-                          : context.l10n.connectWebUsbButton,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    context.l10n.connectWebUsbHint,
-                    textAlign: TextAlign.center,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurface.withAlpha(140),
-                    ),
-                  ),
-                ],
                 SizedBox(height: showScanAreaExpanded ? 8 : 24),
 
                 Expanded(
@@ -1181,10 +756,6 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
                               ),
                             ),
                           )
-                          // Windows: grouped BLE / Serial sections.
-                          // Other platforms: flat list (existing behaviour).
-                          : (!kIsWeb && Platform.isWindows)
-                          ? _buildWindowsGroupedList(theme)
                           : ListView.builder(
                             itemCount: _targets.length,
                             itemBuilder: (context, index) {
