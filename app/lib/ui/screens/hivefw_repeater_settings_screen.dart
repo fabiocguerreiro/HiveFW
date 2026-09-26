@@ -102,6 +102,19 @@ class _HiveFwRepeaterSettingsScreenState
     }
   }
 
+  Future<void> _refreshOwner() async {
+    final service = ref.read(radioServiceProvider);
+    if (service == null || !service.isConnected) return;
+
+    final owner = await _requestVars(() => service.requestRepeaterProfile(0));
+    if (!mounted) return;
+    if (owner == null || !owner.containsKey('owner')) {
+      _toast('Não foi possível obter Owner info', error: true);
+      return;
+    }
+    setState(() => _owner = owner);
+  }
+
   Future<void> _editOwner() async {
     final controller = TextEditingController(text: _ownerText);
     final value = await showDialog<String>(
@@ -210,7 +223,6 @@ class _HiveFwRepeaterSettingsScreenState
     final info = ref.watch(deviceInfoProvider);
     final connected = ref.watch(radioServiceProvider)?.isConnected == true;
     final repeatEnabled = (info?.clientRepeat ?? 0) != 0;
-    final rxGain = _radio['rxg'] == '1';
     final adcMilli = int.tryParse(_radio['adc_m'] ?? '');
     final meshTime = _base['mt'] == '1';
     final compactPower = (_base['pwr'] ?? '').trim();
@@ -264,14 +276,25 @@ class _HiveFwRepeaterSettingsScreenState
                           maxLines: 3,
                           overflow: TextOverflow.ellipsis,
                         ),
-                        trailing: const Icon(Icons.edit),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              onPressed:
+                                  connected && !_loading ? _refreshOwner : null,
+                              tooltip: 'Obter Owner info',
+                              icon: const Icon(Icons.refresh),
+                            ),
+                            const Icon(Icons.edit),
+                          ],
+                        ),
                         onTap: connected ? _editOwner : null,
                       ),
                     ],
                   ),
                   const SizedBox(height: 12),
                   _RepeaterSettingsCard(
-                    title: 'Sincronização e rádio',
+                    title: 'Sincronização e ADC',
                     icon: Icons.settings_input_antenna,
                     children: [
                       SwitchListTile(
@@ -284,15 +307,6 @@ class _HiveFwRepeaterSettingsScreenState
                         onChanged:
                             connected
                                 ? (v) => _toggle('mt', v, 'Mesh Time Sync')
-                                : null,
-                      ),
-                      SwitchListTile(
-                        contentPadding: EdgeInsets.zero,
-                        title: const Text('RX Boosted Gain'),
-                        value: rxGain,
-                        onChanged:
-                            connected
-                                ? (v) => _toggle('rxg', v, 'RX Boosted Gain')
                                 : null,
                       ),
                       ListTile(
