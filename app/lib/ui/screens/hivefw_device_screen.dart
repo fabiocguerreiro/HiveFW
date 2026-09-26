@@ -400,6 +400,8 @@ class _HiveFwDeviceScreenState extends ConsumerState<HiveFwDeviceScreen> {
     final connected = connection == TransportState.connected;
     final autoReconnect = ref.watch(autoReconnectProvider);
     final repeatEnabled = (info?.clientRepeat ?? 0) != 0;
+    final modelName = (info?.model ?? '').toLowerCase();
+    final isHeltecV3 = modelName.contains('heltec') && modelName.contains('v3');
     final smartAdvert = _base['auto_advert'] == '1';
     final appsChannelIndex = ref.watch(hiveAppsChannelIndexProvider);
     final selectedAppsChannel = _appsChannel(channels, appsChannelIndex);
@@ -425,7 +427,7 @@ class _HiveFwDeviceScreenState extends ConsumerState<HiveFwDeviceScreen> {
           const SizedBox(height: 12),
           const SizedBox(height: 12),
           _CardSection(
-            title: 'Ações',
+            title: 'Energia',
             icon: Icons.bolt,
             child: Wrap(
               spacing: 8,
@@ -435,55 +437,41 @@ class _HiveFwDeviceScreenState extends ConsumerState<HiveFwDeviceScreen> {
                   onPressed:
                       connected
                           ? () => _sendAction(
-                            () => ref.read(radioServiceProvider)!.sendAdvert(),
-                            'Local Advert enviado',
-                          )
-                          : null,
-                  icon: const Icon(Icons.cell_tower),
-                  label: const Text('Local Advert'),
-                ),
-                OutlinedButton.icon(
-                  onPressed:
-                      connected
-                          ? () => _sendAction(
-                            () => ref
-                                .read(radioServiceProvider)!
-                                .sendAdvert(flood: true),
-                            'Flood Advert enviado',
-                          )
-                          : null,
-                  icon: const Icon(Icons.hub),
-                  label: const Text('Flood Advert'),
-                ),
-                OutlinedButton.icon(
-                  onPressed:
-                      connected
-                          ? () => _sendAction(
-                            () => ref.read(radioServiceProvider)!.syncClock(),
-                            'Relógio sincronizado',
-                          )
-                          : null,
-                  icon: const Icon(Icons.sync),
-                  label: const Text('Sync Clock'),
-                ),
-                OutlinedButton.icon(
-                  onPressed:
-                      connected ? () => context.push('/settings/radio') : null,
-                  icon: const Icon(Icons.tune),
-                  label: const Text('Config. rádio'),
-                ),
-                OutlinedButton.icon(
-                  onPressed:
-                      connected
-                          ? () => _sendAction(
                             () => ref.read(radioServiceProvider)!.reboot(),
-                            'Reboot enviado',
+                            'Comando de reinício enviado',
                           )
                           : null,
                   icon: const Icon(Icons.restart_alt),
-                  label: const Text('Reboot'),
+                  label: const Text('Reiniciar'),
+                ),
+                OutlinedButton.icon(
+                  onPressed:
+                      connected
+                          ? () => _sendAction(
+                            () => ref.read(radioServiceProvider)!.shutdown(),
+                            'Comando de desligar enviado',
+                          )
+                          : null,
+                  icon: const Icon(Icons.power_settings_new),
+                  label: const Text('Desligar'),
                 ),
               ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          _CardSection(
+            title: 'Configuração Rádio',
+            icon: Icons.settings_input_antenna,
+            child: ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Configuração Rádio'),
+              subtitle: const Text(
+                'Frequência, largura de banda, SF, CR, potência, RX Boosted Gain e sincronização do relógio.',
+              ),
+              trailing: const Icon(Icons.chevron_right),
+              enabled: connected,
+              onTap:
+                  connected ? () => context.push('/settings/radio') : null,
             ),
           ),
           const SizedBox(height: 12),
@@ -588,16 +576,17 @@ class _HiveFwDeviceScreenState extends ConsumerState<HiveFwDeviceScreen> {
             icon: Icons.dashboard_customize_outlined,
             child: Column(
               children: [
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.router_outlined),
-                  title: const Text('Wi-Fi e firmware do rádio'),
-                  subtitle: const Text(
-                    'Provisionar Wi-Fi do V3 e atualizar firmware HiveFW por OTA.',
+                if (isHeltecV3)
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.router_outlined),
+                    title: const Text('Wi-Fi e firmware do rádio'),
+                    subtitle: const Text(
+                      'Provisionar Wi-Fi do V3 e atualizar firmware HiveFW por OTA.',
+                    ),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () => context.push('/hivefw/radio-network'),
                   ),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () => context.push('/hivefw/radio-network'),
-                ),
                 ListTile(
                   contentPadding: EdgeInsets.zero,
                   leading: const Icon(Icons.radar_outlined),
