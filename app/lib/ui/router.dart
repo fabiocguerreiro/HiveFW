@@ -27,6 +27,7 @@ import 'screens/hivefw_backup_screen.dart';
 import 'screens/hivefw_repeater_settings_screen.dart';
 import 'screens/hivefw_radio_network_screen.dart';
 import 'screens/hivefw_location_screen.dart';
+import 'screens/hivefw_ble_firmware_update_screen.dart';
 import 'apps/telemetry/telemetry_screen.dart';
 import 'screens/discover_contacts_screen.dart';
 import 'apps/noise_floor/noise_floor_screen.dart';
@@ -203,6 +204,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/hivefw/location',
         builder: (context, state) => const HiveFwLocationScreen(),
+      ),
+      GoRoute(
+        path: '/hivefw/firmware-ble',
+        builder: (context, state) => const HiveFwBleFirmwareUpdateScreen(),
       ),
       GoRoute(
         path: '/hivefw/repeater-settings',
