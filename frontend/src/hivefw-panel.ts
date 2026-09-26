@@ -101,7 +101,6 @@ class HiveFWPanel extends BasePanel {
     this.__hiveNeighbors = null;
     this.__hiveNeighborsLoading = false;
     this.__hiveNeighborsError = null;
-    this.__hiveNeighborsSort = "recent";
     this.__hiveNeighborsLoadedEntry = null;
     this.__hiveNeighborDiscovery = null;
     this.__hiveNeighborDiscoveryLoading = false;
@@ -116,15 +115,10 @@ class HiveFWPanel extends BasePanel {
     this.__hiveNeighborLocalMarker = null;
     this.__hiveNeighborMapFocusId = "";
     this.__hiveNeighborMapMode = "neighbors";
-    this.__hiveNeighborMapRenderSeq = 0;
 
     this.__networkRangeHours = 48;
     this.__networkHistory = null;
     this.__networkHistoryPersistAt = 0;
-    this.__networkContactsFilter = "all";
-    this.__networkContactsMenuOpen = false;
-    this.__networkContactsSearchOpen = false;
-    this.__networkContactsSearchQuery = "";
     // Incremented only when Network-owned data changes.  Generic Home
     // Assistant hass updates do not touch this revision, so the Lit Network
     // page and its map keep their DOM/lifecycle intact.
@@ -6002,57 +5996,6 @@ class HiveFWPanel extends BasePanel {
     }
     if(local&&this.__nodeCoords(local))push(local,String(local.adv_name||"Local"),null,trace.result.final_snr);
     return {trace,points,resolved,unresolved};
-  }
-
-  __drawLastTraceRoute() {
-    const litPage=this.__networkPageElement?.();
-    if(litPage){
-      void litPage.refreshTrace?.(false);
-      return;
-    }
-    const pane=this.__nodesMapPane;
-    const mapEl=this.__nodesMapElement;
-    const map=mapEl?.leafletMap;
-    const L=mapEl?.Leaflet;
-    if(!pane||!map||!L)return;
-    this.__removeTraceRouteLayer();
-    pane.querySelector(".hive-trace-summary")?.remove();
-    const data=this.__traceRouteData();
-    if(!data)return;
-
-    if(data.points.length>=2){
-      const line=L.polyline(data.points,{weight:4,opacity:.78,dashArray:"9 6",interactive:false});
-      line.addTo(map);
-      this.__traceRouteLayer=line;
-    }
-
-    const summary=document.createElement("div");
-    summary.className="hive-trace-summary";
-    summary.style.cssText="position:absolute;left:10px;top:10px;z-index:35;max-width:min(360px,calc(100% - 20px));padding:8px 10px;border:1px solid var(--divider-color,#ccc);border-radius:10px;background:color-mix(in srgb,var(--card-background-color,#fff) 93%,transparent);box-shadow:0 1px 5px rgba(0,0,0,.18);font-size:10px;color:var(--primary-text-color,#222);pointer-events:auto;";
-    const top=document.createElement("div");
-    top.style.cssText="display:flex;align-items:center;gap:8px;";
-    const label=document.createElement("strong");
-    label.style.flex="1";
-    label.textContent="Último Trace · "+String(data.trace.target?.adv_name||data.trace.target?.pubkey_prefix||"Nó");
-    const clear=document.createElement("button");
-    clear.type="button";clear.textContent="Limpar";
-    clear.style.cssText="border:0;background:transparent;color:var(--primary-color,#03a9f4);font:inherit;font-weight:700;cursor:pointer;";
-    clear.addEventListener("click",()=>this.__clearLastTrace());
-    top.append(label,clear);
-    const detail=document.createElement("div");
-    const parts=[data.trace.result.response_time||((data.trace.result.round_trip_ms||0)+"ms"),String(data.trace.result.hops||0)+" hops"];
-    if(Number.isFinite(Number(data.trace.result.final_snr)))parts.push("SNR "+Number(data.trace.result.final_snr).toFixed(1)+" dB");
-    if(data.unresolved.length)parts.push(data.unresolved.length+" hash não resolvido"+(data.unresolved.length===1?"":"s"));
-    detail.textContent=parts.join(" · ");
-    detail.style.cssText="margin-top:3px;color:var(--secondary-text-color,#666);";
-    summary.append(top,detail);
-    if(data.unresolved.length){
-      const hashes=document.createElement("div");
-      hashes.textContent="Sem GPS/ambíguos: "+data.unresolved.join(", ");
-      hashes.style.cssText="margin-top:3px;font:9px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:var(--secondary-text-color,#777);overflow-wrap:anywhere;";
-      summary.appendChild(hashes);
-    }
-    pane.appendChild(summary);
   }
 
   async __ensureMapLoaded() {
