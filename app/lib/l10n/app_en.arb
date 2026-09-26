@@ -1,7 +1,7 @@
 {
   "@@locale": "en",
-  "navChannels": "Chat",
-  "navContacts": "Nodes",
+  "navChannels": "Channels",
+  "navContacts": "Contacts",
   "navMap": "Map",
   "navApps": "Apps",
   "navSettings": "Device",
