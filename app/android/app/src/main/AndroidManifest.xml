@@ -45,6 +45,7 @@
         android:enableOnBackInvokedCallback="false">
         <activity
             android:name=".MainActivity"
+            android:label="HiveFW"
             android:exported="true"
             android:launchMode="singleTop"
             android:taskAffinity=""
