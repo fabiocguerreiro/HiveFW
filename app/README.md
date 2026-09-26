@@ -54,7 +54,9 @@ Quando deteta extensões HiveFW, disponibiliza também:
 - diagnóstico CAD;
 - Canal APPS/SOS persistente e identificado no Chat.
 - estado de alimentação externa (T114/V3) na configuração do Repeater;
-- **Notif. Energia** sincronizada por custom var com Firmware e Integração.
+- **Notif. Energia** sincronizada por custom var com Firmware e Integração;
+- configuração de localização do Companion através do GPS do telemóvel ou coordenadas manuais;
+- atualização de firmware por BLE a partir da última Release para Heltec V3 BLE e Heltec T114.
 
 As páginas de **Vizinhos** e **Canais observados** consultam a cache local do rádio e não geram tráfego LoRa.
 
