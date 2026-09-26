@@ -1702,11 +1702,6 @@ class BlockedSendersNotifier extends StateNotifier<Set<String>> {
     state = raw.toSet();
   }
 
-  void _clearForDisconnect() {
-    _activeDeviceId = null;
-    state = const {};
-  }
-
   /// Add [senderName] to the blocked list.
   Future<void> block(String senderName) async {
     if (senderName.isEmpty) return;
