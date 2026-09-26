@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:qr_flutter/qr_flutter.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../l10n/l10n.dart';
@@ -21,6 +22,7 @@ import '../theme.dart';
 part 'parts/settings_notifications.dart';
 part 'parts/settings_appearance.dart';
 part 'parts/settings_app_update.dart';
+part 'parts/settings_about.dart';
 
 /// Device-first surface for the local HiveFW Companion.
 ///
@@ -429,31 +431,34 @@ class _HiveFwDeviceScreenState extends ConsumerState<HiveFwDeviceScreen> {
           _CardSection(
             title: 'Energia',
             icon: Icons.bolt,
-            child: Wrap(
-              spacing: 8,
-              runSpacing: 8,
+            child: Row(
               children: [
-                OutlinedButton.icon(
-                  onPressed:
-                      connected
-                          ? () => _sendAction(
-                            () => ref.read(radioServiceProvider)!.reboot(),
-                            'Comando de reinício enviado',
-                          )
-                          : null,
-                  icon: const Icon(Icons.restart_alt),
-                  label: const Text('Reiniciar'),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed:
+                        connected
+                            ? () => _sendAction(
+                              () => ref.read(radioServiceProvider)!.reboot(),
+                              'Comando de reinício enviado',
+                            )
+                            : null,
+                    icon: const Icon(Icons.restart_alt),
+                    label: const Text('Reiniciar'),
+                  ),
                 ),
-                OutlinedButton.icon(
-                  onPressed:
-                      connected
-                          ? () => _sendAction(
-                            () => ref.read(radioServiceProvider)!.shutdown(),
-                            'Comando de desligar enviado',
-                          )
-                          : null,
-                  icon: const Icon(Icons.power_settings_new),
-                  label: const Text('Desligar'),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed:
+                        connected
+                            ? () => _sendAction(
+                              () => ref.read(radioServiceProvider)!.shutdown(),
+                              'Comando de desligar enviado',
+                            )
+                            : null,
+                    icon: const Icon(Icons.power_settings_new),
+                    label: const Text('Desligar'),
+                  ),
                 ),
               ],
             ),
@@ -640,7 +645,7 @@ class _HiveFwDeviceScreenState extends ConsumerState<HiveFwDeviceScreen> {
                     leading: const Icon(Icons.radar),
                     title: const Text('Vizinhos'),
                     subtitle: const Text(
-                      'Repeaters ouvidos diretamente nos últimos 7 dias (Zero-Hop).',
+                      'Repeaters ouvidos diretamente nas últimas 48h (Zero-Hop).',
                     ),
                     trailing: const Icon(Icons.chevron_right),
                     onTap:
@@ -684,6 +689,8 @@ class _HiveFwDeviceScreenState extends ConsumerState<HiveFwDeviceScreen> {
           const _NotificationsCard(),
           const SizedBox(height: 12),
           const _AppearanceCard(),
+          const SizedBox(height: 12),
+          const _AboutCard(),
           const SizedBox(height: 24),
         ],
       ),
