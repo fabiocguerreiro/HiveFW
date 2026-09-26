@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart' show defaultTargetPlatform, TargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart'
     show FlutterBluePlus, BluetoothAdapterState, FlutterBluePlusException;
@@ -95,16 +96,18 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
   @override
   void initState() {
     super.initState();
-    _bleStateSub = FlutterBluePlus.adapterState.listen((state) {
-      if (state == BluetoothAdapterState.off) {
-        _bleStateSub?.cancel();
-        _bleStateSub = null;
-        if (mounted) _checkBleOnStartup();
-      } else if (state != BluetoothAdapterState.unknown) {
-        _bleStateSub?.cancel();
-        _bleStateSub = null;
-      }
-    });
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      _bleStateSub = FlutterBluePlus.adapterState.listen((state) {
+        if (state == BluetoothAdapterState.off) {
+          _bleStateSub?.cancel();
+          _bleStateSub = null;
+          if (mounted) _checkBleOnStartup();
+        } else if (state != BluetoothAdapterState.unknown) {
+          _bleStateSub?.cancel();
+          _bleStateSub = null;
+        }
+      });
+    }
   }
 
   @override
