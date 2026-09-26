@@ -593,7 +593,7 @@ class _ContactsScreenState extends ConsumerState<ContactsScreen> {
                                     ),
                                   ),
                                 ],
-                  )                  ),
+                  ),
                 ],
               ),
             ),
@@ -656,9 +656,9 @@ class _ContactsScreenState extends ConsumerState<ContactsScreen> {
         // FAB — manual add belongs to the persisted Adicionados list.
         if (_view == _ContactsView.added)
           Positioned(
-          bottom: 16,
-          right: 16,
-          child: FloatingActionButton(
+            bottom: 16,
+            right: 16,
+            child: FloatingActionButton(
             heroTag: 'contacts_fab',
             onPressed: () {
               showModalBottomSheet<void>(
@@ -680,9 +680,9 @@ class _ContactsScreenState extends ConsumerState<ContactsScreen> {
               );
             },
             tooltip: context.l10n.contactsAddContact,
-            child: const Icon(Icons.person_add),
+              child: const Icon(Icons.person_add),
+            ),
           ),
-        ),
       ],
     );
   }
