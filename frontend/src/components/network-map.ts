@@ -22,6 +22,7 @@ export class HiveFWNetworkMap extends LitElement {
   private _loadToken = 0;
   private _syncSeq = 0;
   private _lastMapSignature = '';
+  private _lastMapElement: HTMLElement | null = null;
   private _fitTraceOnNextSync = false;
 
   createRenderRoot() {
@@ -45,6 +46,8 @@ export class HiveFWNetworkMap extends LitElement {
     const c = this.controller;
     const map = this.querySelector('ha-map');
     if (c) {
+      // Remove Leaflet layers while the map reference is still valid.
+      c.__removeTraceRouteLayer?.();
       if (c.__nodesMapElement === map) {
         c.__nodesMapElement = null;
         c.__nodesMapPane = null;
@@ -52,8 +55,8 @@ export class HiveFWNetworkMap extends LitElement {
       if (c.__hiveNeighborMapElement === map) {
         c.__hiveNeighborMapElement = null;
       }
-      c.__removeTraceRouteLayer?.();
     }
+    this._lastMapElement = null;
     super.disconnectedCallback();
   }
 
@@ -268,14 +271,23 @@ export class HiveFWNetworkMap extends LitElement {
     if (seq !== this._syncSeq || !this.isConnected) return;
 
     const map: any = this.querySelector('ha-map');
-    if (!map) return;
+    if (!map) {
+      this._lastMapElement = null;
+      return;
+    }
 
     const c = this.controller;
     const data = this._mapData();
     const signature = this._mapSignature(data);
     const shouldFitTrace = this._fitTraceOnNextSync;
-    if (!force && !shouldFitTrace && signature === this._lastMapSignature) return;
+    if (
+      !force &&
+      !shouldFitTrace &&
+      signature === this._lastMapSignature &&
+      map === this._lastMapElement
+    ) return;
     this._lastMapSignature = signature;
+    this._lastMapElement = map;
 
     map.autoFit = false;
     map.clusterMarkers = true;
@@ -334,11 +346,13 @@ export class HiveFWNetworkMap extends LitElement {
       return;
     }
 
-    if (c.__nodesMapElement === map || c.__nodesMapPane === this) {
+    // A previous contacts render may own a trace layer on this same ha-map.
+    // Remove it before releasing the controller's map reference.
+    c.__removeTraceRouteLayer?.();
+    if (c.__nodesMapElement === map) {
       c.__nodesMapElement = null;
       c.__nodesMapPane = null;
     }
-    c.__removeTraceRouteLayer?.();
     c.__hiveNeighborMapElement = map;
 
     if (legacyReady) {
@@ -432,18 +446,28 @@ export class HiveFWNetworkMap extends LitElement {
   async focusContact(contact: any, openPopup = true) {
     const c = this.controller;
     if (!c || !contact) return;
+
+    const existingMap: any = this.querySelector('ha-map');
+    const canFocusInPlace =
+      this._mode === 'contacts' &&
+      existingMap?.isConnected &&
+      c.__nodesMapElement === existingMap;
+
     c.__hiveNeighborMapMode = 'contacts';
     c.__nodesMapFocusId = c.__nodeId?.(contact) || '';
-    this._lastMapSignature = '';
-    this.requestUpdate();
-    this.dispatchEvent(new CustomEvent('network-map-mode-changed', {
-      detail: { mode: 'contacts' },
-      bubbles: true,
-      composed: true,
-    }));
-    await this._prepareMap();
-    await this.updateComplete;
-    await this._syncMap(true);
+
+    if (!canFocusInPlace) {
+      this._lastMapSignature = '';
+      this.requestUpdate();
+      this.dispatchEvent(new CustomEvent('network-map-mode-changed', {
+        detail: { mode: 'contacts' },
+        bubbles: true,
+        composed: true,
+      }));
+      await this._prepareMap();
+      await this.updateComplete;
+      await this._syncMap(true);
+    }
 
     const coords = c.__nodeCoords?.(contact);
     const map: any = this.querySelector('ha-map');
@@ -459,18 +483,28 @@ export class HiveFWNetworkMap extends LitElement {
   async focusNeighbor(item: any, mode: 'neighbors' | 'discovery' = 'neighbors') {
     const c = this.controller;
     if (!c || !item) return;
+
+    const existingMap: any = this.querySelector('ha-map');
+    const canFocusInPlace =
+      this._mode === mode &&
+      existingMap?.isConnected &&
+      c.__hiveNeighborMapElement === existingMap;
+
     c.__hiveNeighborMapMode = mode;
     c.__hiveNeighborMapFocusId = String(item?.pubkey || item?.pubkey_prefix || '');
-    this._lastMapSignature = '';
-    this.requestUpdate();
-    this.dispatchEvent(new CustomEvent('network-map-mode-changed', {
-      detail: { mode },
-      bubbles: true,
-      composed: true,
-    }));
-    await this._prepareMap();
-    await this.updateComplete;
-    await this._syncMap(true);
+
+    if (!canFocusInPlace) {
+      this._lastMapSignature = '';
+      this.requestUpdate();
+      this.dispatchEvent(new CustomEvent('network-map-mode-changed', {
+        detail: { mode },
+        bubbles: true,
+        composed: true,
+      }));
+      await this._prepareMap();
+      await this.updateComplete;
+      await this._syncMap(true);
+    }
 
     const coords = c.__nodeCoords?.(item)
       || [Number(item?.latitude), Number(item?.longitude)];
