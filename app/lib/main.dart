@@ -413,7 +413,7 @@ class _HiveFWAppState extends ConsumerState<HiveFWApp> {
     final appTextScale = ref.watch(appTextScaleProvider);
 
     return MaterialApp.router(
-      title: 'HiveFW Companion',
+      title: 'HiveFW',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.build(brightness: Brightness.light, accent: accent),
       darkTheme: AppTheme.build(brightness: Brightness.dark, accent: accent),
