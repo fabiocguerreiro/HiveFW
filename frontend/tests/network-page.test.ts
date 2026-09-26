@@ -2,7 +2,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import '../src/pages/network-page';
 
-function controller() {
+function controller(): any {
   return {
     __loadHiveNeighbors: vi.fn(),
     __loadHiveNeighborDiscovery: vi.fn(),
