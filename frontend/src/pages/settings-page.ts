@@ -1527,7 +1527,7 @@ export class SettingsPage extends LitElement {
         <div class="settings-container" data-hive-native-layout="device-v2">
           <div class="settings-shortcuts">
             ${[
-              ['firmware','Gestão Firmware','Releases, OTA, flash manual e downloads','mdi:update'],
+              ['firmware','Gestão de Firmware e Software','Firmware, integração, OTA e atualizações','mdi:update'],
               ['users','Utilizadores','Perfis de acesso, credenciais e utilizadores autorizados','mdi:account-group-outline'],
               ['radio','Configuração Rádio','Frequência, BW, SF, CR, potência e RX','mdi:radio-tower'],
               ['repeater','Configuração Repetidor','Modo, adverts, Timekeeper, routing e retransmissão','mdi:access-point-network'],
