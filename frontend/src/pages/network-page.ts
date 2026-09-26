@@ -31,8 +31,17 @@ export class HiveFWNetworkPage extends LitElement {
 
   connectedCallback() {
     super.connectedCallback();
+    // page-container intentionally has overflow:hidden; each page owns its own
+    // scroll model.  Rede therefore provides the single outer scrollbar while
+    // the three list columns keep their independent desktop scrolling.
     this.style.display = 'block';
-    this.style.minHeight = '100%';
+    this.style.width = '100%';
+    this.style.height = '100%';
+    this.style.minHeight = '0';
+    this.style.overflow = 'auto';
+    this.style.overscrollBehaviorY = 'auto';
+    this.style.touchAction = 'pan-y';
+    (this.style as any).webkitOverflowScrolling = 'touch';
   }
 
   private get c() {
@@ -139,8 +148,10 @@ export class HiveFWNetworkPage extends LitElement {
     const button = this.querySelector('[data-network-import-button]') as HTMLButtonElement | null;
     try {
       await this.c?.__importHiveFWContacts?.(file, button);
+      // __importHiveFWContacts already reloads the canonical contact snapshot.
+      // Do not immediately issue the same get_contacts request a second time.
       this._contactMenuOpen = false;
-      await this._refreshContacts();
+      this.requestUpdate();
     } finally {
       input.value = '';
     }
