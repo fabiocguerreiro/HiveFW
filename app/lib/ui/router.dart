@@ -19,6 +19,7 @@ import 'screens/room_screen.dart';
 import 'screens/hivefw_device_screen.dart';
 import 'screens/hivefw_neighbours_screen.dart';
 import 'screens/repeater_discovery_screen.dart';
+import 'screens/observed_channels_screen.dart';
 import 'screens/hivefw_home_assistant_screen.dart';
 import 'screens/hivefw_acl_screen.dart';
 import 'screens/hivefw_regions_screen.dart';
@@ -141,6 +142,10 @@ final routerProvider = Provider<GoRouter>((ref) {
               GoRoute(
                 path: '/apps/discovery',
                 builder: (context, state) => const RepeaterDiscoveryScreen(),
+              ),
+              GoRoute(
+                path: '/apps/observed-channels',
+                builder: (context, state) => const ObservedChannelsScreen(),
               ),
               GoRoute(
                 path: '/apps/homeassistant',
