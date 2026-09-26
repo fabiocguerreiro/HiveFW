@@ -358,7 +358,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     final radioKeys = ref.watch(radioContactsSnapshotProvider);
     final theme = Theme.of(context);
     final repeatEnabled =
-        (deviceInfo?.clientRepeat ?? 0) != 0 || selfInfo?.advType == advTypeRepeater;
+        (deviceInfo?.clientRepeat ?? 0) != 0 || selfInfo?.advType == 2;
 
     final modeGpsContacts = switch (_contactMode) {
       _MapContactMode.discovered => gpsContacts
