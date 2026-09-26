@@ -749,6 +749,8 @@ def async_register_ws_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_get_firmware_ota_progress)
     websocket_api.async_register_command(hass, ws_create_manual_ota_session)
     websocket_api.async_register_command(hass, ws_install_latest_firmware)
+    websocket_api.async_register_command(hass, ws_get_software_update_status)
+    websocket_api.async_register_command(hass, ws_install_latest_software)
     websocket_api.async_register_command(hass, ws_set_device_config)
     websocket_api.async_register_command(hass, ws_execute_local)
     websocket_api.async_register_command(hass, ws_execute_remote)
@@ -2961,6 +2963,150 @@ async def ws_install_latest_firmware(hass, connection, msg):
         _LOGGER.exception("Unexpected HiveFW OTA install failure")
         message = str(ex).strip() or ex.__class__.__name__
         connection.send_error(msg["id"], "ota_internal_error", message)
+
+
+
+# ─── HiveFW Integration software update ──────────────────────────────────
+
+def _find_hivefw_update_entity(hass):
+    """Return the HA update entity that manages the HiveFW repository."""
+    candidates = []
+    for state in hass.states.async_all("update"):
+        attrs = state.attributes or {}
+        repository = str(
+            attrs.get("repository")
+            or attrs.get("repository_url")
+            or attrs.get("repo")
+            or ""
+        ).lower()
+        haystack = " ".join(
+            [
+                str(state.entity_id or ""),
+                str(attrs.get("friendly_name") or ""),
+                str(attrs.get("title") or ""),
+                str(attrs.get("name") or ""),
+                repository,
+            ]
+        ).lower()
+
+        exact_repo = "fabiocguerreiro/hivefw" in repository
+        hivefw_named = "hivefw" in haystack
+        if exact_repo or hivefw_named:
+            candidates.append((0 if exact_repo else 1, state))
+
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: (item[0], item[1].entity_id))
+    return candidates[0][1]
+
+
+def _software_update_payload(state) -> dict:
+    if state is None:
+        return {
+            "supported": False,
+            "entity_id": None,
+            "update_available": False,
+            "installed_version": None,
+            "latest_version": None,
+        }
+
+    attrs = state.attributes or {}
+    installed = attrs.get("installed_version")
+    latest = attrs.get("latest_version")
+    update_available = str(state.state).lower() == "on"
+    if installed is not None and latest is not None:
+        update_available = update_available or str(installed) != str(latest)
+
+    return {
+        "supported": True,
+        "entity_id": state.entity_id,
+        "update_available": bool(update_available),
+        "installed_version": installed,
+        "latest_version": latest,
+        "release_url": attrs.get("release_url"),
+        "friendly_name": attrs.get("friendly_name") or state.entity_id,
+    }
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hivefw_integration/get_software_update_status",
+    }
+)
+@websocket_api.require_admin
+@callback
+def ws_get_software_update_status(hass, connection, msg):
+    """Return the Home Assistant update entity managing HiveFW, if present."""
+    connection.send_result(
+        msg["id"],
+        _software_update_payload(_find_hivefw_update_entity(hass)),
+    )
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hivefw_integration/install_latest_software",
+        vol.Optional("restart", default=True): bool,
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_install_latest_software(hass, connection, msg):
+    """Install the latest HiveFW integration update via HA's update platform."""
+    state = _find_hivefw_update_entity(hass)
+    if state is None:
+        connection.send_error(
+            msg["id"],
+            "software_update_unavailable",
+            "HiveFW is not managed by a Home Assistant update entity",
+        )
+        return
+
+    try:
+        await hass.services.async_call(
+            "update",
+            "install",
+            {"entity_id": state.entity_id},
+            blocking=True,
+        )
+
+        restart = bool(msg.get("restart", True))
+        connection.send_result(
+            msg["id"],
+            {
+                "success": True,
+                "entity_id": state.entity_id,
+                "restart_scheduled": restart,
+            },
+        )
+
+        if restart:
+            async def _restart_home_assistant():
+                try:
+                    await hass.services.async_call(
+                        "homeassistant",
+                        "restart",
+                        {},
+                        blocking=False,
+                    )
+                except Exception:
+                    _LOGGER.exception(
+                        "HiveFW software update installed but HA restart failed"
+                    )
+
+            # Let the websocket success result reach the browser before HA
+            # closes connections for the restart.
+            hass.loop.call_later(
+                2.0,
+                lambda: hass.async_create_task(_restart_home_assistant()),
+            )
+    except Exception as ex:
+        _ws_send_error_safe(
+            connection,
+            msg["id"],
+            ex,
+            handler="ws_install_latest_software",
+        )
 
 
 # ─── meshcore/set_device_config ─────────────────────────────────────────
