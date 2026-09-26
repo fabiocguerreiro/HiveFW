@@ -543,6 +543,18 @@ export class MeshCorePanel extends LitElement {
         min-height: 0;
       }
 
+      /* Stable Lit-owned host for the manually enhanced Rede page. Keeping
+         this element in the template prevents Home Assistant hass updates
+         from deleting/recreating the entire Network DOM and ha-map instance. */
+      .hive-network-host {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        min-width: 0;
+        min-height: 0;
+        overflow: hidden;
+      }
+
       @media (max-width: 870px) {
         .tab-bar {
           justify-content: flex-start;
@@ -882,9 +894,11 @@ export class MeshCorePanel extends LitElement {
             @refresh-channels-requested=${() => this._refreshChannelsFromRadio()}
             @mark-all-read-requested=${this._handleMarkAllReadRequested}></hivefw-integration-page>`;
       case 'network':
-        // HiveFWPanel owns the Rede overlay (analytics + passive neighbours +
-        // active discovery + map) so the typed base only supplies the host.
-        return html``;
+        // HiveFWPanel enhances this stable Lit-owned host. Do not return an
+        // empty template here: Home Assistant updates the hass property often,
+        // and reconciling an empty child part would discard the manually
+        // managed Rede DOM (including ha-map) on every panel update.
+        return html`<div class="hive-network-host"></div>`;
       case 'state':
         return html`
           <meshcore-status-page
