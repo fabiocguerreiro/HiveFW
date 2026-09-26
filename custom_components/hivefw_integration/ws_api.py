@@ -6591,11 +6591,12 @@ async def ws_get_hive_neighbors(hass, connection, msg):
                 unique[prefix] = item
 
         # Vizinhos are direct zero-hop repeater adverts heard during the
-        # last 7 days. The firmware may retain its runtime table longer;
-        # presentation filtering belongs to the integration.
+        # last 48 hours. This matches the firmware's persisted neighbour
+        # history window, so the integration no longer advertises data the
+        # radio cannot actually retain.
         neighbors = [
             item for item in unique.values()
-            if item["secs_ago"] <= 7 * 24 * 60 * 60
+            if item["secs_ago"] <= 48 * 60 * 60
         ]
         neighbors = sorted(neighbors, key=lambda item: item["secs_ago"])
 
