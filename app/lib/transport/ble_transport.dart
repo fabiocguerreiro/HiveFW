@@ -1,8 +1,6 @@
 import 'dart:async';
-import 'dart:io' show Platform;
 import 'dart:typed_data';
 
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:logger/logger.dart';
 
@@ -92,7 +90,7 @@ class BleTransport implements RadioTransport {
     _userDisconnected = false;
     try {
       _log.i(
-        'BLE connecting to ${_safeDeviceName(_device.platformName, fallback: _device.remoteId.str)} (web=$kIsWeb)',
+        'BLE connecting to ${_safeDeviceName(_device.platformName, fallback: _device.remoteId.str)}',
       );
 
       await _device.connect(
@@ -100,20 +98,11 @@ class BleTransport implements RadioTransport {
         timeout: const Duration(seconds: 15),
       );
 
-      // On native platforms, request a larger MTU before service discovery.
-      // This stabilises the GATT connection and avoids early descriptor
-      // write failures.  Web Bluetooth negotiates MTU automatically.
-      //
-      // On Windows, flutter_blue_plus_windows ignores the requested MTU value
-      // and returns the system-negotiated MTU instead.  The try/catch handles
-      // this silently — the system MTU is typically 247 bytes anyway on modern
-      // Windows BLE stacks.
-      if (!kIsWeb) {
-        try {
-          await _device.requestMtu(247);
-        } catch (e) {
-          _log.d('MTU request skipped: $e');
-        }
+      // Request a larger MTU before service discovery on Android.
+      try {
+        await _device.requestMtu(247);
+      } catch (e) {
+        _log.d('MTU request skipped: $e');
       }
 
       final services = await _device.discoverServices();
@@ -139,8 +128,7 @@ class BleTransport implements RadioTransport {
 
       // Brief settle after service discovery — GATT needs time before
       // descriptor writes / startNotifications will succeed.
-      const settleMs = kIsWeb ? 600 : 300;
-      await Future.delayed(const Duration(milliseconds: settleMs));
+      await Future.delayed(const Duration(milliseconds: 300));
 
       // Enable notifications on the TX characteristic (radio → app).
       await _enableNotifications(_txChar!);
@@ -190,7 +178,7 @@ class BleTransport implements RadioTransport {
     if (_rxChar == null || !_connected) {
       throw StateError('Not connected');
     }
-    // On web, Web Bluetooth handles ATT fragmentation internally — write the
+    // Bluetooth handles ATT fragmentation internally — write the
     // full payload in a single call.  Chunking would cause the firmware to
     // receive each write as a separate command frame, truncating messages.
     //
@@ -216,12 +204,12 @@ class BleTransport implements RadioTransport {
 
   /// Enable notifications on a characteristic, with platform-specific handling.
   ///
-  /// **Web bug (flutter_blue_plus_web 7.0.2):**
-  /// The web implementation of `setNotifyValue` calls the Web Bluetooth
+  /// **Web bug (flutter_blue_plus_Android 7.0.2):**
+  /// The Android implementation of `setNotifyValue` calls the Bluetooth
   /// `startNotifications()` JS API and adds the event listener, then returns
   /// `true` (hasCCCD). The platform-agnostic layer interprets `true` as
-  /// "wait for an `onDescriptorWritten` confirmation event" — but the web
-  /// plugin *never* emits that event because Web Bluetooth handles the CCCD
+  /// "wait for an `onDescriptorWritten` confirmation event" — but the Android
+  /// plugin *never* emits that event because Bluetooth handles the CCCD
   /// descriptor internally. So the call always times out after 15 s, even
   /// though `startNotifications()` already succeeded.
   ///
@@ -235,33 +223,18 @@ class BleTransport implements RadioTransport {
   ///
   /// **Android / iOS / macOS / Linux:** native retry path.
   static Future<void> _enableNotifications(BluetoothCharacteristic char) async {
-    if (kIsWeb) {
+    const maxAttempts = 3;
+    const delay = Duration(milliseconds: 500);
+    for (var attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
-        _log.d('setNotifyValue (web, timeout=2s)');
-        await char.setNotifyValue(true, timeout: 2);
-        _log.i('setNotifyValue succeeded (web)');
+        _log.d('setNotifyValue attempt $attempt/$maxAttempts');
+        await char.setNotifyValue(true);
+        _log.i('setNotifyValue succeeded on attempt $attempt');
+        return;
       } catch (e) {
-        // Expected: the CCCD-wait phase times out. But startNotifications()
-        // and the event listener are already active — safe to proceed.
-        _log.w(
-          'setNotifyValue web timeout (expected) — notifications active: $e',
-        );
-      }
-    } else {
-      // Native platforms: retry with escalating backoff.
-      const maxAttempts = 3;
-      const delay = Duration(milliseconds: 500);
-      for (var attempt = 1; attempt <= maxAttempts; attempt++) {
-        try {
-          _log.d('setNotifyValue attempt $attempt/$maxAttempts');
-          await char.setNotifyValue(true);
-          _log.i('setNotifyValue succeeded on attempt $attempt');
-          return;
-        } catch (e) {
-          _log.w('setNotifyValue attempt $attempt/$maxAttempts failed: $e');
-          if (attempt == maxAttempts) rethrow;
-          await Future.delayed(delay * attempt);
-        }
+        _log.w('setNotifyValue attempt $attempt/$maxAttempts failed: $e');
+        if (attempt == maxAttempts) rethrow;
+        await Future.delayed(delay * attempt);
       }
     }
   }
@@ -310,18 +283,7 @@ class BleTransport implements RadioTransport {
     return 'BLE (${r.device.remoteId.str.substring(0, 8)})';
   }
 
-  /// Scan for HiveFW / MeshCore BLE Companions.
-  ///
-  /// On Windows, delegates entirely to [WinBleBridge.scan] which uses
-  /// win_ble (WinRT/BLEServer.exe) and applies HiveFW / MeshCore filtering internally.
-  ///
-  /// On web, [withServices] goes into the browser picker `filters`.
-  /// [webOptionalServices] populates `optionalServices` in `requestDevice()`
-  /// so the Web Bluetooth security model allows [discoverServices].
-  ///
-  /// **Web note:** [FlutterBluePlus.startScan] blocks inside `requestDevice()`
-  /// until the user picks a device.  We must subscribe to [onScanResults]
-  /// *before* calling [startScan] so the result is not missed.
+  /// Scan for HiveFW / MeshCore BLE Companions on Android.
   static Stream<RadioDevice> scan({
     Duration timeout = const Duration(seconds: 10),
   }) {
@@ -329,7 +291,7 @@ class BleTransport implements RadioTransport {
     final seen = <String>{};
 
     Future<void> doScan() async {
-      if (!kIsWeb && Platform.isAndroid) {
+      {
         void addKnownAndroidDevice(BluetoothDevice d) {
           final id = d.remoteId.str;
           final name = _safeDeviceName(d.platformName, fallback: id);
@@ -366,7 +328,7 @@ class BleTransport implements RadioTransport {
         }
       }
 
-      // Subscribe BEFORE startScan — critical on web where startScan blocks
+      // Subscribe BEFORE startScan — critical on Android where startScan blocks
       // inside requestDevice() and emits the chosen device before returning.
       final sub = FlutterBluePlus.onScanResults.listen((results) {
         for (final r in results) {
@@ -394,16 +356,6 @@ class BleTransport implements RadioTransport {
 
       try {
         await FlutterBluePlus.startScan(
-          // On web, withServices drives the browser's requestDevice() picker
-          // filter — required so the user only sees NUS devices.
-          // On native (Android/iOS/Linux/macOS) we omit the service filter so
-          // that dev devices advertising only by name (not NUS UUID) are
-          // visible; filtering is done client-side in the listener above.
-          withServices: kIsWeb ? [BleUuids.service] : [],
-          // Required on web: declares service UUIDs in requestDevice()
-          // optionalServices so discoverServices() is not blocked by the
-          // browser security model (separate from the picker filters above).
-          webOptionalServices: [BleUuids.service],
           timeout: timeout,
           androidScanMode: AndroidScanMode.lowLatency,
         );
@@ -412,39 +364,7 @@ class BleTransport implements RadioTransport {
       }
 
       try {
-        if (!kIsWeb) {
-          // On native (Android/iOS/Linux/macOS) the scan runs for `timeout`;
-          // wait for it to stop before closing.
-          await FlutterBluePlus.isScanning.where((scanning) => !scanning).first;
-
-          // No extra Android fallback list: scan results already accept NUS,
-          // HiveFW-* and MeshCore-* compatible Companions.
-        } else {
-          // On web, `startScan` returns as soon as the user picks a device from
-          // `requestDevice()`. However, flutter_blue_plus buffers the result in
-          // `_BufferStream` and only delivers it to `_scanResults` (and therefore
-          // to our `sub` listener above) after 1–2 asynchronous event-loop turns.
-          // If we cancelled `sub` immediately the device event would be lost.
-          //
-          // Fix: yield briefly so `_scanSubscription` can process the buffered
-          // response and push to `_scanResults`. Then check `lastScanResults`
-          // as a guaranteed fallback for any device that still wasn't delivered
-          // to our listener in time.
-          await Future<void>.delayed(const Duration(milliseconds: 100));
-          for (final r in FlutterBluePlus.lastScanResults) {
-            if (!seen.contains(r.device.remoteId.str) && !controller.isClosed) {
-              seen.add(r.device.remoteId.str);
-              controller.add(
-                RadioDevice(
-                  id: r.device.remoteId.str,
-                  name: _displayNameForScanResult(r),
-                  type: RadioDeviceType.ble,
-                  rssi: r.rssi,
-                ),
-              );
-            }
-          }
-        }
+        await FlutterBluePlus.isScanning.where((scanning) => !scanning).first;
       } catch (e) {
         _log.e('BLE scan wait failed: $e');
       } finally {
