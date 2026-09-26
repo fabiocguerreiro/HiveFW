@@ -5145,7 +5145,12 @@ void MyMesh::begin(bool has_display) {
 #if defined(NRF52_PLATFORM) || defined(HELTEC_LORA_V3)
   const bool boot_external_power = board.isExternalPowered();
 
-  if (boot_external_power && !_prefs.isPowerAlertArmed()) {
+  if (!_prefs.isPowerNotifyEn()) {
+    if (_prefs.isPowerAlertArmed()) {
+      _prefs.setPowerAlertArmed(false);
+      savePrefs();
+    }
+  } else if (boot_external_power && !_prefs.isPowerAlertArmed()) {
     _prefs.setPowerAlertArmed(true);
     savePrefs();
   }
@@ -5154,8 +5159,11 @@ void MyMesh::begin(bool has_display) {
   // us that external power was present before this boot. Treat that exactly as
   // a live external->battery transition after the normal debounce window.
   last_external_power =
-    boot_external_power ||
-    _prefs.isPowerAlertArmed();
+    _prefs.isPowerNotifyEn() &&
+    (
+      boot_external_power ||
+      _prefs.isPowerAlertArmed()
+    );
 
   power_state_initialized = true;
   power_alert_local_emitted = false;
@@ -9131,15 +9139,23 @@ void MyMesh::loop() {
       power_state_initialized = true;
       power_loss_samples = 0;
     } else if (external_power) {
-      last_external_power = true;
       power_alert_local_emitted = false;
       power_alert_rf_emitted = false;
       power_loss_samples = 0;
 
-      if (!_prefs.isPowerAlertArmed()) {
-        _prefs.setPowerAlertArmed(true);
-        savePrefs();
-        MESH_DEBUG_PRINTLN("HiveFW power monitor: armed on external power");
+      if (_prefs.isPowerNotifyEn()) {
+        last_external_power = true;
+        if (!_prefs.isPowerAlertArmed()) {
+          _prefs.setPowerAlertArmed(true);
+          savePrefs();
+          MESH_DEBUG_PRINTLN("HiveFW power monitor: armed on external power");
+        }
+      } else {
+        last_external_power = false;
+        if (_prefs.isPowerAlertArmed()) {
+          _prefs.setPowerAlertArmed(false);
+          savePrefs();
+        }
       }
     } else if (last_external_power) {
       if (++power_loss_samples >= 3) {
