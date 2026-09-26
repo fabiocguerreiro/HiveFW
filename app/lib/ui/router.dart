@@ -16,7 +16,6 @@ import 'screens/private_chat_screen.dart';
 import 'screens/radio_settings_screen.dart';
 import 'screens/contacts_screen.dart';
 import 'screens/room_screen.dart';
-import 'screens/settings_screen.dart';
 import 'screens/hivefw_device_screen.dart';
 import 'screens/hivefw_neighbours_screen.dart';
 import 'screens/repeater_discovery_screen.dart';
@@ -170,10 +169,6 @@ final routerProvider = Provider<GoRouter>((ref) {
               GoRoute(
                 path: '/settings',
                 builder: (context, state) => const HiveFwDeviceScreen(),
-              ),
-              GoRoute(
-                path: '/settings/app',
-                builder: (context, state) => const SettingsScreen(),
               ),
               GoRoute(
                 path: '/settings/radio',
