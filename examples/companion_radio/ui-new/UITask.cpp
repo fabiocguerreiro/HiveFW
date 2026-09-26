@@ -187,28 +187,11 @@ public:
 
 #ifdef HELTEC_T114_WITH_DISPLAY
 
-    uint8_t boot_logo_color = 7;
-    uint8_t boot_text_color = 7;
     uint8_t boot_ui_font = 0;
 
     if (_node_prefs != nullptr) {
-
-      boot_logo_color =
-        _node_prefs->boot_logo_color;
-
-      boot_text_color =
-        _node_prefs->boot_text_color;
-
       boot_ui_font =
         _node_prefs->display_font;
-    }
-
-    if (boot_logo_color > 7) {
-      boot_logo_color = 7;
-    }
-
-    if (boot_text_color > 7) {
-      boot_text_color = 7;
     }
 
     if (boot_ui_font > 1) {
@@ -219,32 +202,37 @@ public:
       boot_ui_font
     );
 
-    // Não altera o bitmap.
-    // Apenas informa o writer RGB das duas zonas.
+    // HiveFW brand colors are fixed on the T114 splash:
+    // emblem = official HiveFW orange, wordmark = white.
     display.setBootLogoAccent(
-      boot_logo_color,
-      boot_text_color
+      6,
+      7
     );
 
 #endif
 
-    // meshcore logo
+    // Official HiveFW wordmark, preserving the source 4:1 proportions.
     display.setColor(UIColor::corp_blue);
-    int logoWidth = 128;
-    display.drawXbm(0, 3, hivefw_logo, logoWidth, 13);
+    display.drawXbm(
+      0,
+      0,
+      hivefw_logo,
+      HIVEFW_LOGO_WIDTH,
+      HIVEFW_LOGO_HEIGHT
+    );
 
     // firmware name
     const char* firmware_name = "Companion & Repeater";
     display.setColor(UIColor::primary_txt);
     display.setTextSize(1);
-    display.drawTextCentered(display.width()/2, 22, firmware_name);
+    display.drawTextCentered(display.width()/2, 33, firmware_name);
 
     // version info
     display.setColor(UIColor::primary_txt);
     display.setTextSize(1);
     display.drawTextCentered(
       display.width()/2,
-      35,
+      43,
       _version_info
     );
 
@@ -355,7 +343,7 @@ public:
     display.setTextSize(1);
     display.drawTextCentered(
       display.width()/2,
-      48,
+      53,
       build_date
     );
 
@@ -450,7 +438,9 @@ static const uint8_t HIVEFW_BOOT_COLOR_COUNT =
   sizeof(hivefw_boot_color_names) /
   sizeof(hivefw_boot_color_names[0]);
 
-#define HIVEFW_DISPLAY_BOOT_OFFSET 1
+// Splash colors are brand-locked. Legacy prefs remain serialized only for
+// backward compatibility and are intentionally not exposed in the UI.
+#define HIVEFW_DISPLAY_BOOT_OFFSET 0
 
 
 static const char*
@@ -9394,43 +9384,6 @@ public:
             _settings_display_menu == 3
           ) {
 
-            uint8_t logo_index =
-              _node_prefs->boot_logo_color;
-
-            uint8_t text_index =
-              _node_prefs->boot_text_color;
-
-            if (
-              logo_index >=
-              HIVEFW_BOOT_COLOR_COUNT
-            ) {
-              logo_index = 7;
-            }
-
-            if (
-              text_index >=
-              HIVEFW_BOOT_COLOR_COUNT
-            ) {
-              text_index = 7;
-            }
-
-            display_title =
-              "BOOT LOGO";
-
-            snprintf(
-              display_value,
-              sizeof(display_value),
-              "%s / %s",
-              hivefw_boot_color_names[logo_index],
-              hivefw_boot_color_names[text_index]
-            );
-          }
-
-
-          else if (
-            _settings_display_menu == 4
-          ) {
-
             uint8_t index =
               _node_prefs->display_font;
 
@@ -9454,7 +9407,7 @@ public:
 
 
           else if (
-            _settings_display_menu == 5
+            _settings_display_menu == 4
           ) {
 
             display_title =
@@ -12262,34 +12215,6 @@ public:
             _settings_color_submenu = true;
             return true;
           }
-#endif
-
-
-          // --------------------------------------------------
-          // BOOT LOGO
-          // --------------------------------------------------
-
-#ifdef HELTEC_T114_WITH_DISPLAY
-
-          if (
-            _settings_display_menu ==
-            1 +
-            HIVEFW_DISPLAY_ROTATION_OFFSET +
-            HIVEFW_DISPLAY_COLOR_OFFSET
-          ) {
-
-            _settings_boot_logo_color_submenu =
-              false;
-
-            _settings_boot_text_color_submenu =
-              false;
-
-            _settings_boot_submenu =
-              true;
-
-            return true;
-          }
-
 #endif
 
 
