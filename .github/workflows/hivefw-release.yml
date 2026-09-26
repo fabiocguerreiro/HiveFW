@@ -1,5 +1,5 @@
 name: Build & Release HiveFW
-# Fast release pipeline: build supported targets in parallel, then publish once.
+# Unified release pipeline: Firmware + Home Assistant Integration + Android App.
 
 concurrency:
   group: hivefw-release-${{ github.ref }}
