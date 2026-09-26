@@ -182,12 +182,25 @@ class StorageService {
     try {
       final prefs = await SharedPreferences.getInstance();
       final raw = prefs.getString(_keyRecentDevices);
-      if (raw != null) return _parseRecentDevices(prefs);
+      if (raw != null) {
+        final devices = _parseRecentDevices(prefs);
+        await prefs.setString(
+          _keyRecentDevices,
+          jsonEncode(
+            devices
+                .map((d) => {'id': d.id, 'type': d.type, 'name': d.name})
+                .toList(),
+          ),
+        );
+        return devices;
+      }
       // Migration: seed from legacy last_device keys.
       final id = prefs.getString(_keyLastDeviceId);
       final type = prefs.getString(_keyLastDeviceType);
       final name = prefs.getString(_keyLastDeviceName);
-      if (id == null || type == null) return [];
+      if (id == null || type == null || (type != 'ble' && type != 'tcp')) {
+        return [];
+      }
       final seeded = [
         LastDevice(
           id: id,
@@ -225,6 +238,7 @@ class StorageService {
               ),
             ),
           )
+          .where((d) => d.type == 'ble' || d.type == 'tcp')
           .toList();
     } catch (_) {
       return [];
@@ -603,10 +617,10 @@ class NotificationSettings {
 class LastDevice {
   const LastDevice({required this.id, required this.type, required this.name});
 
-  /// Platform device ID (BLE deviceId or serial port path).
+  /// Platform device ID (BLE device ID or tcp://host:port).
   final String id;
 
-  /// Transport kind: 'ble', 'serialCompanion', 'serialKiss'.
+  /// Transport kind: 'ble' or 'tcp'.
   final String type;
 
   /// Human-readable display name.
