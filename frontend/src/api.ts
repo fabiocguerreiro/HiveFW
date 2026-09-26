@@ -253,9 +253,11 @@ export interface SoftwareUpdateStatus {
 
 export async function getSoftwareUpdateStatus(
   hass: HomeAssistant,
+  force = false,
 ): Promise<SoftwareUpdateStatus> {
   return hass.callWS<SoftwareUpdateStatus>({
     type: 'hivefw_integration/get_software_update_status',
+    force,
   });
 }
 
