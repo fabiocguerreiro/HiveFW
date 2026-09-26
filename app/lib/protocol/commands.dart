@@ -64,6 +64,7 @@ const int cmdGetRepeaterAuthConfig = 0x2E;
 const int cmdGetRepeaterRegion = 0x2F;
 const int cmdSetRepeaterRegion = 0x30;
 const int cmdGetObservedChannels = 0x31;
+const int cmdVerifyObservedChannel = 0x35;
 
 const int cmdSetOtherParams =
     0x26; // 38 — manual_add_contacts, telemetry_mode, adv_loc_policy, multi_acks
