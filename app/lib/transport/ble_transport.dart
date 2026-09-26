@@ -328,14 +328,13 @@ class BleTransport implements RadioTransport {
         }
       }
 
-      // Subscribe BEFORE startScan — critical on Android where startScan blocks
-      // inside requestDevice() and emits the chosen device before returning.
+      // Subscribe before starting the Android scan so no early result is lost.
       final sub = FlutterBluePlus.onScanResults.listen((results) {
         for (final r in results) {
           final displayName = _displayNameForScanResult(r);
 
-          // Native uses broad scan + client-side filter.
-          if (!kIsWeb && !_shouldIncludeScanResult(r)) {
+          // Android uses a broad scan plus the Companion compatibility filter.
+          if (!_shouldIncludeScanResult(r)) {
             continue;
           }
           if (!seen.contains(r.device.remoteId.str)) {
