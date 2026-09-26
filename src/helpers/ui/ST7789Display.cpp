@@ -408,7 +408,8 @@ void ST7789Display::setBootLogoAccent(
           return ST77XX_YELLOW;
 
         case 6:
-          return ST77XX_ORANGE;
+          // Official HiveFW brand orange #FC590D -> RGB565 0xFAC1.
+          return 0xFAC1;
 
         case 7:
         default:
@@ -598,10 +599,11 @@ void ST7789Display::endFrame() {
   // Aqui apenas escolhemos a cor RGB dos pixels ATIVOS
   // pertencentes às duas zonas do bitmap:
   //
-  //   LOGO  = x 0..15
-  //   TEXTO = x 16..127
+  //   EMBLEMA = x 0..34
+  //   HIVEFW  = x 35..127
   //
-  // O bitmap é desenhado em y=3 com altura 13.
+  // O bitmap oficial é desenhado em y=0 com altura 32 e mantém
+  // a proporção original 4:1 do wordmark usado na app/integração.
   // ----------------------------------------------------------
 
   if (_bootLogoAccentEnabled) {
@@ -612,7 +614,7 @@ void ST7789Display::endFrame() {
     const uint16_t boot_split_x =
       X_OFFSET +
       (uint16_t)(
-        16.0f *
+        35.0f *
         SCALE_X
       );
 
@@ -626,14 +628,14 @@ void ST7789Display::endFrame() {
     const uint16_t boot_y1 =
       Y_OFFSET +
       (uint16_t)(
-        3.0f *
+        0.0f *
         SCALE_Y
       );
 
     const uint16_t boot_y2 =
       Y_OFFSET +
       (uint16_t)(
-        16.0f *
+        32.0f *
         SCALE_Y
       );
 
