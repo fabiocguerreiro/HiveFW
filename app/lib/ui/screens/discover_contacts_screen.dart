@@ -289,57 +289,6 @@ class _DiscoverContactsScreenState
     List<Contact> discovered,
   ) =>
       showDiscoveredCleanSheet(context, ref, discovered);
-  /// Asks for confirmation, then removes the given set of contacts.
-  Future<void> _confirmAndRemove(
-    BuildContext context,
-    List<Contact> targets,
-  ) async {
-    final l10n = context.l10n;
-    final keysHex = targets.map((c) => _hex32(c.publicKey)).toSet();
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder:
-          (ctx) => AlertDialog(
-            title: Text(l10n.discoverCleanTitle),
-            content: Text(l10n.discoverCleanBody(keysHex.length)),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx, false),
-                child: Text(l10n.commonCancel),
-              ),
-              FilledButton(
-                onPressed: () => Navigator.pop(ctx, true),
-                child: Text(l10n.commonDelete),
-              ),
-            ],
-          ),
-    );
-    if (confirm != true || !context.mounted) return;
-
-    final notifier = ref.read(contactsProvider.notifier);
-    final beforeTotal = ref.read(contactsProvider).length;
-    final radioKeys = ref.read(radioContactsSnapshotProvider);
-    // Defensive: never delete a contact that the radio has stored.
-    final safeKeys = keysHex.difference(radioKeys);
-    final removed = notifier.removeManyByKeyHex(safeKeys);
-    final afterTotal = ref.read(contactsProvider).length;
-    debugPrint(
-      '[Discover] clean: requested=${keysHex.length} '
-      'safe=${safeKeys.length} removed=$removed '
-      'state $beforeTotal->$afterTotal radioSnapshot=${radioKeys.length}',
-    );
-    if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          '${l10n.discoverCleanDone(removed)}  '
-          '(req ${keysHex.length} / safe ${safeKeys.length} / '
-          'radio ${radioKeys.length})',
-        ),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final discovered = ref.watch(discoveredContactsProvider);
