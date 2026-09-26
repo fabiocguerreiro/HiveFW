@@ -264,6 +264,15 @@ class RadioService {
     await _send(CompanionEncoder.getObservedChannels(offset: offset));
   }
 
+  Future<void> verifyObservedChannel(
+    int channelHash,
+    Uint8List secret,
+  ) async {
+    await _send(
+      CompanionEncoder.verifyObservedChannel(channelHash, secret),
+    );
+  }
+
   Future<void> requestRepeaterRfConfig() async {
     await _send(CompanionEncoder.getRepeaterRfConfig());
   }
