@@ -90,8 +90,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final unreadContacts = ref.watch(
       unreadCountsProvider.select((counts) => counts.totalContacts),
     );
-    final theme = Theme.of(context);
-
     final currentPath = widget.currentPath;
     final tabIndex = widget.navigationShell.currentIndex;
     final isIos = defaultTargetPlatform == TargetPlatform.iOS;
