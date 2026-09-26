@@ -14,6 +14,7 @@ import '../../protocol/protocol.dart';
 import '../../providers/radio_providers.dart';
 import '../../transport/transport.dart';
 import '../widgets/path_sheet.dart';
+import 'discover_contacts_screen.dart';
 import 'qr_scanner_screen.dart';
 
 /// Best available "last-heard" timestamp for [contact].
@@ -37,6 +38,8 @@ class _ContactsScreenState extends ConsumerState<ContactsScreen> {
   final _searchCtrl = TextEditingController();
   String _query = '';
   bool _multiSelectMode = false;
+  _ContactsView _view = _ContactsView.discovered;
+  DiscoveredContactSort _discoveredSort = DiscoveredContactSort.recent;
   final Set<String> _selectedContactKeys = <String>{};
 
   @override
@@ -202,6 +205,7 @@ class _ContactsScreenState extends ConsumerState<ContactsScreen> {
     // rebuild and re-sort (#3 perf fix).
     final lastMsgTs = ref.watch(contactLastMsgTsProvider);
     final autoAddSettings = ref.watch(advertAutoAddProvider);
+    final discoveredContacts = ref.watch(discoveredContactsProvider);
 
     // Only show contacts actually stored on the radio. Advert-heard contacts
     // that haven't been saved to the radio appear in the discover screen only.
@@ -302,21 +306,39 @@ class _ContactsScreenState extends ConsumerState<ContactsScreen> {
                   ],
                 ),
               ),
-            // Filter chips bar
-            ContactFilterBar(
-              filter: filter,
-              counts: (
-                todos: contacts.length,
-                favoritos: favoriteContacts.length,
-                companheiros: chatContacts.length,
-                repetidores: repeaters.length,
-                salas: rooms.length,
-                sensores: sensors.length,
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 10, 12, 4),
+              child: SizedBox(
+                width: double.infinity,
+                child: SegmentedButton<_ContactsView>(
+                  segments: const [
+                    ButtonSegment(
+                      value: _ContactsView.discovered,
+                      icon: Icon(Icons.radar_outlined),
+                      label: Text('Descobertos'),
+                    ),
+                    ButtonSegment(
+                      value: _ContactsView.added,
+                      icon: Icon(Icons.contacts_outlined),
+                      label: Text('Adicionados'),
+                    ),
+                  ],
+                  selected: {_view},
+                  onSelectionChanged: (selection) {
+                    final next = selection.first;
+                    setState(() {
+                      _view = next;
+                      if (next == _ContactsView.discovered) {
+                        _multiSelectMode = false;
+                        _selectedContactKeys.clear();
+                      }
+                    });
+                  },
+                ),
               ),
-              onChanged: (f) => ref.read(contactFilterProvider.notifier).set(f),
             ),
 
-            // Search bar + sort button
+            // Search bar + contextual list menus
             Padding(
               padding: const EdgeInsets.fromLTRB(12, 4, 4, 4),
               child: Row(
@@ -348,142 +370,230 @@ class _ContactsScreenState extends ConsumerState<ContactsScreen> {
                       ),
                     ),
                   ),
-                  // Advert button — always visible
-                  PopupMenuButton<_AdvertType>(
-                    icon: const Icon(Icons.broadcast_on_personal),
-                    tooltip: context.l10n.contactsSendAdvert,
-                    onSelected: (type) {
-                      final svc = ref.read(radioServiceProvider);
-                      if (svc == null) return;
-                      switch (type) {
-                        case _AdvertType.zeroHop:
-                          svc.sendAdvert(flood: false);
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Row(
-                                children: [
-                                  const Icon(
-                                    Icons.wifi_tethering,
-                                    color: Colors.white,
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: Text(
-                                      context.l10n.contactsAdvertSentZeroHop,
-                                    ),
-                                  ),
-                                ],
+                  if (_view == _ContactsView.added)
+                    PopupMenuButton<_AdvertType>(
+                      icon: const Icon(Icons.broadcast_on_personal),
+                      tooltip: context.l10n.contactsSendAdvert,
+                      onSelected: (type) {
+                        final svc = ref.read(radioServiceProvider);
+                        if (svc == null) return;
+                        switch (type) {
+                          case _AdvertType.zeroHop:
+                            svc.sendAdvert(flood: false);
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  context.l10n.contactsAdvertSentZeroHop,
+                                ),
+                                duration: const Duration(seconds: 2),
                               ),
-                              duration: const Duration(seconds: 2),
-                            ),
-                          );
-                        case _AdvertType.flood:
-                          svc.sendAdvert(flood: true);
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Row(
-                                children: [
-                                  const Icon(
-                                    Icons.broadcast_on_home,
-                                    color: Colors.white,
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: Text(
-                                      context.l10n.contactsAdvertSentFlood,
-                                    ),
-                                  ),
-                                ],
+                            );
+                          case _AdvertType.flood:
+                            svc.sendAdvert(flood: true);
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  context.l10n.contactsAdvertSentFlood,
+                                ),
+                                duration: const Duration(seconds: 2),
                               ),
-                              duration: const Duration(seconds: 2),
+                            );
+                        }
+                      },
+                      itemBuilder:
+                          (_) => [
+                            PopupMenuItem(
+                              value: _AdvertType.zeroHop,
+                              child: ListTile(
+                                leading: const Icon(Icons.wifi_tethering),
+                                title: Text(context.l10n.contactsAdvertZeroHop),
+                                contentPadding: EdgeInsets.zero,
+                                dense: true,
+                              ),
                             ),
-                          );
-                      }
-                    },
-                    itemBuilder:
-                        (_) => [
-                          PopupMenuItem(
-                            value: _AdvertType.zeroHop,
-                            child: ListTile(
-                              leading: const Icon(Icons.wifi_tethering),
-                              title: Text(context.l10n.contactsAdvertZeroHop),
-                              contentPadding: EdgeInsets.zero,
-                              dense: true,
+                            PopupMenuItem(
+                              value: _AdvertType.flood,
+                              child: ListTile(
+                                leading: const Icon(Icons.broadcast_on_home),
+                                title: Text(context.l10n.contactsAdvertFlood),
+                                contentPadding: EdgeInsets.zero,
+                                dense: true,
+                              ),
                             ),
-                          ),
-                          PopupMenuItem(
-                            value: _AdvertType.flood,
-                            child: ListTile(
-                              leading: const Icon(Icons.broadcast_on_home),
-                              title: Text(context.l10n.contactsAdvertFlood),
-                              contentPadding: EdgeInsets.zero,
-                              dense: true,
-                            ),
-                          ),
-                        ],
-                  ),
-                  PopupMenuButton<ContactSort>(
-                    icon: Icon(
-                      Icons.sort,
-                      color:
-                          sort != ContactSort.ouvidoRecentemente
-                              ? Theme.of(context).colorScheme.primary
-                              : null,
+                          ],
                     ),
-                    tooltip: context.l10n.contactsSort,
-                    initialValue: sort,
-                    onSelected:
-                        (s) => ref.read(contactSortProvider.notifier).set(s),
-                    itemBuilder:
-                        (_) => [
-                          PopupMenuItem(
-                            value: ContactSort.nome,
-                            child: Text(context.l10n.contactsSortNameAZ),
-                          ),
-                          PopupMenuItem(
-                            value: ContactSort.ouvidoRecentemente,
-                            child: Text(context.l10n.contactsSortLastHeard),
-                          ),
-                          PopupMenuItem(
-                            value: ContactSort.ultimaMensagem,
-                            child: Text(context.l10n.contactsSortLastMessage),
-                          ),
-                        ],
-                  ),
+                  if (_view == _ContactsView.discovered)
+                    PopupMenuButton<DiscoveredContactSort>(
+                      icon: const Icon(Icons.sort),
+                      tooltip: context.l10n.contactsSort,
+                      initialValue: _discoveredSort,
+                      onSelected:
+                          (value) => setState(() => _discoveredSort = value),
+                      itemBuilder:
+                          (_) => const [
+                            PopupMenuItem(
+                              value: DiscoveredContactSort.name,
+                              child: Text('Nome'),
+                            ),
+                            PopupMenuItem(
+                              value: DiscoveredContactSort.recent,
+                              child: Text('Recente'),
+                            ),
+                          ],
+                    )
+                  else
+                    PopupMenuButton<Object>(
+                      icon: const Icon(Icons.sort),
+                      tooltip: 'Filtrar e ordenar',
+                      onSelected: (value) {
+                        if (value is ContactFilter) {
+                          ref.read(contactFilterProvider.notifier).set(value);
+                        } else if (value is ContactSort) {
+                          ref.read(contactSortProvider.notifier).set(value);
+                        }
+                      },
+                      itemBuilder:
+                          (_) => [
+                            const PopupMenuItem<Object>(
+                              enabled: false,
+                              child: Text(
+                                'Filtrar',
+                                style: TextStyle(fontWeight: FontWeight.bold),
+                              ),
+                            ),
+                            PopupMenuItem<Object>(
+                              value: ContactFilter.todos,
+                              child: _menuChoice(
+                                context.l10n.contactsAll,
+                                filter == ContactFilter.todos,
+                              ),
+                            ),
+                            PopupMenuItem<Object>(
+                              value: ContactFilter.favoritos,
+                              child: _menuChoice(
+                                context.l10n.contactsFavorites,
+                                filter == ContactFilter.favoritos,
+                              ),
+                            ),
+                            PopupMenuItem<Object>(
+                              value: ContactFilter.companheiros,
+                              child: _menuChoice(
+                                context.l10n.contactsCompanions,
+                                filter == ContactFilter.companheiros,
+                              ),
+                            ),
+                            PopupMenuItem<Object>(
+                              value: ContactFilter.repetidores,
+                              child: _menuChoice(
+                                context.l10n.contactsRepeaters,
+                                filter == ContactFilter.repetidores,
+                              ),
+                            ),
+                            PopupMenuItem<Object>(
+                              value: ContactFilter.salas,
+                              child: _menuChoice(
+                                context.l10n.contactsTypeRoom,
+                                filter == ContactFilter.salas,
+                              ),
+                            ),
+                            PopupMenuItem<Object>(
+                              value: ContactFilter.sensores,
+                              child: _menuChoice(
+                                context.l10n.contactsSensors,
+                                filter == ContactFilter.sensores,
+                              ),
+                            ),
+                            const PopupMenuDivider(),
+                            const PopupMenuItem<Object>(
+                              enabled: false,
+                              child: Text(
+                                'Ordenar',
+                                style: TextStyle(fontWeight: FontWeight.bold),
+                              ),
+                            ),
+                            PopupMenuItem<Object>(
+                              value: ContactSort.nome,
+                              child: _menuChoice(
+                                context.l10n.contactsSortNameAZ,
+                                sort == ContactSort.nome,
+                              ),
+                            ),
+                            PopupMenuItem<Object>(
+                              value: ContactSort.ouvidoRecentemente,
+                              child: _menuChoice(
+                                context.l10n.contactsSortLastHeard,
+                                sort == ContactSort.ouvidoRecentemente,
+                              ),
+                            ),
+                            PopupMenuItem<Object>(
+                              value: ContactSort.ultimaMensagem,
+                              child: _menuChoice(
+                                context.l10n.contactsSortLastMessage,
+                                sort == ContactSort.ultimaMensagem,
+                              ),
+                            ),
+                          ],
+                    ),
                   PopupMenuButton<_ContactsToolbarAction>(
                     icon: const Icon(Icons.more_vert),
                     tooltip: context.l10n.contactsMoreOptions,
                     onSelected: (action) {
                       switch (action) {
-                        case _ContactsToolbarAction.discover:
-                          context.push('/discover');
+                        case _ContactsToolbarAction.backup:
+                          context.push('/hivefw/backup');
+                        case _ContactsToolbarAction.cleanDiscovered:
+                          showDiscoveredCleanSheet(
+                            context,
+                            ref,
+                            discoveredContacts,
+                          );
                         case _ContactsToolbarAction.multiSelect:
                           _enterMultiSelectMode();
                       }
                     },
                     itemBuilder:
-                        (_) => [
-                          PopupMenuItem(
-                            value: _ContactsToolbarAction.discover,
-                            child: ListTile(
-                              leading: const Icon(Icons.explore),
-                              title: Text(context.l10n.contactsDiscover),
-                              contentPadding: EdgeInsets.zero,
-                              dense: true,
-                            ),
-                          ),
-                          PopupMenuItem(
-                            value: _ContactsToolbarAction.multiSelect,
-                            enabled: !_multiSelectMode,
-                            child: ListTile(
-                              leading: const Icon(Icons.checklist),
-                              title: Text(context.l10n.contactsMultiSelect),
-                              contentPadding: EdgeInsets.zero,
-                              dense: true,
-                            ),
-                          ),
-                        ],
-                  ),
+                        (_) =>
+                            _view == _ContactsView.discovered
+                                ? [
+                                  const PopupMenuItem(
+                                    value: _ContactsToolbarAction.backup,
+                                    child: ListTile(
+                                      leading: Icon(Icons.save_outlined),
+                                      title: Text('Importar / Exportar'),
+                                      contentPadding: EdgeInsets.zero,
+                                      dense: true,
+                                    ),
+                                  ),
+                                  PopupMenuItem(
+                                    value:
+                                        _ContactsToolbarAction.cleanDiscovered,
+                                    child: ListTile(
+                                      leading: const Icon(
+                                        Icons.cleaning_services_outlined,
+                                      ),
+                                      title: Text(
+                                        context.l10n.discoverCleanTooltip,
+                                      ),
+                                      contentPadding: EdgeInsets.zero,
+                                      dense: true,
+                                    ),
+                                  ),
+                                ]
+                                : [
+                                  PopupMenuItem(
+                                    value: _ContactsToolbarAction.multiSelect,
+                                    enabled: !_multiSelectMode,
+                                    child: ListTile(
+                                      leading: const Icon(Icons.checklist),
+                                      title: Text(
+                                        context.l10n.contactsMultiSelect,
+                                      ),
+                                      contentPadding: EdgeInsets.zero,
+                                      dense: true,
+                                    ),
+                                  ),
+                                ],
+                  )                  ),
                 ],
               ),
             ),
@@ -491,7 +601,12 @@ class _ContactsScreenState extends ConsumerState<ContactsScreen> {
             // Content
             Expanded(
               child:
-                  filtered.isEmpty
+                  _view == _ContactsView.discovered
+                      ? DiscoveredContactsList(
+                        query: _query,
+                        sort: _discoveredSort,
+                      )
+                      : filtered.isEmpty
                       ? _EmptyState(filter: filter)
                       : Builder(
                         builder: (context) {
@@ -538,8 +653,9 @@ class _ContactsScreenState extends ConsumerState<ContactsScreen> {
           ],
         ),
 
-        // FAB
-        Positioned(
+        // FAB — manual add belongs to the persisted Adicionados list.
+        if (_view == _ContactsView.added)
+          Positioned(
           bottom: 16,
           right: 16,
           child: FloatingActionButton(
@@ -730,7 +846,19 @@ class _EmptyState extends StatelessWidget {
 
 enum _AdvertType { zeroHop, flood }
 
-enum _ContactsToolbarAction { discover, multiSelect }
+enum _ContactsView { discovered, added }
+
+enum _ContactsToolbarAction { backup, cleanDiscovered, multiSelect }
+
+Widget _menuChoice(String label, bool selected) => Row(
+  children: [
+    SizedBox(
+      width: 28,
+      child: selected ? const Icon(Icons.check, size: 18) : null,
+    ),
+    Expanded(child: Text(label)),
+  ],
+);
 
 // ---------------------------------------------------------------------------
 // Contact tile
@@ -828,11 +956,12 @@ class _ContactTile extends ConsumerWidget {
         onTap:
             isMultiSelectMode
                 ? () => onSelected?.call()
-                : (contact.isChat
-                    ? () => context.push('/chat/$keyHex')
-                    : contact.isRoom
-                    ? () => context.push('/room/$keyHex')
-                    : null),
+                : () => _showOptionsSheet(
+                  context,
+                  ref,
+                  isFavorite,
+                  keyHex,
+                ),
         onLongPress:
             isMultiSelectMode
                 ? null
