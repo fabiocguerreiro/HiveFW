@@ -1,6 +1,4 @@
 import 'dart:async';
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart'
     show FlutterBluePlus, BluetoothAdapterState, FlutterBluePlusException;
@@ -55,10 +53,7 @@ String _safeUiName(String? value, {required String fallback}) {
 // Composite model — a discovered device paired with its connection type.
 // ---------------------------------------------------------------------------
 
-/// Discriminates transport type for a pending or recent connection.
-/// Web Serial variants mirror their native serial counterparts but dispatch
-/// to [connectWebSerial] so the browser's Web Serial API is used instead of
-/// the native flutter_libserialport driver.
+/// Android Companion connection types supported by the App.
 enum _ConnectType { ble, tcp }
 
 class _ConnectTarget {
@@ -100,20 +95,16 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
   @override
   void initState() {
     super.initState();
-    // Android-only app: subscribe to the native Bluetooth adapter state.
-    if (Platform.isAndroid) {
-      _bleStateSub = FlutterBluePlus.adapterState.listen((state) {
-        if (state == BluetoothAdapterState.off) {
-          _bleStateSub?.cancel();
-          _bleStateSub = null;
-          if (mounted) _checkBleOnStartup();
-        } else if (state != BluetoothAdapterState.unknown) {
-          // BLE is already on (or unavailable) — no dialog needed.
-          _bleStateSub?.cancel();
-          _bleStateSub = null;
-        }
-      });
-    }
+    _bleStateSub = FlutterBluePlus.adapterState.listen((state) {
+      if (state == BluetoothAdapterState.off) {
+        _bleStateSub?.cancel();
+        _bleStateSub = null;
+        if (mounted) _checkBleOnStartup();
+      } else if (state != BluetoothAdapterState.unknown) {
+        _bleStateSub?.cancel();
+        _bleStateSub = null;
+      }
+    });
   }
 
   @override
