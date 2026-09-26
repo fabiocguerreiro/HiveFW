@@ -56,6 +56,7 @@ class HiveFWPanel extends BasePanel {
     this.__nodesMapElement = null;
     this.__nodesMapContacts = null;
     this.__nodesMapLoading = false;
+    this.__nodesMapLoadPromise = null;
     this.__nodesMapLoadedEntry = null;
     this.__nodesMapMarkerElements = new Map();
     this.__nodesLeafletMarkers = new Map();
@@ -116,10 +117,12 @@ class HiveFWPanel extends BasePanel {
     this.__hiveNeighborLocalMarker = null;
     this.__hiveNeighborMapFocusId = "";
     this.__hiveNeighborMapMode = "neighbors";
+    this.__hiveNeighborMapRenderSeq = 0;
 
     this.__networkOverlay = null;
     this.__networkRangeHours = 48;
     this.__networkHistory = null;
+    this.__networkHistoryPersistAt = 0;
     this.__networkContactsFilter = "all";
     this.__networkContactsMenuOpen = false;
     this.__networkContactsSearchOpen = false;
@@ -317,6 +320,9 @@ class HiveFWPanel extends BasePanel {
 
     if (this._activeTab === "chat") {
       this.__enhanceChatUi();
+      // Preload Home Assistant's map custom element while the user is reading
+      // messages so "Ver no mapa" does not pay the component-load cost.
+      void this.__ensureMapLoaded();
     } else {
       this.__stopAppsSosChannelSync();
       if (this.__chatObserver) {
@@ -390,7 +396,7 @@ class HiveFWPanel extends BasePanel {
         this.__stopHiveNeighborDiscoveryPolling();
       }
 
-      const container = root.querySelector(".page-container");
+      const container = root.querySelector(".hive-network-host");
       if (!container) return;
 
       const overlay = this.__ensureNetworkOverlay(container);
@@ -416,7 +422,18 @@ class HiveFWPanel extends BasePanel {
         void this.__loadPeerActivity();
       }
       if ((!Array.isArray(this.__nodesMapContacts) || this.__nodesMapLoadedEntry !== entryId) && !this.__nodesMapLoading) {
-        void this.__loadNodesMapContacts().then(() => this.__rerenderHivePage());
+        void this.__loadNodesMapContacts().then(() => {
+          if (this._activeTab !== "network") return;
+          const overlay = this.__networkOverlay;
+          const contacts = overlay?.querySelector(".hive-network-contacts");
+          if (contacts) this.__renderNetworkContacts(contacts);
+          const analytics = overlay?.querySelector(".hive-network-analytics");
+          if (analytics) this.__renderHiveNetworkAnalytics(analytics);
+          const map = overlay?.querySelector(".hive-neighbors-map");
+          if (map && this.__hiveNeighborMapMode === "contacts") {
+            void this.__renderHiveNeighborDiscoveryMap(map);
+          }
+        });
       }
     }
   }
@@ -5806,7 +5823,10 @@ class HiveFWPanel extends BasePanel {
       this.__peerActivityLoadedEntry=entryId;
     }finally{
       this.__peerActivityLoading=false;
-        if(this._activeTab==="network")this.__rerenderHivePage();
+      if(this._activeTab==="network"){
+        const analytics=this.__networkOverlay?.querySelector(".hive-network-analytics");
+        if(analytics)this.__renderHiveNetworkAnalytics(analytics);
+      }
     }
   }
 
@@ -9124,7 +9144,7 @@ class HiveFWPanel extends BasePanel {
       button.classList.toggle("active",hours===value);
       button.addEventListener("click",()=>{
         this.__networkRangeHours=value;
-        this.__rerenderHivePage();
+        this.__renderHiveNetworkAnalytics(container);
       });
       range.appendChild(button);
     }
@@ -9514,7 +9534,13 @@ class HiveFWPanel extends BasePanel {
         this.__nodesMapLoadedEntry=null;
         await this.__loadNodesMapContacts();
         this.__networkContactsMenuOpen=false;
-        this.__rerenderHivePage();
+        this.__renderNetworkContacts(container);
+        const analytics=this.__networkOverlay?.querySelector(".hive-network-analytics");
+        if(analytics)this.__renderHiveNetworkAnalytics(analytics);
+        const mapHost=this.__networkOverlay?.querySelector(".hive-neighbors-map");
+        if(mapHost&&this.__hiveNeighborMapMode==="contacts"){
+          void this.__renderHiveNeighborDiscoveryMap(mapHost);
+        }
       });
       importButton.addEventListener("click",()=>input.click());
       menu.append(exportButton,importButton,input);
@@ -9730,7 +9756,7 @@ class HiveFWPanel extends BasePanel {
 
   __rerenderHivePage() {
     if (this._activeTab !== "network") return;
-    const container = this.shadowRoot?.querySelector(".page-container");
+    const container = this.shadowRoot?.querySelector(".hive-network-host");
     if (!container) return;
     const overlay=this.__ensureNetworkOverlay(container);
     this.__renderHiveNetwork(overlay);
@@ -9965,9 +9991,17 @@ class HiveFWPanel extends BasePanel {
       if(Number.isFinite(lat)&&Number.isFinite(lon)){
         row.style.cursor="pointer";
         row.addEventListener("click",()=>{
+          const id=String(neighbor.pubkey||neighbor.pubkey_prefix||"");
+          const sameMap=this.__hiveNeighborMapMode==="neighbors"&&this.__hiveNeighborMapElement?.isConnected;
           this.__hiveNeighborMapMode="neighbors";
-          this.__hiveNeighborMapFocusId=String(neighbor.pubkey||neighbor.pubkey_prefix||"");
-          this.__rerenderHivePage();
+          this.__hiveNeighborMapFocusId=id;
+          if(sameMap){
+            this.__hiveNeighborMapElement?.leafletMap?.setView?.([lat,lon],14,{animate:true});
+            this.__hiveNeighborMapLeafletMarkers.get(id)?.openTooltip?.();
+          }else{
+            const mapHost=this.__networkOverlay?.querySelector(".hive-neighbors-map");
+            if(mapHost)void this.__renderHiveNeighborDiscoveryMap(mapHost);
+          }
         });
       }
       container.appendChild(row);
@@ -9993,7 +10027,7 @@ class HiveFWPanel extends BasePanel {
         results: [],
         error: error?.message || "Descoberta ativa indisponível."
       };
-      this.__rerenderHivePage();
+      this.__rerenderHiveNeighborDiscoveryOnly(true);
     } finally {
       this.__hiveNeighborDiscoveryLoading = false;
     }
