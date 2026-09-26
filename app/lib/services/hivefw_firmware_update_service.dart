@@ -9,6 +9,12 @@ import 'package:http/http.dart' as http;
 import '../protocol/protocol.dart';
 import 'radio_service.dart';
 
+enum HiveFwFirmwareTarget {
+  v3Wifi,
+  v3Ble,
+  t114Ble,
+}
+
 class HiveFwFirmwareRelease {
   const HiveFwFirmwareRelease({
     required this.version,
@@ -17,6 +23,7 @@ class HiveFwFirmwareRelease {
     required this.assetUrl,
     required this.assetSize,
     this.checksumUrl,
+    this.target = HiveFwFirmwareTarget.v3Wifi,
   });
 
   final String version;
@@ -25,6 +32,7 @@ class HiveFwFirmwareRelease {
   final Uri assetUrl;
   final int assetSize;
   final Uri? checksumUrl;
+  final HiveFwFirmwareTarget target;
 }
 
 class HiveFwFirmwareUpdateService {
@@ -32,9 +40,14 @@ class HiveFwFirmwareUpdateService {
 
   static const _releaseApi =
       'https://api.github.com/repos/fabiocguerreiro/HiveFW/releases/latest';
-  static const _targetPrefix = 'Heltec_v3_companion_radio_wifi-';
 
-  Future<HiveFwFirmwareRelease> latestRelease() async {
+  /// Existing Wi-Fi OTA caller. Kept as-is for the V3 Wi-Fi tools page.
+  Future<HiveFwFirmwareRelease> latestRelease() =>
+      latestReleaseForTarget(HiveFwFirmwareTarget.v3Wifi);
+
+  Future<HiveFwFirmwareRelease> latestReleaseForTarget(
+    HiveFwFirmwareTarget target,
+  ) async {
     final response = await http.get(
       Uri.parse(_releaseApi),
       headers: const {
@@ -52,27 +65,50 @@ class HiveFwFirmwareUpdateService {
     final assets = payload['assets'];
     if (assets is! List) throw Exception('A release não contém assets.');
 
+    final (prefix, suffix, label) = switch (target) {
+      HiveFwFirmwareTarget.v3Wifi => (
+        'Heltec_v3_companion_radio_wifi-',
+        '.bin',
+        'Heltec V3 Wi-Fi',
+      ),
+      HiveFwFirmwareTarget.v3Ble => (
+        'Heltec_v3_companion_radio_ble-',
+        '.bin',
+        'Heltec V3 BLE',
+      ),
+      HiveFwFirmwareTarget.t114Ble => (
+        'Heltec_t114_companion_radio_ble-',
+        '.zip',
+        'Heltec T114 BLE',
+      ),
+    };
+
     Map<String, dynamic>? found;
     for (final item in assets) {
       if (item is! Map<String, dynamic>) continue;
       final name = item['name'] as String? ?? '';
-      if (name.startsWith(_targetPrefix) &&
-          name.endsWith('.bin') &&
-          !name.toLowerCase().contains('-merged')) {
+      final lower = name.toLowerCase();
+      if (
+        name.startsWith(prefix) &&
+        name.endsWith(suffix) &&
+        !lower.contains('-merged') &&
+        !lower.contains('-recovery') &&
+        !lower.endsWith('.sha256')
+      ) {
         found = item;
         break;
       }
     }
     if (found == null) {
-      throw Exception('A release não contém firmware OTA para Heltec V3 Wi-Fi.');
+      throw Exception('A release não contém firmware para $label.');
     }
 
     final url = Uri.tryParse(found['browser_download_url'] as String? ?? '');
     if (url == null) throw Exception('URL do firmware inválido.');
     final tag = payload['tag_name'] as String? ?? '';
     final version = tag.replaceFirst(RegExp(r'^[vV]'), '');
+    final assetName = found['name'] as String? ?? 'firmware$suffix';
 
-    final assetName = found['name'] as String? ?? 'firmware.bin';
     Uri? checksumUrl;
     for (final item in assets) {
       if (item is! Map<String, dynamic>) continue;
@@ -91,6 +127,7 @@ class HiveFwFirmwareUpdateService {
       assetUrl: url,
       assetSize: (found['size'] as num?)?.toInt() ?? 0,
       checksumUrl: checksumUrl,
+      target: target,
     );
   }
 
@@ -100,13 +137,20 @@ class HiveFwFirmwareUpdateService {
       headers: const {'User-Agent': 'HiveFW-app-firmware-updater'},
     );
     if (response.statusCode != 200) {
-      throw Exception('Download do firmware falhou (HTTP ${response.statusCode}).');
+      throw Exception(
+        'Download do firmware falhou (HTTP ${response.statusCode}).',
+      );
     }
     final bytes = response.bodyBytes;
     if (bytes.length < 64 * 1024 || bytes.length > 4 * 1024 * 1024) {
       throw Exception('Tamanho do firmware fora dos limites esperados.');
     }
-    if (bytes.isEmpty || bytes.first != 0xE9) {
+
+    if (release.target == HiveFwFirmwareTarget.t114Ble) {
+      if (bytes.length < 2 || bytes[0] != 0x50 || bytes[1] != 0x4B) {
+        throw Exception('O ficheiro T114 não parece um ZIP DFU válido.');
+      }
+    } else if (bytes.isEmpty || bytes.first != 0xE9) {
       throw Exception('O ficheiro não parece um firmware ESP32 válido.');
     }
 
@@ -119,11 +163,10 @@ class HiveFwFirmwareUpdateService {
       if (checksumResponse.statusCode != 200) {
         throw Exception('Não foi possível validar o checksum do firmware.');
       }
-      final expected =
-          RegExp(r'\b[0-9a-fA-F]{64}\b')
-              .firstMatch(checksumResponse.body)
-              ?.group(0)
-              ?.toLowerCase();
+      final expected = RegExp(r'\b[0-9a-fA-F]{64}\b')
+          .firstMatch(checksumResponse.body)
+          ?.group(0)
+          ?.toLowerCase();
       final actual = sha256.convert(bytes).toString().toLowerCase();
       if (expected == null || expected != actual) {
         throw Exception('Checksum SHA-256 do firmware não corresponde.');
@@ -131,7 +174,6 @@ class HiveFwFirmwareUpdateService {
     }
     return bytes;
   }
-
   Future<void> upload({
     required String host,
     required RadioService radio,
