@@ -89,12 +89,12 @@ const IDENTITY_FLOW_STEP_ORDER: ReadonlyArray<{
   step: IdentityFlowStep;
   label: string;
 }> = [
-  { step: 'generating', label: 'Generating new key' },
-  { step: 'importing', label: 'Sending key to device' },
-  { step: 'rebooting', label: 'Rebooting device' },
-  { step: 'reconnecting', label: 'Waiting for device reconnect' },
-  { step: 'reloading', label: 'Reloading HiveFW integration' },
-  { step: 'verifying', label: 'Verifying new identity' },
+  { step: 'generating', label: 'A gerar nova chave' },
+  { step: 'importing', label: 'A enviar chave para o dispositivo' },
+  { step: 'rebooting', label: 'A reiniciar o dispositivo' },
+  { step: 'reconnecting', label: 'A aguardar reconexão do dispositivo' },
+  { step: 'reloading', label: 'A recarregar a integração HiveFW' },
+  { step: 'verifying', label: 'A verificar a nova identidade' },
 ];
 
 /**
@@ -622,6 +622,9 @@ export class SettingsPage extends LitElement {
       .settings-topic-dialog #hive-repeater-settings-card,.settings-topic-dialog .firmware-manager,.settings-topic-dialog .settings-card-identity,.settings-topic-dialog .backup-restore-card,.settings-topic-dialog #hive-console-settings-card,.settings-topic-dialog #hive-rxlog-card,.settings-topic-dialog #hive-observability-settings-card,.settings-topic-dialog .settings-card-location,.settings-topic-dialog #hive-wifi-portal-card{display:none}
       .topic-firmware .firmware-manager,.topic-identity .settings-card-identity,.topic-backup .backup-restore-card,.topic-location .settings-card-location,.topic-wifi #hive-wifi-portal-card,.topic-diagnostics #hive-console-settings-card,.topic-diagnostics #hive-rxlog-card,.topic-diagnostics #hive-observability-settings-card,.topic-users #hive-repeater-settings-card,.topic-radio #hive-repeater-settings-card,.topic-repeater #hive-repeater-settings-card,.topic-regions #hive-repeater-settings-card{display:block}
       .topic-users [data-hive-repeater-quick],.topic-users [data-hive-owner-info],.topic-users [data-hive-native="companion"],.topic-users [data-hive-routing],.topic-users [data-hive-rf],.topic-users .settings-regions-block{display:none!important}
+      .topic-users #hive-repeater-settings-card{width:100%;max-width:none;box-sizing:border-box}
+      .topic-users .repeater-setup-grid{grid-template-columns:minmax(0,1fr)!important;width:100%}
+      .topic-users [data-hive-repeater-access]{width:100%;max-width:none;box-sizing:border-box}
       .topic-radio [data-hive-repeater-quick],.topic-radio [data-hive-repeater-access],.topic-radio [data-hive-owner-info],.topic-radio [data-hive-routing],.topic-radio [data-hive-rf],.topic-radio .settings-regions-block{display:none!important}
       .topic-repeater [data-hive-repeater-access],.topic-repeater [data-hive-native="companion"],.topic-repeater .settings-regions-block{display:none!important}
       .topic-regions [data-hive-repeater-quick],.topic-regions [data-hive-repeater-access],.topic-regions [data-hive-owner-info],.topic-regions [data-hive-native="companion"],.topic-regions [data-hive-routing],.topic-regions [data-hive-rf]{display:none!important}
@@ -1549,7 +1552,7 @@ export class SettingsPage extends LitElement {
           <div class="settings-topic-dialog topic-${this._settingsTopic}" role="dialog" aria-modal="true">
             <div class="settings-topic-header">
               <strong>${({
-                firmware:'Gestão Firmware',users:'Utilizadores',radio:'Configuração Rádio',
+                firmware:'Gestão de Firmware e Software',users:'Utilizadores',radio:'Configuração Rádio',
                 repeater:'Configuração Repetidor',wifi:'Wi-Fi',location:'Localização',
                 regions:'Regiões & Scopes',identity:'Identidade',backup:'Backup & Restore',
                 diagnostics:'Diagnóstico',
@@ -1638,9 +1641,8 @@ export class SettingsPage extends LitElement {
               </svg>
             </div>
             <div>
-              <div class="device-name">Gestor de Firmware</div>
               <div class="device-meta">
-                <span>Firmware reportado: ${installed}</span>
+                <span>Firmware ${installed}</span>
                 ${ota?.release_available
                   ? html`<span>Última Release: ${latest}</span>`
                   : html`<span>Release: por verificar</span>`}
@@ -2258,12 +2260,17 @@ export class SettingsPage extends LitElement {
     if (!this._deviceConfig) return;
 
     const profile = this._repeaterStatus?.repeater_profile;
-    const txPower = Number(this._deviceConfig.tx_power ?? 17);
-    const frequency = Number(this._deviceConfig.frequency ?? 0);
-    const bandwidth = Number(this._deviceConfig.bandwidth ?? 250);
-    const spreadingFactor = Number(this._deviceConfig.spreading_factor ?? 10);
-    const codingRate = Number(this._deviceConfig.coding_rate ?? 5);
-    const pathHashMode = Number(this._deviceConfig.path_hash_mode ?? 0);
+    const liveRadio = this._repeaterStatus?.radio;
+    const txPower = Number(liveRadio?.tx_power ?? this._deviceConfig.tx_power ?? 17);
+    const frequency = Number(liveRadio?.frequency ?? this._deviceConfig.frequency ?? 0);
+    const bandwidth = Number(liveRadio?.bandwidth ?? this._deviceConfig.bandwidth ?? 250);
+    const spreadingFactor = Number(
+      liveRadio?.spreading_factor ?? this._deviceConfig.spreading_factor ?? 10,
+    );
+    const codingRate = Number(liveRadio?.coding_rate ?? this._deviceConfig.coding_rate ?? 5);
+    const pathHashMode = Number(
+      liveRadio?.path_hash_mode ?? this._deviceConfig.path_hash_mode ?? 0,
+    );
     const rxBoostedGain = Boolean(profile?.rx_boosted_gain ?? false);
     const adcMultiplier = Number(profile?.adc_multiplier ?? 0);
 
@@ -3994,9 +4001,9 @@ export class SettingsPage extends LitElement {
     return html`
       <div style="display: flex; flex-direction: column; gap: 16px;">
         <div class="danger-zone" style="margin-top: 0;">
-          <div class="danger-zone-title">Rename Device</div>
+          <div class="danger-zone-title">Renomear dispositivo</div>
           <div style="font-size: 12px; color: var(--secondary-text-color); margin-bottom: 8px;">
-            Changing the device name will change all entity IDs. Automations, scripts, and dashboards using current entity IDs will need to be updated.
+            Alterar o nome do dispositivo altera os IDs das entidades. Automatismos, scripts e dashboards que usem os IDs atuais terão de ser atualizados.
           </div>
           <div style="display: flex; gap: 8px;">
             <input
@@ -4016,25 +4023,25 @@ export class SettingsPage extends LitElement {
           </div>
         </div>
         <div class="danger-zone" style="margin-top: 0;">
-          <div class="danger-zone-title">Regenerate Identity</div>
+          <div class="danger-zone-title">Gerar nova identidade</div>
           <div style="font-size: 12px; color: var(--secondary-text-color); margin-bottom: 8px;">
-            Creates a new key pair. All contacts will need to re-add you. This will change all entity IDs — automations, scripts, and dashboards using current entity IDs will need to be updated.
+            Cria um novo par de chaves. Todos os contactos terão de voltar a adicionar este nó. Os IDs das entidades também serão alterados, pelo que automatismos, scripts e dashboards podem precisar de atualização.
           </div>
           <button class="danger-button" @click=${this._showRegenIdentityConfirm}>
             Regenerate Identity
           </button>
         </div>
         <div class="danger-zone" style="margin-top: 0;">
-          <div class="danger-zone-title">Import Private Key</div>
+          <div class="danger-zone-title">Importar chave privada</div>
           <div style="font-size: 12px; color: var(--secondary-text-color); margin-bottom: 8px;">
-            Importing a key changes the device identity. This will change all entity IDs — automations, scripts, and dashboards using current entity IDs will need to be updated.
+            Importar uma chave altera a identidade do dispositivo e os IDs das entidades. Automatismos, scripts e dashboards que usem os IDs atuais podem precisar de atualização.
           </div>
           <div style="display: flex; gap: 8px;">
             <input
               type="text"
               class="form-input"
               style="flex: 1; font-family: monospace;"
-              placeholder="Hex private key"
+              placeholder="Chave privada em hexadecimal"
               .value=${this._importKeyValue}
               @input=${(e: Event) => { this._importKeyValue = (e.target as HTMLInputElement).value; }}
             />
