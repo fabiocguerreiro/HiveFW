@@ -1,4 +1,4 @@
-# HiveFW Companion
+# HiveFW
 
 Aplicação Flutter para controlo e comunicação com **Companions HiveFW / MeshCore**, com foco principal em **Bluetooth LE** e suporte opcional a **Wi-Fi/TCP** nos equipamentos HiveFW compatíveis.
 
@@ -6,7 +6,7 @@ Aplicação Flutter para controlo e comunicação com **Companions HiveFW / Mesh
 
 ## Objetivo
 
-HiveFW Companion é a aplicação móvel do projeto HiveFW. O código canónico vive agora em `app/` no mesmo repositório do Firmware e da Integração Home Assistant. A base técnica nasceu da LusoApp, mas a aplicação atual usa identidade, arquitetura de produto e extensões próprias do HiveFW.
+HiveFW é a aplicação móvel do projeto HiveFW. O código canónico vive agora em `app/` no mesmo repositório do Firmware e da Integração Home Assistant. A base técnica nasceu da LusoApp, mas a aplicação atual usa identidade, arquitetura de produto e extensões próprias do HiveFW.
 
 O alvo principal são rádios Companion, em especial dispositivos nRF52/T114 por BLE. Em ESP32/V3, quando o firmware disponibiliza o Companion por rede, a app também pode ligar diretamente por TCP.
 
@@ -62,7 +62,7 @@ As páginas de **Vizinhos** e **Canais observados** consultam a cache local do r
 
 ## Identidade da aplicação
 
-- Nome: **HiveFW Companion**
+- Nome: **HiveFW**
 - Android Application ID: **`pt.hivefw.companion`**
 - Tema: identidade visual HiveFW
 - Ícone, wordmark e splash: assets oficiais do projeto HiveFW
