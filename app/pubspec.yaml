@@ -1,7 +1,7 @@
 name: hivefw_companion
-description: "HiveFW — app móvel para rádio MeshCore/HiveFW"
+description: "HiveFW — app móvel para comunicação, gestão e monitorização de rádios HiveFW / MeshCore"
 publish_to: "none"
-version: 1.15.1+5
+version: 1.15.2+6
 
 environment:
   sdk: ^3.7.0
