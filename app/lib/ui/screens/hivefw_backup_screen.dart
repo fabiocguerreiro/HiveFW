@@ -244,6 +244,24 @@ class _HiveFwBackupScreenState extends ConsumerState<HiveFwBackupScreen> {
     }
   }
 
+  Future<void> _copyPrivateKey() async {
+    if (_isBusy) return;
+    setState(() => _busy = 'private-key');
+    try {
+      final hex = await ref.read(connectionProvider.notifier).exportPrivateKey();
+      if (hex == null || hex.isEmpty) {
+        _toast('Não foi possível obter a chave privada do rádio.', error: true);
+        return;
+      }
+      await Clipboard.setData(ClipboardData(text: hex));
+      _toast('Chave privada copiada para a área de transferência.');
+    } catch (e) {
+      _toast('Cópia da chave privada: $e', error: true);
+    } finally {
+      if (mounted) setState(() => _busy = null);
+    }
+  }
+
   String _hex32(Uint8List key) =>
       key.take(32).map((b) => b.toRadixString(16).padLeft(2, '0')).join();
 
@@ -398,6 +416,22 @@ class _HiveFwBackupScreenState extends ConsumerState<HiveFwBackupScreen> {
                 onPressed: connected && !_isBusy ? _restoreCompanion : null,
                 icon: _busyIcon('companion-restore', Icons.restore),
                 label: const Text('Restaurar Companion'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          _BackupCard(
+            icon: Icons.key_outlined,
+            title: 'Chave privada',
+            description:
+                'Obtém a chave privada do Companion e copia-a para a área de transferência.',
+            warning:
+                'A chave privada permite assumir a identidade deste nó. Guarda-a num local seguro e não a partilhes.',
+            children: [
+              FilledButton.icon(
+                onPressed: !_isBusy ? _copyPrivateKey : null,
+                icon: _busyIcon('private-key', Icons.copy),
+                label: const Text('Copiar chave privada'),
               ),
             ],
           ),
