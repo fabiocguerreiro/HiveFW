@@ -31,7 +31,6 @@ import 'screens/discover_contacts_screen.dart';
 import 'apps/noise_floor/noise_floor_screen.dart';
 import 'apps/rx_log/rx_log_screen.dart';
 import 'apps/topology/topology_screen.dart';
-import 'apps/data_export/data_export_screen.dart';
 import 'screens/repeater_screen.dart';
 
 final rootNavigatorKey = GlobalKey<NavigatorState>();
@@ -69,6 +68,15 @@ final routerProvider = Provider<GoRouter>((ref) {
           );
         },
         branches: [
+          StatefulShellBranch(
+            preload: true,
+            routes: [
+              GoRoute(
+                path: '/status',
+                builder: (context, state) => const TelemetryScreen(),
+              ),
+            ],
+          ),
           StatefulShellBranch(
             routes: [
               GoRoute(
@@ -124,17 +132,12 @@ final routerProvider = Provider<GoRouter>((ref) {
             preload: true,
             routes: [
               GoRoute(
-                path: '/map',
-                builder: (context, state) => const MapScreen(),
-              ),
-            ],
-          ),
-          StatefulShellBranch(
-            preload: true,
-            routes: [
-              GoRoute(
                 path: '/apps',
                 builder: (context, state) => const AppsScreen(),
+              ),
+              GoRoute(
+                path: '/apps/map',
+                builder: (context, state) => const MapScreen(),
               ),
               GoRoute(
                 path: '/apps/discovery',
@@ -144,11 +147,6 @@ final routerProvider = Provider<GoRouter>((ref) {
                 path: '/apps/homeassistant',
                 builder: (context, state) => const HiveFwHomeAssistantScreen(),
               ),
-              if (FeatureToggles.appTelemetry)
-                GoRoute(
-                  path: '/apps/telemetry',
-                  builder: (context, state) => const TelemetryScreen(),
-                ),
               if (FeatureToggles.appRxLog)
                 GoRoute(
                   path: '/apps/rxlog',
@@ -163,11 +161,6 @@ final routerProvider = Provider<GoRouter>((ref) {
                 GoRoute(
                   path: '/apps/topology',
                   builder: (context, state) => const TopologyScreen(),
-                ),
-              if (FeatureToggles.appDataExport)
-                GoRoute(
-                  path: '/apps/dataexport',
-                  builder: (context, state) => const DataExportScreen(),
                 ),
             ],
           ),
@@ -189,6 +182,14 @@ final routerProvider = Provider<GoRouter>((ref) {
             ],
           ),
         ],
+      ),
+      GoRoute(
+        path: '/map',
+        redirect: (context, state) => '/apps/map',
+      ),
+      GoRoute(
+        path: '/apps/telemetry',
+        redirect: (context, state) => '/status',
       ),
       GoRoute(
         path: '/hivefw/radio-network',
