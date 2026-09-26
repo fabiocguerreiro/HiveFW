@@ -8949,19 +8949,32 @@ bool MyMesh::sendPowerFailureNotification() {
     ) {
       static const char message[] = "Falha de Energia ⚡";
       const uint32_t now = getRTCClock()->getCurrentTime();
-      const bool sent = sendGroupMessage(
+
+      // sendGroupMessage() historically returns true once the packet was
+      // created, even if PacketManager rejects it because the outbound queue
+      // is already full. A power-loss alert must not consume the event until
+      // the packet is actually present in the outbound queue, otherwise one
+      // transient queue-pressure moment can silently lose the alert forever.
+      const int outbound_before = _mgr->getOutboundTotal();
+      const bool created = sendGroupMessage(
         now,
         channel.channel,
         _prefs.node_name,
         message,
         strlen(message)
       );
+      const int outbound_after = _mgr->getOutboundTotal();
+      const bool queued =
+        created && outbound_after > outbound_before;
+
       MESH_DEBUG_PRINTLN(
-        "HiveFW power notify: %s on channel %d",
-        sent ? "sent" : "queue failed",
-        i
+        "HiveFW power notify: %s on channel %d (queue %d -> %d)",
+        queued ? "queued" : (created ? "queue rejected" : "packet create failed"),
+        i,
+        outbound_before,
+        outbound_after
       );
-      return sent;
+      return queued;
     }
   }
 #endif
