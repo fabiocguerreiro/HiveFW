@@ -2,7 +2,7 @@
 
 ## Estado atual
 
-O repositório independente **HiveFW-app**, branch `main`, é agora a origem da aplicação móvel HiveFW.
+A aplicação móvel HiveFW vive em `app/` no monorepo **fabiocguerreiro/HiveFW**, branch `main`, e tem Android como único alvo suportado.
 
 ### Concluído nesta transformação
 
@@ -73,7 +73,7 @@ O repositório independente **HiveFW-app**, branch `main`, é agora a origem da 
 
 ### Distribuição
 
-- [ ] Definir chave Android persistente do projeto
+- [x] Gerar a chave Android persistente e fixar a impressão digital do certificado nos workflows
 - [ ] Publicar primeiro GitHub Release `app-v0.x.x`
 - [ ] Acrescentar atualização pela própria app a partir das releases GitHub, se fizer sentido
 - [ ] Manter instalação direta por APK como caminho principal
@@ -93,6 +93,6 @@ Cada marco estável deve criar uma **GitHub Release** e incluir obrigatoriamente
 
 ## Repositório e relação com o firmware
 
-A aplicação vive agora em **`fabiocguerreiro/HiveFW-app`**, branch `main`, separada da antiga base LusoApp. O repositório principal **HiveFW** continua a ser a fonte de verdade para protocolo, comandos, identidade visual e comportamento do firmware.
+A aplicação vive em **`fabiocguerreiro/HiveFW/app`**. O monorepo **HiveFW** é a fonte de verdade para App, protocolo, comandos, identidade visual, Integração e Firmware.
 
 A branch `baseline-migrated` preserva o snapshot de migração antes das extensões específicas desta fase.
