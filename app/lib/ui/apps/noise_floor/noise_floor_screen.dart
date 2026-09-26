@@ -192,7 +192,6 @@ class _RfChart extends StatelessWidget {
   static const double _yMax = -60.0;
   static const double _yMin = -120.0;
   static const double _yRange = _yMax - _yMin;
-  static const int _visiblePoints = 120;
 
   static const List<int> _yTicks = [
     -60,
