@@ -41,7 +41,7 @@ class AppUpdateCheck {
 class AppUpdateService {
   const AppUpdateService();
 
-  static const _releasesUri = 'https://api.github.com/repos/fabiocguerreiro/HiveFW-app/releases?per_page=30';
+  static const _releasesUri = 'https://api.github.com/repos/fabiocguerreiro/HiveFW/releases?per_page=30';
 
   Future<AppUpdateCheck> check() async {
     final package = await PackageInfo.fromPlatform();
@@ -69,9 +69,13 @@ class AppUpdateService {
       if (item['draft'] == true) continue;
 
       final tag = (item['tag_name'] as String? ?? '').trim();
-      if (!tag.startsWith('app-v')) continue;
+      if (!tag.startsWith('app-v') && !RegExp(r'^[vV]\d').hasMatch(tag)) {
+        continue;
+      }
 
-      final version = tag.substring('app-v'.length);
+      final version = tag.startsWith('app-v')
+          ? tag.substring('app-v'.length)
+          : tag.replaceFirst(RegExp(r'^[vV]'), '');
       final assets = item['assets'];
       if (assets is! List) continue;
 
