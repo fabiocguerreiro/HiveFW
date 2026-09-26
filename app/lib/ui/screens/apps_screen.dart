@@ -32,6 +32,15 @@ class AppsScreen extends ConsumerWidget {
       feature: AppFeature.neighbours,
     ),
     _AppEntry(
+      id: 'observed-channels',
+      title: 'Canais observados',
+      subtitle: 'Atividade passiva das últimas 48 horas',
+      icon: Icons.visibility_outlined,
+      color: Color(0xFF8B5CF6),
+      route: '/apps/observed-channels',
+      feature: AppFeature.observedChannels,
+    ),
+    _AppEntry(
       id: 'homeassistant',
       title: 'Home Assistant',
       subtitle: 'Comandos guardados no Companion',
