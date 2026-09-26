@@ -8967,9 +8967,75 @@ bool MyMesh::sendPowerFailureNotification() {
       const bool queued =
         created && outbound_after > outbound_before;
 
+      if (queued) {
+        // sendGroupMessage() injects the alert into the RF mesh, but unlike a
+        // message initiated by the Companion app there is no local app-side
+        // copy. Without a Companion RX frame, the Android app / Home Assistant
+        // connected to this same radio never sees the internally generated
+        // power alert even though it is waiting in the LoRa TX queue.
+        //
+        // Mirror the queued RF alert into the normal Companion offline queue
+        // only after the RF enqueue succeeded. This makes the event visible to
+        // the local App/HA and preserves exactly one alert per confirmed mains
+        // loss. A returned RF echo is already suppressed by the packet seen
+        // table, so this does not create a duplicate local message.
+        uint8_t local_frame[MAX_FRAME_SIZE];
+        int frame_len = 0;
+
+        if (app_target_ver >= 3) {
+          local_frame[frame_len++] = RESP_CODE_CHANNEL_MSG_RECV_V3;
+          local_frame[frame_len++] = 0; // no RF SNR for a local event
+          local_frame[frame_len++] = 0; // reserved1
+          local_frame[frame_len++] = 0; // reserved2
+        } else {
+          local_frame[frame_len++] = RESP_CODE_CHANNEL_MSG_RECV;
+        }
+
+        local_frame[frame_len++] = (uint8_t)i;
+        local_frame[frame_len++] = 0xFF; // local/system event: no RF path
+        local_frame[frame_len++] = TXT_TYPE_PLAIN;
+        memcpy(&local_frame[frame_len], &now, 4);
+        frame_len += 4;
+
+        char local_text[MAX_TEXT_LEN + 1];
+        snprintf(
+          local_text,
+          sizeof(local_text),
+          "%s: %s",
+          _prefs.node_name,
+          message
+        );
+        int text_len = strlen(local_text);
+        if (frame_len + text_len > MAX_FRAME_SIZE) {
+          text_len = MAX_FRAME_SIZE - frame_len;
+        }
+        memcpy(&local_frame[frame_len], local_text, text_len);
+        frame_len += text_len;
+
+        addToOfflineQueue(local_frame, frame_len);
+
+        if (_serial->isConnected()) {
+          uint8_t tickle[1];
+          tickle[0] = PUSH_CODE_MSG_WAITING;
+          _serial->writeFrame(tickle, 1);
+        }
+
+#ifdef DISPLAY_CLASS
+        if (_ui) {
+          _ui->newMsg(
+            0xFF,
+            channel.channel.hash,
+            channel.name,
+            local_text,
+            offline_queue_len
+          );
+        }
+#endif
+      }
+
       MESH_DEBUG_PRINTLN(
         "HiveFW power notify: %s on channel %d (queue %d -> %d)",
-        queued ? "queued" : (created ? "queue rejected" : "packet create failed"),
+        queued ? "queued + local event" : (created ? "queue rejected" : "packet create failed"),
         i,
         outbound_before,
         outbound_after
