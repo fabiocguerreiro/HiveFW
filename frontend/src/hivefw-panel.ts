@@ -127,6 +127,10 @@ class HiveFWPanel extends BasePanel {
     this.__networkContactsMenuOpen = false;
     this.__networkContactsSearchOpen = false;
     this.__networkContactsSearchQuery = "";
+    // Incremented only when Network-owned data changes.  Generic Home
+    // Assistant hass updates do not touch this revision, so the Lit Network
+    // page and its map keep their DOM/lifecycle intact.
+    this.__networkRevision = 0;
 
     this.__consoleHistory = [];
     this.__consoleCommandHistory = [];
@@ -183,6 +187,23 @@ class HiveFWPanel extends BasePanel {
 
   __entryId() {
     return this._selectedEntryId || this._config?.entry_id || undefined;
+  }
+
+  __networkPageElement() {
+    return this.shadowRoot?.querySelector("hivefw-network-page") || null;
+  }
+
+  __networkMapComponent() {
+    return this.__networkPageElement()?.querySelector?.("hivefw-network-map") || null;
+  }
+
+  __touchNetworkPage() {
+    this.__networkRevision = (Number(this.__networkRevision) || 0) + 1;
+    // requestUpdate lets the base Lit template pass the new revision.  Calling
+    // requestUpdate on the current child as well keeps async radio callbacks
+    // responsive without waiting for an unrelated Home Assistant update.
+    this.requestUpdate?.();
+    this.__networkPageElement()?.requestUpdate?.();
   }
 
   __headerPathHash() {
@@ -396,13 +417,8 @@ class HiveFWPanel extends BasePanel {
         this.__stopHiveNeighborDiscoveryPolling();
       }
 
-      const container = root.querySelector(".hive-network-host");
-      if (!container) return;
-
-      const overlay = this.__ensureNetworkOverlay(container);
-      if (!overlay.querySelector(".hive-network-page")) {
-        this.__renderHiveNetwork(overlay);
-      }
+      const networkPage = root.querySelector("hivefw-network-page");
+      if (!networkPage) return;
 
       // Rede combines the final zero-hop neighbour view, active discovery,
       // map and local network analytics.
@@ -432,15 +448,7 @@ class HiveFWPanel extends BasePanel {
       if ((!Array.isArray(this.__nodesMapContacts) || this.__nodesMapLoadedEntry !== entryId) && !this.__nodesMapLoading) {
         void this.__loadNodesMapContacts().then(() => {
           if (this._activeTab !== "network") return;
-          const overlay = this.__networkOverlay;
-          const contacts = overlay?.querySelector(".hive-network-contacts");
-          if (contacts) this.__renderNetworkContacts(contacts);
-          const analytics = overlay?.querySelector(".hive-network-analytics");
-          if (analytics) this.__renderHiveNetworkAnalytics(analytics);
-          const map = overlay?.querySelector(".hive-neighbors-map");
-          if (map && this.__hiveNeighborMapMode === "contacts") {
-            void this.__renderHiveNeighborDiscoveryMap(map);
-          }
+          this.__touchNetworkPage();
         });
       }
     }
@@ -5835,10 +5843,7 @@ class HiveFWPanel extends BasePanel {
       this.__peerActivityLoadedEntry=entryId;
     }finally{
       this.__peerActivityLoading=false;
-      if(this._activeTab==="network"){
-        const analytics=this.__networkOverlay?.querySelector(".hive-network-analytics");
-        if(analytics)this.__renderHiveNetworkAnalytics(analytics);
-      }
+      if(this._activeTab==="network")this.__touchNetworkPage();
     }
   }
 
@@ -5900,22 +5905,15 @@ class HiveFWPanel extends BasePanel {
     this.__lastTraceLoadedEntry=String(this.__entryId()||"default");
     this._activeTab="network";
     this.__hiveNeighborMapMode="contacts";
-    this.requestUpdate?.();
+    this.__touchNetworkPage();
     try{await this.updateComplete;}catch{}
-    this.__enhanceRepeaterUi();
 
-    // Wait for the real contact source and for the map render itself instead
-    // of guessing that ha-map/Leaflet will be ready after a fixed 120 ms.
+    // Wait for the real contact source and then delegate map readiness,
+    // trace drawing and fitBounds to the isolated Lit map component.
     await this.__loadNodesMapContacts();
-    const mapHost=this.__networkOverlay?.querySelector(".hive-neighbors-map");
-    if(mapHost)await this.__renderHiveNeighborDiscoveryMap(mapHost);
-
-    this.__drawLastTraceRoute();
-    const data=this.__traceRouteData();
-    if(data?.points?.length){
-      const map=this.__nodesMapElement?.leafletMap;
-      try{map?.fitBounds?.(data.points,{padding:[40,40],maxZoom:12});}catch{}
-    }
+    this.__touchNetworkPage();
+    try{await this.updateComplete;}catch{}
+    await this.__networkPageElement()?.showTraceAndFit?.();
   }
 
   __lastTraceStorageKey() {
@@ -5960,7 +5958,10 @@ class HiveFWPanel extends BasePanel {
     this.__lastTrace=trace;
     this.__lastTraceLoadedEntry=String(this.__entryId()||"default");
     try{localStorage.setItem(this.__lastTraceStorageKey(),JSON.stringify(trace));}catch{}
-    this.__drawLastTraceRoute();
+    if(this._activeTab==="network"){
+      this.__touchNetworkPage();
+      void this.__networkPageElement()?.refreshTrace?.(false);
+    }
   }
 
   __captureTraceResult() {
@@ -5975,7 +5976,7 @@ class HiveFWPanel extends BasePanel {
     try{localStorage.removeItem(this.__lastTraceStorageKey());}catch{}
     this.__lastTrace=null;
     this.__removeTraceRouteLayer();
-    this.__nodesMapPane?.querySelector(".hive-trace-summary")?.remove();
+    if(this._activeTab==="network")this.__touchNetworkPage();
   }
 
   __removeTraceRouteLayer() {
@@ -6038,6 +6039,11 @@ class HiveFWPanel extends BasePanel {
   }
 
   __drawLastTraceRoute() {
+    const litPage=this.__networkPageElement?.();
+    if(litPage){
+      void litPage.refreshTrace?.(false);
+      return;
+    }
     const pane=this.__nodesMapPane;
     const mapEl=this.__nodesMapElement;
     const map=mapEl?.leafletMap;
@@ -6268,17 +6274,13 @@ class HiveFWPanel extends BasePanel {
 
       const result=await this.hass.callWS(msg);
 
-      // Force a fresh list + map snapshot after an additive import.
+      // Force a fresh Network snapshot after an additive import.  Lit updates
+      // the contacts and map in place; no column reconstruction is required.
       this.__nodesMapContacts=null;
       this.__nodesMapLoadedEntry=null;
       this.__nodesMapSignature="";
       await this.__loadNodesMapContacts();
-      const mapHost=this.__networkOverlay?.querySelector(".hive-neighbors-map");
-      if(mapHost&&this.__hiveNeighborMapMode==="contacts"){
-        void this.__renderHiveNeighborDiscoveryMap(mapHost);
-      }
-      const contactHost=this.__networkOverlay?.querySelector(".hive-network-contacts");
-      if(contactHost)this.__renderNetworkContacts(contactHost);
+      if(this._activeTab==="network")this.__touchNetworkPage();
 
       if(button){
         const imported=Number(result?.imported||0);
@@ -6416,10 +6418,7 @@ class HiveFWPanel extends BasePanel {
     if(this.__nodesMapPane?.isConnected){
       this.__nodesMapLoadedEntry=null;
       void this.__loadNodesMapContacts().then(()=>{
-        const host=this.__networkOverlay?.querySelector(".hive-neighbors-map");
-        if(host&&this.__hiveNeighborMapMode==="contacts")void this.__renderHiveNeighborDiscoveryMap(host);
-        const contacts=this.__networkOverlay?.querySelector(".hive-network-contacts");
-        if(contacts)this.__renderNetworkContacts(contacts);
+        if(this._activeTab==="network")this.__touchNetworkPage();
       });
     }
     if(this.__nodesPersistentPopup){
@@ -7204,6 +7203,11 @@ class HiveFWPanel extends BasePanel {
   }
 
   __focusNodeOnMap(contact, openPopup = false) {
+    const litPage=this.__networkPageElement?.();
+    if(litPage){
+      void litPage.focusContact?.(contact,openPopup);
+      return;
+    }
     const coords=this.__nodeCoords(contact);
     if(!coords)return;
     const mapEl=this.__nodesMapElement;
@@ -7997,10 +8001,7 @@ class HiveFWPanel extends BasePanel {
   __rerenderRepeater() {
     if (this._activeTab === "state") this.__enhanceStatePage();
     if (this._activeTab === "settings") this.__enhanceSettingsPage();
-    if (this._activeTab === "network") {
-      const analytics=this.__networkOverlay?.querySelector(".hive-network-analytics");
-      if(analytics)this.__renderHiveNetworkAnalytics(analytics);
-    }
+    if (this._activeTab === "network") this.__touchNetworkPage();
   }
 
   __renderRepeater(container) {
@@ -9453,12 +9454,7 @@ class HiveFWPanel extends BasePanel {
       this.__nodesMapContacts=null;
       this.__nodesMapLoadedEntry=null;
       await this.__loadNodesMapContacts();
-      const contactHost=this.__networkOverlay?.querySelector(".hive-network-contacts");
-      if(contactHost)this.__renderNetworkContacts(contactHost);
-      const mapHost=this.__networkOverlay?.querySelector(".hive-neighbors-map");
-      if(mapHost&&this.__hiveNeighborMapMode==="contacts"){
-        void this.__renderHiveNeighborDiscoveryMap(mapHost);
-      }
+      if(this._activeTab==="network")this.__touchNetworkPage();
     }
   }
 
@@ -9475,17 +9471,7 @@ class HiveFWPanel extends BasePanel {
       this.__nodesMapLoadedEntry=null;
       this.__nodesMapSignature="";
       await this.__loadNodesMapContacts();
-
-      const contactHost=this.__networkOverlay?.querySelector(".hive-network-contacts");
-      if(contactHost)this.__renderNetworkContacts(contactHost);
-
-      const analytics=this.__networkOverlay?.querySelector(".hive-network-analytics");
-      if(analytics)this.__renderHiveNetworkAnalytics(analytics);
-
-      const mapHost=this.__networkOverlay?.querySelector(".hive-neighbors-map");
-      if(mapHost&&this.__hiveNeighborMapMode==="contacts"){
-        await this.__renderHiveNeighborDiscoveryMap(mapHost);
-      }
+      if(this._activeTab==="network")this.__touchNetworkPage();
     }catch(error){
       console.warn("HiveFW contact refresh failed",error);
     }finally{
@@ -9819,56 +9805,15 @@ class HiveFWPanel extends BasePanel {
   }
 
   __rerenderHivePage() {
-    if (this._activeTab !== "network") return;
-    const container = this.shadowRoot?.querySelector(".hive-network-host");
-    if (!container) return;
-    const overlay=this.__ensureNetworkOverlay(container);
-    this.__renderHiveNetwork(overlay);
+    if (this._activeTab === "network") this.__touchNetworkPage();
   }
 
-  __rerenderHiveNeighborsLeftOnly(renderMap = false) {
-    if (this._activeTab !== "network") return;
-    const overlay = this.__networkOverlay;
-    const left = overlay?.querySelector(".hive-neighbors-passive .hive-neighbors-left-scroll");
-    if (!left) {
-      this.__rerenderHivePage();
-      return;
-    }
-    const scrollTop = left.scrollTop;
-    this.__renderHiveNeighborsLeft(left);
-    left.scrollTop = scrollTop;
-    const analytics=overlay?.querySelector(".hive-network-analytics");
-    if(analytics)this.__renderHiveNetworkAnalytics(analytics);
-    if(renderMap&&this.__hiveNeighborMapMode==="neighbors"){
-      const right=overlay?.querySelector(".hive-neighbors-map");
-      if(right)void this.__renderHiveNeighborDiscoveryMap(right);
-    }
+  __rerenderHiveNeighborsLeftOnly(_renderMap = false) {
+    if (this._activeTab === "network") this.__touchNetworkPage();
   }
 
-  __rerenderHiveNeighborDiscoveryOnly(renderMap = false) {
-    if (this._activeTab !== "network") return;
-    const overlay = this.__networkOverlay;
-    const middle = overlay?.querySelector(".hive-neighbors-discovery");
-    if (!middle) {
-      this.__rerenderHivePage();
-      return;
-    }
-
-    const oldScroll = middle.querySelector(".hive-neighbors-discovery-scroll");
-    const scrollTop = oldScroll?.scrollTop || 0;
-    this.__renderHiveNeighborDiscovery(middle);
-    const newScroll = middle.querySelector(".hive-neighbors-discovery-scroll");
-    if (newScroll) {
-      newScroll.scrollTop = scrollTop;
-      requestAnimationFrame(() => {
-        if (newScroll.isConnected) newScroll.scrollTop = scrollTop;
-      });
-    }
-
-    if (renderMap) {
-      const right = overlay?.querySelector(".hive-neighbors-map");
-      if (right) void this.__renderHiveNeighborDiscoveryMap(right);
-    }
+  __rerenderHiveNeighborDiscoveryOnly(_renderMap = false) {
+    if (this._activeTab === "network") this.__touchNetworkPage();
   }
 
   __signalBarsForSnr(snrValue) {
