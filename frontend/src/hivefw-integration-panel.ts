@@ -544,18 +544,6 @@ export class MeshCorePanel extends LitElement {
         min-height: 0;
       }
 
-      /* Stable Lit-owned host for the manually enhanced Rede page. Keeping
-         this element in the template prevents Home Assistant hass updates
-         from deleting/recreating the entire Network DOM and ha-map instance. */
-      .hive-network-host {
-        position: relative;
-        width: 100%;
-        height: 100%;
-        min-width: 0;
-        min-height: 0;
-        overflow: hidden;
-      }
-
       @media (max-width: 870px) {
         .tab-bar {
           justify-content: flex-start;
