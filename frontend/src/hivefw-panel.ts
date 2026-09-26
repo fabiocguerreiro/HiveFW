@@ -2235,17 +2235,16 @@ class HiveFWPanel extends BasePanel {
         grid-template-columns:repeat(4,minmax(0,1fr));
         gap:12px;
         width:100%;
-        height:auto;
+        height:100%;
         min-height:0;
-        overflow:visible;
-        align-items:start;
+        overflow:hidden;
         box-sizing:border-box;
       }
       .hive-neighbors-column {
         min-width:0;
         min-height:0;
-        height:auto;
-        overflow:visible;
+        height:100%;
+        overflow:hidden;
         border:1px solid var(--divider-color);
         border-radius:16px;
         background:var(--card-background-color);
@@ -2254,10 +2253,16 @@ class HiveFWPanel extends BasePanel {
       }
       .hive-neighbors-left-scroll,
       .hive-neighbors-discovery-scroll {
-        flex:0 0 auto;
-        height:auto;
+        flex:1 1 0;
+        height:0;
         min-height:0;
-        overflow:visible;
+        overflow-y:auto;
+        overflow-x:hidden;
+        overscroll-behavior-y:auto;
+        overscroll-behavior-x:contain;
+        scrollbar-gutter:stable;
+        touch-action:pan-y;
+        -webkit-overflow-scrolling:touch;
         padding:14px;
       }
       .hive-neighbors-left-scroll .mcr-wrap {
