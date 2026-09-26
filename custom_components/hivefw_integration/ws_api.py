@@ -3031,16 +3031,27 @@ def _software_update_payload(state) -> dict:
 @websocket_api.websocket_command(
     {
         vol.Required("type"): "hivefw_integration/get_software_update_status",
+        vol.Optional("force", default=False): bool,
     }
 )
 @websocket_api.require_admin
-@callback
-def ws_get_software_update_status(hass, connection, msg):
-    """Return the Home Assistant update entity managing HiveFW, if present."""
-    connection.send_result(
-        msg["id"],
-        _software_update_payload(_find_hivefw_update_entity(hass)),
-    )
+@websocket_api.async_response
+async def ws_get_software_update_status(hass, connection, msg):
+    """Return the update entity managing HiveFW and optionally refresh it now."""
+    state = _find_hivefw_update_entity(hass)
+    if bool(msg.get("force", False)) and state is not None:
+        try:
+            await hass.services.async_call(
+                "homeassistant",
+                "update_entity",
+                {"entity_id": state.entity_id},
+                blocking=True,
+            )
+            state = hass.states.get(state.entity_id) or state
+        except Exception:
+            _LOGGER.exception("Unable to force-refresh the HiveFW update entity")
+
+    connection.send_result(msg["id"], _software_update_payload(state))
 
 
 @websocket_api.websocket_command(
