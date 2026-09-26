@@ -174,15 +174,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                         height: 24,
                       ),
                       const SizedBox(width: 8),
-                      Text(_safeUiText(selfName, fallback: 'HiveFW')),
+                      Flexible(
+                        child: Text(
+                          _safeUiText(selfName, fallback: 'HiveFW'),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
                     ],
                   ),
           actions: [
-            IconButton(
-              tooltip: 'Configurar via Wi-Fi',
-              icon: const Icon(Icons.wifi),
-              onPressed: () => context.push('/hivefw/radio-network'),
-            ),
             // Signal bars indicator — best SNR from last 5 min of RX log
             const _SignalIndicator(),
             // Battery indicator — tap to toggle % / voltage
