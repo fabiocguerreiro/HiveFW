@@ -489,6 +489,7 @@ private:
   bool sendPowerFailureNotification();
   bool power_state_initialized;
   bool last_external_power;
+  bool power_alert_local_emitted;
   uint8_t power_loss_samples;
   unsigned long next_power_check;
 

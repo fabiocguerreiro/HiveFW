@@ -4968,6 +4968,7 @@ MyMesh::MyMesh(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMe
   next_neighbor_advert = 0;
   power_state_initialized = false;
   last_external_power = false;
+  power_alert_local_emitted = false;
   power_loss_samples = 0;
   next_power_check = 0;
   memset(advert_paths, 0, sizeof(advert_paths));
@@ -5141,6 +5142,7 @@ void MyMesh::begin(bool has_display) {
 #if defined(NRF52_PLATFORM) || defined(HELTEC_LORA_V3)
   last_external_power = board.isExternalPowered();
   power_state_initialized = true;
+  power_alert_local_emitted = false;
   power_loss_samples = 0;
   next_power_check = millis() + 2000UL;
 #endif
@@ -8919,7 +8921,10 @@ void MyMesh::checkSerialInterface() {
 }
 
 bool MyMesh::sendPowerFailureNotification() {
-  if (!_prefs.isRepeatEn() || !_prefs.isPowerNotifyEn()) {
+  // Power notifications are an explicit user preference tied to APPS/SOS.
+  // Do not additionally gate them on Repeater forwarding state: a radio may
+  // still need to report mains loss while forwarding is temporarily disabled.
+  if (!_prefs.isPowerNotifyEn()) {
     return false;
   }
 
@@ -8950,35 +8955,10 @@ bool MyMesh::sendPowerFailureNotification() {
       static const char message[] = "Falha de Energia ⚡";
       const uint32_t now = getRTCClock()->getCurrentTime();
 
-      // sendGroupMessage() historically returns true once the packet was
-      // created, even if PacketManager rejects it because the outbound queue
-      // is already full. A power-loss alert must not consume the event until
-      // the packet is actually present in the outbound queue, otherwise one
-      // transient queue-pressure moment can silently lose the alert forever.
-      const int outbound_before = _mgr->getOutboundTotal();
-      const bool created = sendGroupMessage(
-        now,
-        channel.channel,
-        _prefs.node_name,
-        message,
-        strlen(message)
-      );
-      const int outbound_after = _mgr->getOutboundTotal();
-      const bool queued =
-        created && outbound_after > outbound_before;
-
-      if (queued) {
-        // sendGroupMessage() injects the alert into the RF mesh, but unlike a
-        // message initiated by the Companion app there is no local app-side
-        // copy. Without a Companion RX frame, the Android app / Home Assistant
-        // connected to this same radio never sees the internally generated
-        // power alert even though it is waiting in the LoRa TX queue.
-        //
-        // Mirror the queued RF alert into the normal Companion offline queue
-        // only after the RF enqueue succeeded. This makes the event visible to
-        // the local App/HA and preserves exactly one alert per confirmed mains
-        // loss. A returned RF echo is already suppressed by the packet seen
-        // table, so this does not create a duplicate local message.
+      // The local Companion/App/HA notification is the primary event. Emit it
+      // exactly once per confirmed power-loss transition and do not make its
+      // delivery depend on RF queue availability.
+      if (!power_alert_local_emitted) {
         uint8_t local_frame[MAX_FRAME_SIZE];
         int frame_len = 0;
 
@@ -9013,6 +8993,7 @@ bool MyMesh::sendPowerFailureNotification() {
         frame_len += text_len;
 
         addToOfflineQueue(local_frame, frame_len);
+        power_alert_local_emitted = true;
 
         if (_serial->isConnected()) {
           uint8_t tickle[1];
@@ -9031,11 +9012,30 @@ bool MyMesh::sendPowerFailureNotification() {
           );
         }
 #endif
+
+        MESH_DEBUG_PRINTLN(
+          "HiveFW power notify: local APPS/SOS event queued on channel %d",
+          i
+        );
       }
 
+      // RF transmission is secondary. Keep retrying while mains remains absent
+      // if the packet cannot be queued, but never duplicate the local event.
+      const int outbound_before = _mgr->getOutboundTotal();
+      const bool created = sendGroupMessage(
+        now,
+        channel.channel,
+        _prefs.node_name,
+        message,
+        strlen(message)
+      );
+      const int outbound_after = _mgr->getOutboundTotal();
+      const bool queued =
+        created && outbound_after > outbound_before;
+
       MESH_DEBUG_PRINTLN(
-        "HiveFW power notify: %s on channel %d (queue %d -> %d)",
-        queued ? "queued + local event" : (created ? "queue rejected" : "packet create failed"),
+        "HiveFW power notify RF: %s on channel %d (queue %d -> %d)",
+        queued ? "queued" : (created ? "queue rejected" : "packet create failed"),
         i,
         outbound_before,
         outbound_after
@@ -9081,6 +9081,7 @@ void MyMesh::loop() {
       power_loss_samples = 0;
     } else if (external_power) {
       last_external_power = true;
+      power_alert_local_emitted = false;
       power_loss_samples = 0;
     } else if (last_external_power) {
       if (++power_loss_samples >= 3) {
