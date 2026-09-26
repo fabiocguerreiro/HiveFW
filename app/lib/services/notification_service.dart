@@ -335,6 +335,7 @@ class NotificationService {
       importance: Importance.high,
       priority: Priority.high,
       icon: 'ic_hivefw_notification',
+      groupKey: 'hivefw_notifications',
     );
     const iosDetails = DarwinNotificationDetails(
       presentAlert: true,
