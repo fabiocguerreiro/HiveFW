@@ -939,8 +939,11 @@ class HiveFWPanel extends BasePanel {
           if (this._activeTab === "chat") this.__enhanceChatUi();
         });
       });
-      this.__chatObserver.observe(croot, { childList: true, subtree: true });
     }
+
+    // Do not let our own injected/updated DOM schedule another full enhancement
+    // pass. Settings already follows this pattern; Chat now does the same.
+    this.__chatObserver?.disconnect();
 
     if (!croot.querySelector("#hivefw-chat-layout-style")) {
       const style = document.createElement("style");
@@ -1057,6 +1060,7 @@ class HiveFWPanel extends BasePanel {
       conversationList.shadowRoot?.querySelector(".hive-observed-section")?.remove();
     }
     this.__renderObservedChannels(croot);
+    this.__chatObserver?.observe(croot, { childList: true, subtree: true });
   }
 
   async __loadObservedChannels(force = false) {
