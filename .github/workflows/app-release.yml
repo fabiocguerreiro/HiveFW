@@ -57,10 +57,10 @@ jobs:
           EXPECTED_SHA256: "DE:1C:4D:3A:F2:62:37:74:50:E9:29:2F:5F:25:AC:B3:2D:53:15:DC:D0:F4:1D:92:53:CF:DE:B7:FD:1C:A0:CC"
         run: |
           set -euo pipefail
-          ACTUAL_SHA256="$(keytool -list -v \\
-            -keystore android/app/keystore.jks \\
-            -alias "${{ secrets.ANDROID_KEY_ALIAS }}" \\
-            -storepass "${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" \\
+          ACTUAL_SHA256="$(keytool -list -v \
+            -keystore android/app/keystore.jks \
+            -alias "${{ secrets.ANDROID_KEY_ALIAS }}" \
+            -storepass "${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" \
             | sed -n 's/^[[:space:]]*SHA256: //p' | head -1)"
           test "$ACTUAL_SHA256" = "$EXPECTED_SHA256" || {
             echo "Unexpected Android signing certificate: $ACTUAL_SHA256"
