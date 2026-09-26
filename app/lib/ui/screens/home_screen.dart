@@ -65,12 +65,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   bool _showVolts = false;
   bool _exitDialogOpen = false;
 
-  static const _tabs = ['/channels', '/contacts', '/map', '/apps', '/settings'];
+  static const _tabs = ['/status', '/channels', '/contacts', '/apps', '/settings'];
 
   /// Returns the display title for known app sub-routes.
   String? _appSubTitle(BuildContext context, String path) {
     return switch (path) {
-      '/apps/telemetry' => context.l10n.appsTelemetryTitle,
+      '/apps/map' => 'Mapa',
       '/apps/rxlog' => context.l10n.appsRxLogTitle,
       _ => null,
     };
@@ -238,6 +238,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                                 ? NavigationRailLabelType.none
                                 : NavigationRailLabelType.selected,
                         destinations: [
+                          const NavigationRailDestination(
+                            icon: Icon(Icons.dashboard_outlined),
+                            selectedIcon: Icon(Icons.dashboard),
+                            label: Text('Estado'),
+                          ),
                           NavigationRailDestination(
                             icon: channelsIcon,
                             selectedIcon: channelsSelectedIcon,
@@ -249,19 +254,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                             label: Text(context.l10n.navContacts),
                           ),
                           NavigationRailDestination(
-                            icon: const Icon(Icons.map_outlined),
-                            selectedIcon: const Icon(Icons.map),
-                            label: Text(context.l10n.navMap),
-                          ),
-                          NavigationRailDestination(
                             icon: const Icon(Icons.apps_outlined),
                             selectedIcon: const Icon(Icons.apps),
                             label: Text(context.l10n.navApps),
                           ),
-                          NavigationRailDestination(
-                            icon: const Icon(Icons.settings_outlined),
-                            selectedIcon: const Icon(Icons.settings),
-                            label: const Text('Definições'),
+                          const NavigationRailDestination(
+                            icon: Icon(Icons.settings_outlined),
+                            selectedIcon: Icon(Icons.settings),
+                            label: Text('Definições'),
                           ),
                         ],
                       ),
@@ -283,6 +283,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     );
                   },
                   destinations: [
+                    const NavigationDestination(
+                      icon: Icon(Icons.dashboard_outlined),
+                      selectedIcon: Icon(Icons.dashboard),
+                      label: 'Estado',
+                    ),
                     NavigationDestination(
                       icon: channelsIcon,
                       selectedIcon: channelsSelectedIcon,
@@ -294,18 +299,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       label: context.l10n.navContacts,
                     ),
                     NavigationDestination(
-                      icon: const Icon(Icons.map_outlined),
-                      selectedIcon: const Icon(Icons.map),
-                      label: context.l10n.navMap,
-                    ),
-                    NavigationDestination(
                       icon: const Icon(Icons.apps_outlined),
                       selectedIcon: const Icon(Icons.apps),
                       label: context.l10n.navApps,
                     ),
-                    NavigationDestination(
-                      icon: const Icon(Icons.settings_outlined),
-                      selectedIcon: const Icon(Icons.settings),
+                    const NavigationDestination(
+                      icon: Icon(Icons.settings_outlined),
+                      selectedIcon: Icon(Icons.settings),
                       label: 'Definições',
                     ),
                   ],
@@ -424,7 +424,7 @@ class _SignalIndicator extends ConsumerWidget {
     return GestureDetector(
       onTap: () {
         ref.read(telemetryScrollToRfProvider.notifier).state = true;
-        context.go('/apps/telemetry');
+        context.go('/status');
       },
       child: _SignalBarsIcon(snr: snr),
     );
