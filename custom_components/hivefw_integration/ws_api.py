@@ -3972,9 +3972,13 @@ async def ws_set_device_config(hass, connection, msg):
                 return
 
             verified_payload = getattr(verified, "payload", {}) or {}
-            actual_power_notify = str(
-                verified_payload.get("power_notify", "0")
-            ).strip().lower() in {"1", "true", "on", "yes"}
+            compact_power = str(verified_payload.get("pwr", "") or "").strip()
+            if compact_power:
+                actual_power_notify = compact_power[0] == "1"
+            else:
+                actual_power_notify = str(
+                    verified_payload.get("power_notify", "0")
+                ).strip().lower() in {"1", "true", "on", "yes"}
 
             if actual_power_notify != requested_power_notify:
                 _send_device_config_failure(
