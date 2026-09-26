@@ -615,10 +615,14 @@ class _ChannelChatScreenState extends ConsumerState<ChannelChatScreen> {
             children: [
               Icon(Icons.tag, color: theme.colorScheme.primary, size: 20),
               const SizedBox(width: 8),
-              Text(
-                channelName ?? 'Canal ${widget.channelIndex}',
-                style: theme.textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.bold,
+              Expanded(
+                child: Text(
+                  channelName ?? 'Canal ${widget.channelIndex}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
               ),
               if (isMuted)
@@ -630,7 +634,7 @@ class _ChannelChatScreenState extends ConsumerState<ChannelChatScreen> {
                     color: theme.colorScheme.onSurface.withAlpha(140),
                   ),
                 ),
-              const Spacer(),
+              const SizedBox(width: 8),
               Text(
                 '${channelMessages.length} mensagens',
                 style: theme.textTheme.bodySmall,
