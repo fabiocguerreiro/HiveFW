@@ -17,11 +17,6 @@ dependencies:
   flutter_blue_plus: ^1.35.0
   permission_handler: ^12.0.1
 
-  # Serial / USB — flutter_libserialport for Windows/Linux COM ports
-  #   .so files are excluded from the Android APK via build.gradle.kts (not 16 KB page-aligned)
-  #   Runtime guards in serial_transport_native.dart prevent any usage on Android
-  flutter_libserialport: ^0.6.0
-
   # State management
   flutter_riverpod: ^2.6.1
 
@@ -70,9 +65,6 @@ dependencies:
   http: ^1.6.0
   open_filex: ^4.7.0
 
-  # Windows BLE — win_ble uses WinRT via BLEServer.exe subprocess.
-  # Guarded by Platform.isWindows at all call sites; compiles on all platforms.
-  win_ble: ^1.1.1
 
 dev_dependencies:
   flutter_test:
@@ -85,16 +77,7 @@ flutter_launcher_icons:
   image_path: "assets/icons/app_icon.png"
   min_sdk_android: 21
 
-# Replace the real permission_handler_windows (which requires the NuGet package
-# Microsoft.Windows.CppWinRT and fails in offline/restricted environments) with
-# a pure-Dart stub.  The stub returns PermissionStatus.granted for everything;
-# it is never called at runtime because all permission_handler usage in this app
-# is guarded by Platform.isAndroid checks.
 dependency_overrides:
-  permission_handler_windows:
-    path: local_packages/permission_handler_windows
-  geolocator_windows:
-    path: local_packages/geolocator_windows
   # flutter_map_tile_caching 10.1.1 pins objectbox ^4.1.0. Keep 5.0.4
   # because 5.1+ requires flat_buffers 25.x which conflicts with FMTC.
   objectbox: 5.0.4
