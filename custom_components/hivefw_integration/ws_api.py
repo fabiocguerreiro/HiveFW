@@ -2968,6 +2968,44 @@ async def ws_install_latest_firmware(hass, connection, msg):
 
 # ─── HiveFW Integration software update ──────────────────────────────────
 
+async def _async_refresh_hivefw_hacs_repository(hass) -> bool:
+    """Force HACS to refresh the HiveFW repository metadata from GitHub.
+
+    homeassistant.update_entity only refreshes the already-created update
+    entity. HACS can still hold stale repository/release metadata, which is
+    why opening the repository page in HACS may reveal a version that the
+    HiveFW button did not see. Refresh the repository object first.
+
+    HACS is optional, so this uses duck-typing instead of a hard dependency
+    on custom_components.hacs internals.
+    """
+    try:
+        hacs = hass.data.get("hacs")
+        repositories = getattr(hacs, "repositories", None) if hacs is not None else None
+        getter = getattr(repositories, "get_by_full_name", None)
+        if not callable(getter):
+            return False
+
+        repository = getter("fabiocguerreiro/HiveFW")
+        if repository is None:
+            repository = getter("fabiocguerreiro/hivefw")
+        if repository is None:
+            return False
+
+        updater = getattr(repository, "update_repository", None)
+        if callable(updater):
+            await updater(ignore_issues=True, force=True)
+            return True
+
+        common_update = getattr(repository, "common_update", None)
+        if callable(common_update):
+            await common_update(ignore_issues=True, force=True)
+            return True
+    except Exception:
+        _LOGGER.exception("Unable to force-refresh the HiveFW HACS repository")
+    return False
+
+
 def _find_hivefw_update_entity(hass):
     """Return the HA update entity that manages the HiveFW repository."""
     candidates = []
@@ -3037,9 +3075,14 @@ def _software_update_payload(state) -> dict:
 @websocket_api.require_admin
 @websocket_api.async_response
 async def ws_get_software_update_status(hass, connection, msg):
-    """Return the update entity managing HiveFW and optionally refresh it now."""
+    """Return update status and optionally force HACS repository refresh."""
+    forced = bool(msg.get("force", False))
+    hacs_refreshed = False
+    if forced:
+        hacs_refreshed = await _async_refresh_hivefw_hacs_repository(hass)
+
     state = _find_hivefw_update_entity(hass)
-    if bool(msg.get("force", False)) and state is not None:
+    if forced and state is not None:
         try:
             await hass.services.async_call(
                 "homeassistant",
@@ -3051,7 +3094,9 @@ async def ws_get_software_update_status(hass, connection, msg):
         except Exception:
             _LOGGER.exception("Unable to force-refresh the HiveFW update entity")
 
-    connection.send_result(msg["id"], _software_update_payload(state))
+    payload = _software_update_payload(state)
+    payload["hacs_refreshed"] = hacs_refreshed
+    connection.send_result(msg["id"], payload)
 
 
 @websocket_api.websocket_command(
@@ -3063,8 +3108,22 @@ async def ws_get_software_update_status(hass, connection, msg):
 @websocket_api.require_admin
 @websocket_api.async_response
 async def ws_install_latest_software(hass, connection, msg):
-    """Install the latest HiveFW integration update via HA's update platform."""
+    """Refresh HACS, install the latest HiveFW integration, then optionally restart."""
+    await _async_refresh_hivefw_hacs_repository(hass)
+
     state = _find_hivefw_update_entity(hass)
+    if state is not None:
+        try:
+            await hass.services.async_call(
+                "homeassistant",
+                "update_entity",
+                {"entity_id": state.entity_id},
+                blocking=True,
+            )
+            state = hass.states.get(state.entity_id) or state
+        except Exception:
+            _LOGGER.exception("Unable to refresh HiveFW update entity before install")
+
     if state is None:
         connection.send_error(
             msg["id"],
@@ -6591,11 +6650,12 @@ async def ws_get_hive_neighbors(hass, connection, msg):
                 unique[prefix] = item
 
         # Vizinhos are direct zero-hop repeater adverts heard during the
-        # last 7 days. The firmware may retain its runtime table longer;
-        # presentation filtering belongs to the integration.
+        # last 48 hours. This matches the firmware's persisted neighbour
+        # history window, so the integration no longer advertises data the
+        # radio cannot actually retain.
         neighbors = [
             item for item in unique.values()
-            if item["secs_ago"] <= 7 * 24 * 60 * 60
+            if item["secs_ago"] <= 48 * 60 * 60
         ]
         neighbors = sorted(neighbors, key=lambda item: item["secs_ago"])
 

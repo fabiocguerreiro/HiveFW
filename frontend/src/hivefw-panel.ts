@@ -2492,9 +2492,9 @@ class HiveFWPanel extends BasePanel {
       }
       .hive-neighbors-map-host {
         position:relative;
-        flex:0 0 auto;
-        height:430px;
-        min-height:430px;
+        flex:1 1 0;
+        height:auto;
+        min-height:0;
         overflow:hidden;
       }
       .hive-neighbors-map-host ha-map {
@@ -2507,7 +2507,7 @@ class HiveFWPanel extends BasePanel {
         display:grid;
         place-items:center;
         height:100%;
-        min-height:360px;
+        min-height:0;
         padding:24px;
         box-sizing:border-box;
         color:var(--secondary-text-color);
@@ -9007,8 +9007,8 @@ class HiveFWPanel extends BasePanel {
       state.config_signature=configSignature;
     }
     state.initialized=true;
-    state.events=state.events.filter((event)=>now-Number(event.timestamp||0)<=7*86400000).slice(0,80);
-    state.advert_events=state.advert_events.filter((event)=>now-Number(event.timestamp||0)<=7*86400000).slice(-12000);
+    state.events=state.events.filter((event)=>now-Number(event.timestamp||0)<=48*60*60*1000).slice(0,80);
+    state.advert_events=state.advert_events.filter((event)=>now-Number(event.timestamp||0)<=48*60*60*1000).slice(-12000);
 
     this.__networkHistory=state;
     // localStorage is synchronous. Persisting a history that can contain

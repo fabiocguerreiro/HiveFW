@@ -457,7 +457,7 @@ private:
   void writeDisabledFrame();
   void writeContactRespFrame(uint8_t code, const ContactInfo &contact);
   void updateContactFromFrame(ContactInfo &contact, uint32_t& last_mod, const uint8_t *frame, int len);
-  void addToOfflineQueue(const uint8_t frame[], int len);
+  bool addToOfflineQueue(const uint8_t frame[], int len);
   int getFromOfflineQueue(uint8_t frame[]);
   int getBlobByKey(const uint8_t key[], int key_len, uint8_t dest_buf[]) override { 
     return _store->getBlobByKey(key, key_len, dest_buf);
@@ -490,6 +490,7 @@ private:
   bool power_state_initialized;
   bool last_external_power;
   bool power_alert_local_emitted;
+  bool power_alert_rf_emitted;
   uint8_t power_loss_samples;
   unsigned long next_power_check;
 

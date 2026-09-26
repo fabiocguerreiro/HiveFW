@@ -249,6 +249,7 @@ export interface SoftwareUpdateStatus {
   latest_version?: string | null;
   release_url?: string | null;
   friendly_name?: string | null;
+  hacs_refreshed?: boolean;
 }
 
 export async function getSoftwareUpdateStatus(

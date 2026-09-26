@@ -1845,8 +1845,9 @@ export class SettingsPage extends LitElement {
         <div class="firmware-action-card" style="margin-top:14px;">
           <div class="firmware-action-title">Software HiveFW no Home Assistant</div>
           <div class="firmware-action-text">
-            Atualiza a integração através da entidade de atualização gerida pelo Home Assistant/HACS.
-            Quando a atualização termina, o Home Assistant pode reiniciar automaticamente.
+            Força primeiro a atualização do repositório HiveFW no HACS e só depois
+            verifica/instala através da entidade de atualização do Home Assistant.
+            Quando a instalação termina, o Home Assistant reinicia automaticamente.
           </div>
           ${this._softwareUpdateStatus?.supported ? html`
             <div class="firmware-release-row">
@@ -1868,7 +1869,7 @@ export class SettingsPage extends LitElement {
                 class="action-btn"
                 ?disabled=${this._softwareUpdateBusy || this._softwareUpdateChecking}
                 @click=${this._checkSoftwareUpdates}>
-                ${this._softwareUpdateChecking ? 'A verificar…' : 'Verificar atualização'}
+                ${this._softwareUpdateChecking ? 'A atualizar HACS e verificar…' : 'Verificar atualização'}
               </button>
               <button
                 class="apply-button firmware-primary-action"
@@ -1891,7 +1892,7 @@ export class SettingsPage extends LitElement {
               class="action-btn"
               ?disabled=${this._softwareUpdateBusy || this._softwareUpdateChecking}
               @click=${this._checkSoftwareUpdates}>
-              ${this._softwareUpdateChecking ? 'A verificar…' : 'Verificar atualização'}
+              ${this._softwareUpdateChecking ? 'A atualizar HACS e verificar…' : 'Verificar atualização'}
             </button>
           `}
         </div>

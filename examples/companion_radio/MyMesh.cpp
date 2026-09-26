@@ -286,7 +286,7 @@ bool MyMesh::Frame::isChannelMsg() const {
          buf[0] == RESP_CODE_CHANNEL_DATA_RECV;
 }
 
-void MyMesh::addToOfflineQueue(const uint8_t frame[], int len) {
+bool MyMesh::addToOfflineQueue(const uint8_t frame[], int len) {
   if (offline_queue_len >= OFFLINE_QUEUE_SIZE) {
     MESH_DEBUG_PRINTLN("WARN: offline_queue is full!");
     int pos = 0;
@@ -298,16 +298,18 @@ void MyMesh::addToOfflineQueue(const uint8_t frame[], int len) {
         MESH_DEBUG_PRINTLN("INFO: removed oldest channel message from queue.");
         offline_queue[offline_queue_len - 1].len = len;
         memcpy(offline_queue[offline_queue_len - 1].buf, frame, len);
-        return;
+        return true;
       }
       pos++;
     }
     MESH_DEBUG_PRINTLN("INFO: no channel messages to remove from queue.");
-  } else {
-    offline_queue[offline_queue_len].len = len;
-    memcpy(offline_queue[offline_queue_len].buf, frame, len);
-    offline_queue_len++;
+    return false;
   }
+
+  offline_queue[offline_queue_len].len = len;
+  memcpy(offline_queue[offline_queue_len].buf, frame, len);
+  offline_queue_len++;
+  return true;
 }
 
 int MyMesh::getFromOfflineQueue(uint8_t frame[]) {
@@ -4969,6 +4971,7 @@ MyMesh::MyMesh(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMe
   power_state_initialized = false;
   last_external_power = false;
   power_alert_local_emitted = false;
+  power_alert_rf_emitted = false;
   power_loss_samples = 0;
   next_power_check = 0;
   memset(advert_paths, 0, sizeof(advert_paths));
@@ -5140,11 +5143,40 @@ void MyMesh::begin(bool has_display) {
   board.setLoRaFemPaGainEnabled(_prefs.radio_fem_txgain);
 
 #if defined(NRF52_PLATFORM) || defined(HELTEC_LORA_V3)
-  last_external_power = board.isExternalPowered();
+  const bool boot_external_power = board.isExternalPowered();
+
+  if (!_prefs.isPowerNotifyEn()) {
+    if (_prefs.isPowerAlertArmed()) {
+      _prefs.setPowerAlertArmed(false);
+      savePrefs();
+    }
+  } else if (boot_external_power && !_prefs.isPowerAlertArmed()) {
+    _prefs.setPowerAlertArmed(true);
+    savePrefs();
+  }
+
+  // If the USB -> battery handover caused a reset, the persisted arm bit tells
+  // us that external power was present before this boot. Treat that exactly as
+  // a live external->battery transition after the normal debounce window.
+  last_external_power =
+    _prefs.isPowerNotifyEn() &&
+    (
+      boot_external_power ||
+      _prefs.isPowerAlertArmed()
+    );
+
   power_state_initialized = true;
   power_alert_local_emitted = false;
+  power_alert_rf_emitted = false;
   power_loss_samples = 0;
   next_power_check = millis() + 2000UL;
+
+  MESH_DEBUG_PRINTLN(
+    "HiveFW power monitor boot: external=%d armed=%d previous_external=%d",
+    boot_external_power ? 1 : 0,
+    _prefs.isPowerAlertArmed() ? 1 : 0,
+    last_external_power ? 1 : 0
+  );
 #endif
 
   MESH_DEBUG_PRINTLN("RX Boosted Gain Mode: %s",
@@ -6092,16 +6124,18 @@ void MyMesh::handleCmdFrame(size_t len) {
     );
 
 #if defined(NRF52_PLATFORM) || defined(HELTEC_LORA_V3)
-    // Keep the 140-byte custom-var frame compact. pwr=<notify><external>,
-    // e.g. pwr:11 means notification ON + external power present.
-    // The write key remains power_notify for a descriptive control surface.
-    char power_state[3];
+    // Keep the custom-var frame compact. The first two characters remain
+    // backward-compatible: pwr=<notify><external>. Two diagnostic characters
+    // follow: <persisted-arm><local-event-this-boot>.
+    char power_state[5];
     snprintf(
       power_state,
       sizeof(power_state),
-      "%u%u",
+      "%u%u%u%u",
       _prefs.isPowerNotifyEn() ? 1U : 0U,
-      board.isExternalPowered() ? 1U : 0U
+      board.isExternalPowered() ? 1U : 0U,
+      _prefs.isPowerAlertArmed() ? 1U : 0U,
+      power_alert_local_emitted ? 1U : 0U
     );
     appendCustomVar("pwr", power_state);
 #else
@@ -8921,13 +8955,13 @@ void MyMesh::checkSerialInterface() {
 }
 
 bool MyMesh::sendPowerFailureNotification() {
-  // Power notifications are an explicit user preference tied to APPS/SOS.
-  // Do not additionally gate them on Repeater forwarding state: a radio may
-  // still need to report mains loss while forwarding is temporarily disabled.
   if (!_prefs.isPowerNotifyEn()) {
     return false;
   }
 
+#ifndef MAX_GROUP_CHANNELS
+  return false;
+#else
   bool apps_channel_configured = false;
   for (int i = 0; i < PATH_HASH_SIZE; ++i) {
     if (_prefs.apps_channel_hash[i] != 0) {
@@ -8935,118 +8969,177 @@ bool MyMesh::sendPowerFailureNotification() {
       break;
     }
   }
-  if (!apps_channel_configured) {
-    MESH_DEBUG_PRINTLN("HiveFW power notify: Canal APPS/SOS not configured");
+
+  int channel_idx = -1;
+  ChannelDetails channel;
+
+  // Primary path: resolve the exact channel hash selected by the Companion.
+  if (apps_channel_configured) {
+    for (int i = 0; i < MAX_GROUP_CHANNELS; ++i) {
+      ChannelDetails candidate;
+      if (
+        getChannel((uint8_t)i, candidate) &&
+        candidate.name[0] != '\0' &&
+        memcmp(
+          candidate.channel.hash,
+          _prefs.apps_channel_hash,
+          PATH_HASH_SIZE
+        ) == 0
+      ) {
+        channel_idx = i;
+        channel = candidate;
+        break;
+      }
+    }
+  }
+
+  // Recovery path: channel edits/re-creation can make a previously persisted
+  // hash stale. The HiveFW app exposes APPS/SOS as a dedicated channel, so if
+  // the configured hash no longer resolves, recover only the exact APPS/SOS
+  // name and persist its current hash. Do not guess any other channel.
+  if (channel_idx < 0) {
+    for (int i = 0; i < MAX_GROUP_CHANNELS; ++i) {
+      ChannelDetails candidate;
+      if (
+        getChannel((uint8_t)i, candidate) &&
+        strcmp(candidate.name, "APPS/SOS") == 0
+      ) {
+        channel_idx = i;
+        channel = candidate;
+        memcpy(
+          _prefs.apps_channel_hash,
+          candidate.channel.hash,
+          PATH_HASH_SIZE
+        );
+        savePrefs();
+        MESH_DEBUG_PRINTLN(
+          "HiveFW power notify: recovered APPS/SOS channel at index %d",
+          i
+        );
+        break;
+      }
+    }
+  }
+
+  if (channel_idx < 0) {
+    MESH_DEBUG_PRINTLN(
+      "HiveFW power notify: Canal APPS/SOS not configured or no longer exists"
+    );
     return false;
   }
 
-#ifdef MAX_GROUP_CHANNELS
-  for (int i = 0; i < MAX_GROUP_CHANNELS; ++i) {
-    ChannelDetails channel;
-    if (
-      getChannel((uint8_t)i, channel) &&
-      channel.name[0] != '\0' &&
-      memcmp(
-        channel.channel.hash,
-        _prefs.apps_channel_hash,
-        PATH_HASH_SIZE
-      ) == 0
-    ) {
-      static const char message[] = "Falha de Energia ⚡";
-      const uint32_t now = getRTCClock()->getCurrentTime();
+  static const char message[] = "Falha de Energia ⚡";
+  const uint32_t now = getRTCClock()->getCurrentTime();
 
-      // The local Companion/App/HA notification is the primary event. Emit it
-      // exactly once per confirmed power-loss transition and do not make its
-      // delivery depend on RF queue availability.
-      if (!power_alert_local_emitted) {
-        uint8_t local_frame[MAX_FRAME_SIZE];
-        int frame_len = 0;
+  // Primary delivery: the local Companion queue.  This is byte-for-byte the
+  // same CHANNEL_MSG frame layout used by onChannelMessageRecv(), so Android
+  // and Home Assistant consume it through the normal CMD_SYNC_NEXT_MESSAGE
+  // path rather than through a special/private protocol.
+  if (!power_alert_local_emitted) {
+    uint8_t local_frame[MAX_FRAME_SIZE];
+    int frame_len = 0;
 
-        if (app_target_ver >= 3) {
-          local_frame[frame_len++] = RESP_CODE_CHANNEL_MSG_RECV_V3;
-          local_frame[frame_len++] = 0; // no RF SNR for a local event
-          local_frame[frame_len++] = 0; // reserved1
-          local_frame[frame_len++] = 0; // reserved2
-        } else {
-          local_frame[frame_len++] = RESP_CODE_CHANNEL_MSG_RECV;
-        }
+    if (app_target_ver >= 3) {
+      local_frame[frame_len++] = RESP_CODE_CHANNEL_MSG_RECV_V3;
+      local_frame[frame_len++] = 0; // no RF SNR for a local event
+      local_frame[frame_len++] = 0; // reserved1
+      local_frame[frame_len++] = 0; // reserved2
+    } else {
+      local_frame[frame_len++] = RESP_CODE_CHANNEL_MSG_RECV;
+    }
 
-        local_frame[frame_len++] = (uint8_t)i;
-        local_frame[frame_len++] = 0xFF; // local/system event: no RF path
-        local_frame[frame_len++] = TXT_TYPE_PLAIN;
-        memcpy(&local_frame[frame_len], &now, 4);
-        frame_len += 4;
+    local_frame[frame_len++] = (uint8_t)channel_idx;
+    local_frame[frame_len++] = 0xFF; // local/system event: no RF path
+    local_frame[frame_len++] = TXT_TYPE_PLAIN;
+    memcpy(&local_frame[frame_len], &now, 4);
+    frame_len += 4;
 
-        char local_text[MAX_TEXT_LEN + 1];
-        snprintf(
-          local_text,
-          sizeof(local_text),
-          "%s: %s",
-          _prefs.node_name,
-          message
-        );
-        int text_len = strlen(local_text);
-        if (frame_len + text_len > MAX_FRAME_SIZE) {
-          text_len = MAX_FRAME_SIZE - frame_len;
-        }
-        memcpy(&local_frame[frame_len], local_text, text_len);
-        frame_len += text_len;
+    char local_text[MAX_TEXT_LEN + 1];
+    snprintf(
+      local_text,
+      sizeof(local_text),
+      "%s: %s",
+      _prefs.node_name,
+      message
+    );
+    int text_len = strlen(local_text);
+    if (frame_len + text_len > MAX_FRAME_SIZE) {
+      text_len = MAX_FRAME_SIZE - frame_len;
+    }
+    memcpy(&local_frame[frame_len], local_text, text_len);
+    frame_len += text_len;
 
-        addToOfflineQueue(local_frame, frame_len);
-        power_alert_local_emitted = true;
+    const bool local_queued =
+      addToOfflineQueue(local_frame, frame_len);
 
-        if (_serial->isConnected()) {
-          uint8_t tickle[1];
-          tickle[0] = PUSH_CODE_MSG_WAITING;
-          _serial->writeFrame(tickle, 1);
-        }
+    if (local_queued) {
+      power_alert_local_emitted = true;
 
-#ifdef DISPLAY_CLASS
-        if (_ui) {
-          _ui->newMsg(
-            0xFF,
-            channel.channel.hash,
-            channel.name,
-            local_text,
-            offline_queue_len
-          );
-        }
-#endif
-
-        MESH_DEBUG_PRINTLN(
-          "HiveFW power notify: local APPS/SOS event queued on channel %d",
-          i
-        );
+      // Clear the persistent arm only after the local event is actually held
+      // by the normal Companion offline queue.  Until then a brownout/reboot
+      // keeps the event armed for another attempt.
+      if (_prefs.isPowerAlertArmed()) {
+        _prefs.setPowerAlertArmed(false);
+        savePrefs();
       }
 
-      // RF transmission is secondary. Keep retrying while mains remains absent
-      // if the packet cannot be queued, but never duplicate the local event.
-      const int outbound_before = _mgr->getOutboundTotal();
-      const bool created = sendGroupMessage(
-        now,
-        channel.channel,
-        _prefs.node_name,
-        message,
-        strlen(message)
-      );
-      const int outbound_after = _mgr->getOutboundTotal();
-      const bool queued =
-        created && outbound_after > outbound_before;
+      if (_serial->isConnected()) {
+        uint8_t tickle[1];
+        tickle[0] = PUSH_CODE_MSG_WAITING;
+        _serial->writeFrame(tickle, 1);
+      }
 
-      MESH_DEBUG_PRINTLN(
-        "HiveFW power notify RF: %s on channel %d (queue %d -> %d)",
-        queued ? "queued" : (created ? "queue rejected" : "packet create failed"),
-        i,
-        outbound_before,
-        outbound_after
-      );
-      return queued;
-    }
-  }
+#ifdef DISPLAY_CLASS
+      if (_ui) {
+        _ui->newMsg(
+          0xFF,
+          channel.channel.hash,
+          channel.name,
+          local_text,
+          offline_queue_len
+        );
+      }
 #endif
+    }
 
-  MESH_DEBUG_PRINTLN("HiveFW power notify: selected channel no longer exists");
-  return false;
+    MESH_DEBUG_PRINTLN(
+      "HiveFW power notify local: %s on channel %d (offline=%d)",
+      local_queued ? "queued" : "queue rejected",
+      channel_idx,
+      offline_queue_len
+    );
+  }
+
+  // Secondary delivery: LoRa mesh. Track it independently so a retry never
+  // duplicates the already accepted local frame or an already queued RF frame.
+  if (!power_alert_rf_emitted) {
+    const int outbound_before = _mgr->getOutboundTotal();
+    const bool created = sendGroupMessage(
+      now,
+      channel.channel,
+      _prefs.node_name,
+      message,
+      strlen(message)
+    );
+    const int outbound_after = _mgr->getOutboundTotal();
+    power_alert_rf_emitted =
+      created && outbound_after > outbound_before;
+
+    MESH_DEBUG_PRINTLN(
+      "HiveFW power notify RF: %s on channel %d (queue %d -> %d)",
+      power_alert_rf_emitted
+        ? "queued"
+        : (created ? "queue rejected" : "packet create failed"),
+      channel_idx,
+      outbound_before,
+      outbound_after
+    );
+  }
+
+  return
+    power_alert_local_emitted &&
+    power_alert_rf_emitted;
+#endif
 }
 
 void MyMesh::loop() {
@@ -9069,8 +9162,9 @@ void MyMesh::loop() {
 
 #if defined(NRF52_PLATFORM) || defined(HELTEC_LORA_V3)
   // Poll slowly and debounce loss-of-power so USB serial traffic on the V3
-  // cannot create a false alarm. Booting on battery never emits an alert:
-  // only a confirmed transition from external power to battery does.
+  // cannot create a false alarm. A persisted arm bit also carries a confirmed
+  // external-power state across a brownout/reboot during USB -> battery
+  // switchover, so that transition can no longer disappear at boot.
   if (next_power_check == 0 || millisHasNowPassed(next_power_check)) {
     next_power_check = millis() + 2000UL;
     const bool external_power = board.isExternalPowered();
@@ -9080,9 +9174,24 @@ void MyMesh::loop() {
       power_state_initialized = true;
       power_loss_samples = 0;
     } else if (external_power) {
-      last_external_power = true;
       power_alert_local_emitted = false;
+      power_alert_rf_emitted = false;
       power_loss_samples = 0;
+
+      if (_prefs.isPowerNotifyEn()) {
+        last_external_power = true;
+        if (!_prefs.isPowerAlertArmed()) {
+          _prefs.setPowerAlertArmed(true);
+          savePrefs();
+          MESH_DEBUG_PRINTLN("HiveFW power monitor: armed on external power");
+        }
+      } else {
+        last_external_power = false;
+        if (_prefs.isPowerAlertArmed()) {
+          _prefs.setPowerAlertArmed(false);
+          savePrefs();
+        }
+      }
     } else if (last_external_power) {
       if (++power_loss_samples >= 3) {
         // Do not consume the power-loss event until the APPS/SOS message was

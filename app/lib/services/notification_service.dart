@@ -51,7 +51,7 @@ class NotificationService {
     }
 
     const androidSettings = AndroidInitializationSettings(
-      '@mipmap/ic_launcher',
+      'ic_hivefw_notification',
     );
     const iosSettings = DarwinInitializationSettings(
       requestAlertPermission: false,
@@ -334,6 +334,8 @@ class NotificationService {
       channelDescription: _androidChannelDesc,
       importance: Importance.high,
       priority: Priority.high,
+      icon: 'ic_hivefw_notification',
+      groupKey: 'hivefw_notifications',
     );
     const iosDetails = DarwinNotificationDetails(
       presentAlert: true,
