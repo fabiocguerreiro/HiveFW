@@ -179,6 +179,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     ],
                   ),
           actions: [
+            IconButton(
+              tooltip: 'Configurar via Wi-Fi',
+              icon: const Icon(Icons.wifi_settings),
+              onPressed: () => context.push('/hivefw/radio-network'),
+            ),
             // Signal bars indicator — best SNR from last 5 min of RX log
             const _SignalIndicator(),
             // Battery indicator — tap to toggle % / voltage
