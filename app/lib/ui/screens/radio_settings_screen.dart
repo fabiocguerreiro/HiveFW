@@ -64,6 +64,7 @@ class _RadioSettingsScreenState extends ConsumerState<RadioSettingsScreen> {
   bool _dirty = false;
   bool _saving = false;
   bool _refreshing = false;
+  bool? _rxBoostedGain;
   String _appVersion = '';
 
   static const _bandwidths = [
@@ -190,6 +191,21 @@ class _RadioSettingsScreenState extends ConsumerState<RadioSettingsScreen> {
       if (deviceResponse is DeviceInfoResponse) {
         ref.read(deviceInfoProvider.notifier).state = deviceResponse.info;
       }
+
+      // HiveFW exposes RX Boosted Gain in the radio profile. Keep this in the
+      // radio configuration surface rather than Repeater configuration.
+      final profileResponse = await _sendAndWaitForRadio(
+        service,
+        () => service.requestRepeaterProfile(1),
+        (response) =>
+            response is CustomVarsResponse || response is ErrorResponse,
+      );
+      if (profileResponse is CustomVarsResponse && mounted) {
+        final value = profileResponse.values['rxg'];
+        if (value == '0' || value == '1') {
+          setState(() => _rxBoostedGain = value == '1');
+        }
+      }
     } finally {
       if (mounted) setState(() => _refreshing = false);
     }
@@ -200,6 +216,42 @@ class _RadioSettingsScreenState extends ConsumerState<RadioSettingsScreen> {
     _freqController.dispose();
     _txPowerController.dispose();
     super.dispose();
+  }
+
+  Future<void> _syncClock() async {
+    final service = ref.read(radioServiceProvider);
+    if (service == null || !service.isConnected) return;
+    try {
+      await service.syncClock();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Relógio sincronizado')),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Não foi possível sincronizar o relógio')),
+      );
+    }
+  }
+
+  Future<void> _setRxBoostedGain(bool enabled) async {
+    final service = ref.read(radioServiceProvider);
+    if (service == null || !service.isConnected) return;
+
+    final response = await _sendAndWaitForRadio(
+      service,
+      () => service.setHiveCustomVar('rxg', enabled ? '1' : '0'),
+      (r) => r is OkResponse || r is ErrorResponse,
+    );
+
+    if (response is OkResponse) {
+      if (mounted) setState(() => _rxBoostedGain = enabled);
+    } else if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Não foi possível alterar RX Boosted Gain')),
+      );
+    }
   }
 
   Future<void> _save() async {
@@ -384,6 +436,22 @@ class _RadioSettingsScreenState extends ConsumerState<RadioSettingsScreen> {
                 ),
               if (deviceInfo != null || selfInfo != null)
                 const SizedBox(height: 16),
+
+              // ----- Clock -----
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: OutlinedButton.icon(
+                      onPressed: _refreshing ? null : _syncClock,
+                      icon: const Icon(Icons.sync),
+                      label: const Text('Sync Clock'),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
 
               // ----- LoRa parameters -----
               Card(
@@ -579,6 +647,20 @@ class _RadioSettingsScreenState extends ConsumerState<RadioSettingsScreen> {
                           return null;
                         },
                       ),
+
+                      if (_rxBoostedGain != null) ...[
+                        const SizedBox(height: 8),
+                        SwitchListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: const Text('RX Boosted Gain'),
+                          subtitle: const Text(
+                            'Ativa o ganho RX reforçado do rádio para melhorar a sensibilidade de receção.',
+                          ),
+                          value: _rxBoostedGain!,
+                          onChanged:
+                              _refreshing ? null : _setRxBoostedGain,
+                        ),
+                      ],
                     ],
                   ),
                 ),
