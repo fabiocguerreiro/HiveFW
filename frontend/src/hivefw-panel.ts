@@ -2217,12 +2217,17 @@ class HiveFWPanel extends BasePanel {
         position:absolute;
         inset:0;
         z-index:20;
-        overflow:hidden;
+        overflow:auto;
+        overscroll-behavior-y:auto;
+        touch-action:pan-y;
+        -webkit-overflow-scrolling:touch;
         background:var(--primary-background-color);
       }
       .hive-neighbors-overlay > .mcr-page {
-        height:100%;
-        min-height:0;
+        height:auto;
+        min-height:100%;
+        overflow:visible;
+        overscroll-behavior-y:auto;
       }
 
       .hive-neighbors-three {
@@ -2230,16 +2235,17 @@ class HiveFWPanel extends BasePanel {
         grid-template-columns:repeat(4,minmax(0,1fr));
         gap:12px;
         width:100%;
-        height:100%;
+        height:auto;
         min-height:0;
-        overflow:hidden;
+        overflow:visible;
+        align-items:start;
         box-sizing:border-box;
       }
       .hive-neighbors-column {
         min-width:0;
         min-height:0;
-        height:100%;
-        overflow:hidden;
+        height:auto;
+        overflow:visible;
         border:1px solid var(--divider-color);
         border-radius:16px;
         background:var(--card-background-color);
@@ -2248,19 +2254,10 @@ class HiveFWPanel extends BasePanel {
       }
       .hive-neighbors-left-scroll,
       .hive-neighbors-discovery-scroll {
-        flex:1 1 0;
-        height:0;
+        flex:0 0 auto;
+        height:auto;
         min-height:0;
-        overflow-y:auto;
-        overflow-x:hidden;
-        /* Allow wheel/touch scroll chaining to the Rede page when a nested
-           column reaches its top/bottom. "contain" trapped the gesture here
-           and made the page feel as if scrolling intermittently blocked. */
-        overscroll-behavior-y:auto;
-        overscroll-behavior-x:contain;
-        scrollbar-gutter:stable;
-        touch-action:pan-y;
-        -webkit-overflow-scrolling:touch;
+        overflow:visible;
         padding:14px;
       }
       .hive-neighbors-left-scroll .mcr-wrap {
@@ -2484,9 +2481,9 @@ class HiveFWPanel extends BasePanel {
       }
       .hive-neighbors-map-host {
         position:relative;
-        flex:1 1 0;
-        height:0;
-        min-height:0;
+        flex:0 0 auto;
+        height:430px;
+        min-height:430px;
         overflow:hidden;
       }
       .hive-neighbors-map-host ha-map {
