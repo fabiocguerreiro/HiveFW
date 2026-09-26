@@ -8995,6 +8995,7 @@ class HiveFWPanel extends BasePanel {
 
   __networkHistorySnapshot(neighbors) {
     if(!Array.isArray(neighbors))neighbors=[];
+    let persistImportant=false;
     let state=this.__networkHistory;
     if(!state){
       try{state=JSON.parse(localStorage.getItem(this.__networkHistoryStorageKey())||"null");}catch{state=null;}
@@ -9032,6 +9033,7 @@ class HiveFWPanel extends BasePanel {
         };
         if(state.initialized){
           state.events.unshift({type:"new",timestamp:now,id,name:node.name});
+          persistImportant=true;
         }
       }
       node.name=String(neighbor?.name||node.name||neighbor?.pubkey_prefix||"Repeater");
@@ -9044,6 +9046,7 @@ class HiveFWPanel extends BasePanel {
       const previousAdvert=Number(node.last_advert_at)||0;
       if(previousAdvert>0 && advertAt>previousAdvert+4000){
         state.advert_events.push({timestamp:advertAt,id});
+        persistImportant=true;
       }
       node.last_advert_at=Math.max(previousAdvert,advertAt);
       if(isNew&&state.initialized&&node.first_seen_at<=0)node.first_seen_at=now;
@@ -9060,6 +9063,7 @@ class HiveFWPanel extends BasePanel {
           id,
           name:String(node.name||id),
         });
+        persistImportant=true;
       }
     }
 
@@ -9076,6 +9080,7 @@ class HiveFWPanel extends BasePanel {
       });
       if(state.config_signature && configSignature!==state.config_signature){
         state.events.unshift({type:"config",timestamp:now,id:"config",name:"Configuração RF/Repeater alterada"});
+        persistImportant=true;
       }
       state.config_signature=configSignature;
     }
@@ -9084,7 +9089,21 @@ class HiveFWPanel extends BasePanel {
     state.advert_events=state.advert_events.filter((event)=>now-Number(event.timestamp||0)<=7*86400000).slice(-12000);
 
     this.__networkHistory=state;
-    try{localStorage.setItem(this.__networkHistoryStorageKey(),JSON.stringify(state));}catch{}
+    // localStorage is synchronous. Persisting a history that can contain
+    // thousands of advert events on every render blocks Home Assistant's UI.
+    // Keep in-memory analytics live, but persist at most once per minute,
+    // immediately for meaningful changes and for the 5-minute sample.
+    const shouldPersist=
+      persistImportant ||
+      sampleDue ||
+      !this.__networkHistoryPersistAt ||
+      now-this.__networkHistoryPersistAt>=60000;
+    if(shouldPersist){
+      try{
+        localStorage.setItem(this.__networkHistoryStorageKey(),JSON.stringify(state));
+        this.__networkHistoryPersistAt=now;
+      }catch{}
+    }
     return state;
   }
 
@@ -9759,7 +9778,7 @@ class HiveFWPanel extends BasePanel {
 
     this.__hiveNeighborsLoading = true;
     this.__hiveNeighborsError = null;
-    this.__rerenderHiveNeighborsLeftOnly();
+    this.__rerenderHiveNeighborsLeftOnly(false);
 
     try {
       const msg = { type: "hivefw_integration/get_hive_neighbors" };
@@ -9771,7 +9790,7 @@ class HiveFWPanel extends BasePanel {
         error?.message || "Não foi possível carregar os vizinhos.";
     } finally {
       this.__hiveNeighborsLoading = false;
-      this.__rerenderHiveNeighborsLeftOnly();
+      this.__rerenderHiveNeighborsLeftOnly(true);
     }
   }
 
@@ -9783,7 +9802,7 @@ class HiveFWPanel extends BasePanel {
     this.__renderHiveNetwork(overlay);
   }
 
-  __rerenderHiveNeighborsLeftOnly() {
+  __rerenderHiveNeighborsLeftOnly(renderMap = false) {
     if (this._activeTab !== "network") return;
     const overlay = this.__networkOverlay;
     const left = overlay?.querySelector(".hive-neighbors-passive .hive-neighbors-left-scroll");
@@ -9796,7 +9815,7 @@ class HiveFWPanel extends BasePanel {
     left.scrollTop = scrollTop;
     const analytics=overlay?.querySelector(".hive-network-analytics");
     if(analytics)this.__renderHiveNetworkAnalytics(analytics);
-    if(this.__hiveNeighborMapMode==="neighbors"){
+    if(renderMap&&this.__hiveNeighborMapMode==="neighbors"){
       const right=overlay?.querySelector(".hive-neighbors-map");
       if(right)void this.__renderHiveNeighborDiscoveryMap(right);
     }
