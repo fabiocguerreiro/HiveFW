@@ -10654,6 +10654,7 @@ class HiveFWPanel extends BasePanel {
     // discovery is collecting replies, its map stays hidden. The passive
     // Vizinhos map remains immediately available and is the default mode.
     if (discoveryMode && this.__hiveNeighborDiscovery?.active) {
+      loadingNote.remove();
       const note = document.createElement("div");
       note.className = "hive-neighbors-map-note";
       note.textContent =
