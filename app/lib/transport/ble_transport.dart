@@ -7,7 +7,6 @@ import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:logger/logger.dart';
 
 import 'radio_transport.dart';
-import 'win_ble_bridge.dart';
 
 final _log = Logger(printer: SimplePrinter(printTime: false));
 
@@ -96,21 +95,10 @@ class BleTransport implements RadioTransport {
         'BLE connecting to ${_safeDeviceName(_device.platformName, fallback: _device.remoteId.str)} (web=$kIsWeb)',
       );
 
-      // flutter_blue_plus_windows (WinBle.connect) ignores the timeout
-      // parameter entirely — the underlying WinRT call has no timeout guard.
-      // Wrap with a Dart-level Future.timeout on Windows so an unreachable
-      // device does not block the UI indefinitely.
-      final connectFuture = _device.connect(
+      await _device.connect(
         autoConnect: false,
         timeout: const Duration(seconds: 15),
       );
-      await (!kIsWeb && Platform.isWindows
-          ? connectFuture.timeout(
-            const Duration(seconds: 15),
-            onTimeout:
-                () => throw TimeoutException('BLE connect timed out (Windows)'),
-          )
-          : connectFuture);
 
       // On native platforms, request a larger MTU before service discovery.
       // This stabilises the GATT connection and avoids early descriptor
@@ -337,11 +325,6 @@ class BleTransport implements RadioTransport {
   static Stream<RadioDevice> scan({
     Duration timeout = const Duration(seconds: 10),
   }) {
-    // Windows: win_ble handles BLEServer subprocess, scanning, and filtering.
-    if (!kIsWeb && Platform.isWindows) {
-      return WinBleBridge.scan(timeout: timeout);
-    }
-
     final controller = StreamController<RadioDevice>();
     final seen = <String>{};
 
@@ -476,13 +459,7 @@ class BleTransport implements RadioTransport {
 
   /// Create a BLE transport from a scanned device ID.
   ///
-  /// On Windows, returns a [WindowsBleTransport] backed by win_ble (WinRT)
-  /// because flutter_blue_plus has no Windows platform registration.
-  /// On all other platforms, creates a standard [BleTransport].
-  static RadioTransport fromDeviceId(String deviceId) {
-    if (!kIsWeb && Platform.isWindows) {
-      return WinBleBridge.createTransport(deviceId);
-    }
-    return BleTransport(BluetoothDevice.fromId(deviceId));
-  }
+  /// Creates the Android BLE transport for a scanned Companion.
+  static RadioTransport fromDeviceId(String deviceId) =>
+      BleTransport(BluetoothDevice.fromId(deviceId));
 }
