@@ -10495,6 +10495,7 @@ class HiveFWPanel extends BasePanel {
   }
 
   async __renderHiveNeighborDiscoveryMap(container) {
+    const renderSeq=++this.__hiveNeighborMapRenderSeq;
     container.replaceChildren();
     this.__hiveNeighborMapElement = null;
 
@@ -10529,10 +10530,16 @@ class HiveFWPanel extends BasePanel {
     host.className = "hive-neighbors-map-host";
     container.appendChild(host);
 
+    const loadingNote=document.createElement("div");
+    loadingNote.className="hive-neighbors-map-note";
+    loadingNote.textContent="A preparar mapa…";
+    host.appendChild(loadingNote);
+
     const contactsMode=this.__hiveNeighborMapMode==="contacts";
     if(contactsMode){
       const ready=await this.__ensureMapLoaded();
-      if(!container.isConnected)return;
+      if(renderSeq!==this.__hiveNeighborMapRenderSeq||!container.isConnected)return;
+      loadingNote.remove();
       const source=Array.isArray(this.__nodesMapContacts)?this.__nodesMapContacts:[];
       const contacts=this.__validMapContacts();
       const local=this.__localRepeaterMapContact();
@@ -10576,9 +10583,14 @@ class HiveFWPanel extends BasePanel {
       this.__nodesMapSignature="";
 
       await new Promise((resolve)=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
-      if(!map.isConnected)return;
+      if(renderSeq!==this.__hiveNeighborMapRenderSeq||!map.isConnected)return;
 
-      if("layers" in map && await this.__waitForLegacyLeaflet(map)){
+      const legacyReady="layers" in map
+        ? await this.__waitForLegacyLeaflet(map)
+        : false;
+      if(renderSeq!==this.__hiveNeighborMapRenderSeq||!map.isConnected)return;
+
+      if(legacyReady){
         map.entities=[];
         map.layers=this.__legacyLeafletLayers(map,mapContacts,null);
         const localCoords=local?this.__nodeCoords(local):null;
@@ -10632,7 +10644,8 @@ class HiveFWPanel extends BasePanel {
     }
 
     const ready = await this.__ensureMapLoaded();
-    if (!container.isConnected) return;
+    if (renderSeq!==this.__hiveNeighborMapRenderSeq || !container.isConnected) return;
+    loadingNote.remove();
 
     if (!ready) {
       const note = document.createElement("div");
@@ -10672,9 +10685,14 @@ class HiveFWPanel extends BasePanel {
     this.__hiveNeighborMapElement = map;
 
     await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-    if (!map.isConnected) return;
+    if (renderSeq!==this.__hiveNeighborMapRenderSeq || !map.isConnected) return;
 
-    if ("layers" in map && await this.__waitForLegacyLeaflet(map)) {
+    const legacyReady="layers" in map
+      ? await this.__waitForLegacyLeaflet(map)
+      : false;
+    if (renderSeq!==this.__hiveNeighborMapRenderSeq || !map.isConnected) return;
+
+    if (legacyReady) {
       map.entities = [];
       map.layers = this.__hiveNeighborLegacyLeafletLayers(map, located);
 
