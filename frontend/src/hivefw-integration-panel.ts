@@ -9,6 +9,7 @@ import { UnreadController } from './chat/unread-controller';
 import './pages/chat-page';
 import './pages/status-page';
 import './pages/settings-page';
+import './pages/network-page';
 import './components/trace-dialog';
 import './components/target-picker';
 
@@ -894,11 +895,15 @@ export class MeshCorePanel extends LitElement {
             @refresh-channels-requested=${() => this._refreshChannelsFromRadio()}
             @mark-all-read-requested=${this._handleMarkAllReadRequested}></hivefw-integration-page>`;
       case 'network':
-        // HiveFWPanel enhances this stable Lit-owned host. Do not return an
-        // empty template here: Home Assistant updates the hass property often,
-        // and reconciling an empty child part would discard the manually
-        // managed Rede DOM (including ha-map) on every panel update.
-        return html`<div class="hive-network-host"></div>`;
+        // Rede is a native Lit page.  The controller object is stable and the
+        // revision only changes for meaningful Network data, so frequent Home
+        // Assistant hass updates no longer rebuild lists or ha-map.
+        return html`
+          <hivefw-network-page
+            .controller=${this as any}
+            .revision=${Number((this as any).__networkRevision || 0)}
+            .narrow=${this.narrow}>
+          </hivefw-network-page>`;
       case 'state':
         return html`
           <meshcore-status-page
