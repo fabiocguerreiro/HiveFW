@@ -181,7 +181,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           actions: [
             IconButton(
               tooltip: 'Configurar via Wi-Fi',
-              icon: const Icon(Icons.wifi_settings),
+              icon: const Icon(Icons.wifi),
               onPressed: () => context.push('/hivefw/radio-network'),
             ),
             // Signal bars indicator — best SNR from last 5 min of RX log
