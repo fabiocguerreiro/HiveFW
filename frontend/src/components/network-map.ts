@@ -24,6 +24,8 @@ export class HiveFWNetworkMap extends LitElement {
   private _lastMapSignature = '';
   private _lastMapElement: HTMLElement | null = null;
   private _fitTraceOnNextSync = false;
+  private _resizeObserver: ResizeObserver | null = null;
+  private _resizeTimer: number | null = null;
 
   createRenderRoot() {
     // The HiveFW wrapper already owns the Network styles in its shadow root.
@@ -37,12 +39,29 @@ export class HiveFWNetworkMap extends LitElement {
     this.style.flexDirection = 'column';
     this.style.height = '100%';
     this.style.minHeight = '0';
+    if (typeof ResizeObserver !== 'undefined') {
+      this._resizeObserver = new ResizeObserver(() => {
+        if (this._resizeTimer !== null) window.clearTimeout(this._resizeTimer);
+        this._resizeTimer = window.setTimeout(() => {
+          this._resizeTimer = null;
+          const map = this.querySelector('ha-map') as any;
+          map?.leafletMap?.invalidateSize?.(false);
+        }, 40);
+      });
+      this._resizeObserver.observe(this);
+    }
     void this._prepareMap();
   }
 
   disconnectedCallback() {
     this._loadToken++;
     this._syncSeq++;
+    this._resizeObserver?.disconnect();
+    this._resizeObserver = null;
+    if (this._resizeTimer !== null) {
+      window.clearTimeout(this._resizeTimer);
+      this._resizeTimer = null;
+    }
     const c = this.controller;
     const map = this.querySelector('ha-map');
     if (c) {
