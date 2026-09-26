@@ -246,8 +246,7 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
       }
 
     // BLE scan — one entry per device, but the stream may re-emit a device
-    // with an improved name (e.g. when a Windows scan-response PDU arrives
-    // after the initial advertising PDU). Upsert by device ID so the UI
+    // with an improved advertisement name. Upsert by device ID so the UI
     // replaces "MESHCORE" placeholders with the real name in place.
     _bleScanSub = BleTransport.scan(
       timeout: const Duration(seconds: 10),
