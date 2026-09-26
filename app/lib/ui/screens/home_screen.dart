@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../l10n/l10n.dart';
+import '../../protocol/protocol.dart';
 import '../../providers/radio_providers.dart';
 import '../../transport/radio_transport.dart';
 import '../../utils/battery_utils.dart';
@@ -75,6 +76,217 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     };
   }
 
+  String _channelSenderFromMessage(ChatMessage message) {
+    if (message.senderName != null) return message.senderName!;
+    final idx = message.text.indexOf(': ');
+    if (idx > 0) return message.text.substring(0, idx);
+    return 'Canal';
+  }
+
+  Future<void> _showChannelParticipants(
+    BuildContext context,
+    List<ChatMessage> messages,
+  ) async {
+    final names = <String, int>{};
+    for (final message in messages) {
+      if (message.isOutgoing) continue;
+      final name = _channelSenderFromMessage(message).trim();
+      if (name.isEmpty || name == 'Canal') continue;
+      names[name] = (names[name] ?? 0) + 1;
+    }
+    final participants = names.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (ctx) => Consumer(
+        builder: (ctx, ref, _) {
+          final blocked = ref.watch(blockedSendersProvider);
+          return SafeArea(
+            child: ListView(
+              shrinkWrap: true,
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 24),
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(8, 4, 8, 12),
+                  child: Text(
+                    'Participantes (${participants.length})',
+                    style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                if (participants.isEmpty)
+                  const ListTile(
+                    leading: Icon(Icons.people_outline),
+                    title: Text('Ainda não foram observados participantes.'),
+                  )
+                else
+                  for (final participant in participants)
+                    ListTile(
+                      leading: CircleAvatar(
+                        child: Text(
+                          participant.key.characters.first.toUpperCase(),
+                        ),
+                      ),
+                      title: Text(participant.key),
+                      subtitle: Text(
+                        '${participant.value} mensagem${participant.value == 1 ? '' : 's'} observada${participant.value == 1 ? '' : 's'}',
+                      ),
+                      trailing: IconButton(
+                        tooltip:
+                            blocked.contains(participant.key)
+                                ? 'Desbloquear'
+                                : 'Bloquear',
+                        icon: Icon(
+                          blocked.contains(participant.key)
+                              ? Icons.lock_open_outlined
+                              : Icons.block,
+                          color:
+                              blocked.contains(participant.key)
+                                  ? null
+                                  : Theme.of(ctx).colorScheme.error,
+                        ),
+                        onPressed: () async {
+                          if (blocked.contains(participant.key)) {
+                            await ref
+                                .read(blockedSendersProvider.notifier)
+                                .unblock(participant.key);
+                          } else {
+                            await ref
+                                .read(blockedSendersProvider.notifier)
+                                .block(participant.key);
+                          }
+                        },
+                      ),
+                    ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Future<void> _clearChannelHistory(
+    BuildContext context,
+    int channelIndex,
+  ) async {
+    final theme = Theme.of(context);
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder:
+          (ctx) => AlertDialog(
+            title: Text(context.l10n.commonClearHistory),
+            content: const Text(
+              'Apagar todas as mensagens deste canal? Esta ação não pode ser revertida.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: Text(context.l10n.commonCancel),
+              ),
+              FilledButton(
+                style: FilledButton.styleFrom(
+                  backgroundColor: theme.colorScheme.error,
+                  foregroundColor: theme.colorScheme.onError,
+                ),
+                onPressed: () => Navigator.pop(ctx, true),
+                child: Text(context.l10n.commonDelete),
+              ),
+            ],
+          ),
+    );
+    if (confirm == true && mounted) {
+      await ref
+          .read(messagesProvider.notifier)
+          .deleteChannelHistory(channelIndex);
+    }
+  }
+
+  Widget _channelMenu({
+    required BuildContext context,
+    required int channelIndex,
+    required List<ChatMessage> messages,
+    required bool isMuted,
+  }) {
+    final theme = Theme.of(context);
+    return PopupMenuButton<String>(
+      icon: const Icon(Icons.more_vert),
+      tooltip: context.l10n.chatMenuOptions,
+      onSelected: (value) async {
+        if (value == 'participants') {
+          await _showChannelParticipants(context, messages);
+        } else if (value == 'mute') {
+          await ref
+              .read(mutedChannelsProvider.notifier)
+              .toggle(channelIndex);
+        } else if (value == 'clear') {
+          await _clearChannelHistory(context, channelIndex);
+        }
+      },
+      itemBuilder:
+          (_) => [
+            const PopupMenuItem(
+              value: 'participants',
+              child: ListTile(
+                leading: Icon(Icons.people_outline),
+                title: Text('Participantes'),
+                contentPadding: EdgeInsets.zero,
+                dense: true,
+              ),
+            ),
+            PopupMenuItem(
+              value: 'mute',
+              child: ListTile(
+                leading: Icon(
+                  isMuted
+                      ? Icons.notifications_outlined
+                      : Icons.notifications_off_outlined,
+                  color:
+                      isMuted
+                          ? theme.colorScheme.primary
+                          : theme.colorScheme.onSurface.withAlpha(160),
+                ),
+                title: Text(
+                  isMuted
+                      ? context.l10n.chatUnmuteChannel
+                      : context.l10n.chatMuteChannel,
+                ),
+                contentPadding: EdgeInsets.zero,
+                dense: true,
+              ),
+            ),
+            PopupMenuItem(
+              value: 'clear',
+              enabled: messages.isNotEmpty,
+              child: ListTile(
+                leading: Icon(
+                  Icons.delete_sweep,
+                  color:
+                      messages.isNotEmpty
+                          ? theme.colorScheme.error
+                          : theme.disabledColor,
+                ),
+                title: Text(
+                  context.l10n.commonClearHistory,
+                  style: TextStyle(
+                    color:
+                        messages.isNotEmpty
+                            ? theme.colorScheme.error
+                            : theme.disabledColor,
+                  ),
+                ),
+                contentPadding: EdgeInsets.zero,
+                dense: true,
+              ),
+            ),
+          ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     // Watch only the connection state enum, not the full object
@@ -92,6 +304,56 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final currentPath = widget.currentPath;
     final tabIndex = widget.navigationShell.currentIndex;
     final isChannelsChatPage = currentPath.startsWith('/channels/');
+    final channelIndex =
+        isChannelsChatPage
+            ? int.tryParse(
+              currentPath.substring('/channels/'.length).split('/').first,
+            )
+            : null;
+    if (channelIndex != null) {
+      ref.watch(
+        messageVersionsProvider.select(
+          (versions) => versions['ch_$channelIndex'] ?? 0,
+        ),
+      );
+    }
+    final channelName =
+        channelIndex == null
+            ? null
+            : ref.watch(
+              channelsProvider.select(
+                (channels) =>
+                    channels
+                        .where((channel) => channel.index == channelIndex)
+                        .map((channel) => channel.name)
+                        .firstOrNull,
+              ),
+            );
+    final channelMessages =
+        channelIndex == null
+            ? const <ChatMessage>[]
+            : ref
+                .read(messagesProvider.notifier)
+                .forChannel(channelIndex);
+    final channelMuted =
+        channelIndex != null &&
+        ref.watch(
+          mutedChannelsProvider.select(
+            (muted) => muted.contains(channelIndex),
+          ),
+        );
+    final rawChannelTitle =
+        channelIndex == null
+            ? ''
+            : _safeUiText(
+              channelName,
+              fallback: 'Canal $channelIndex',
+            );
+    final channelTitle =
+        rawChannelTitle.startsWith('#')
+            ? rawChannelTitle
+            : '#$rawChannelTitle';
+
     final isContactsChatPage =
         currentPath.startsWith('/chat/') ||
         currentPath.startsWith('/room/') ||
@@ -161,7 +423,35 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   )
                   : null,
           title:
-              isAppsSubPage
+              channelIndex != null
+                  ? Row(
+                    children: [
+                      const Icon(Icons.tag, size: 20),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              channelTitle,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.titleMedium
+                                  ?.copyWith(fontWeight: FontWeight.w700),
+                            ),
+                            Text(
+                              '${channelMessages.length} mensagem${channelMessages.length == 1 ? '' : 's'}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  )
+                  : isAppsSubPage
                   ? Text(appSubTitle)
                   : Row(
                     children: [
@@ -203,19 +493,28 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   ),
                 ),
               ),
-            // Connection indicator — tap to connect / disconnect
-            IconButton(
-              icon: Icon(
-                connectionState == TransportState.connected
-                    ? Icons.link
-                    : Icons.link_off,
-                color:
-                    connectionState == TransportState.connected
-                        ? Colors.green
-                        : Colors.red,
+            // Channel options replace the disconnect action while inside any
+            // channel conversation, including the configured APPS/SOS channel.
+            if (channelIndex != null)
+              _channelMenu(
+                context: context,
+                channelIndex: channelIndex,
+                messages: channelMessages,
+                isMuted: channelMuted,
+              )
+            else
+              IconButton(
+                icon: Icon(
+                  connectionState == TransportState.connected
+                      ? Icons.link
+                      : Icons.link_off,
+                  color:
+                      connectionState == TransportState.connected
+                          ? Colors.green
+                          : Colors.red,
+                ),
+                onPressed: () => _onConnectionIconTap(context, connectionState),
               ),
-              onPressed: () => _onConnectionIconTap(context, connectionState),
-            ),
           ],
         ),
         body:
