@@ -5886,18 +5886,24 @@ class HiveFWPanel extends BasePanel {
       },
     };
     this.__lastTraceLoadedEntry=String(this.__entryId()||"default");
-    this._activeTab="network";this.__hiveNeighborMapMode="contacts";
+    this._activeTab="network";
+    this.__hiveNeighborMapMode="contacts";
     this.requestUpdate?.();
     try{await this.updateComplete;}catch{}
     this.__enhanceRepeaterUi();
-    window.setTimeout(()=>{
-      this.__drawLastTraceRoute();
-      const data=this.__traceRouteData();
-      if(data?.points?.length){
-        const map=this.__nodesMapElement?.leafletMap;
-        try{map?.fitBounds?.(data.points,{padding:[40,40],maxZoom:12});}catch{}
-      }
-    },120);
+
+    // Wait for the real contact source and for the map render itself instead
+    // of guessing that ha-map/Leaflet will be ready after a fixed 120 ms.
+    await this.__loadNodesMapContacts();
+    const mapHost=this.__networkOverlay?.querySelector(".hive-neighbors-map");
+    if(mapHost)await this.__renderHiveNeighborDiscoveryMap(mapHost);
+
+    this.__drawLastTraceRoute();
+    const data=this.__traceRouteData();
+    if(data?.points?.length){
+      const map=this.__nodesMapElement?.leafletMap;
+      try{map?.fitBounds?.(data.points,{padding:[40,40],maxZoom:12});}catch{}
+    }
   }
 
   __lastTraceStorageKey() {
@@ -6412,19 +6418,29 @@ class HiveFWPanel extends BasePanel {
 
   async __loadNodesMapContacts() {
     const entryId=this.__entryId()||null;
-    if(this.__nodesMapLoading)return;
     if(this.__nodesMapLoadedEntry===entryId && Array.isArray(this.__nodesMapContacts))return;
+    if(this.__nodesMapLoadPromise)return this.__nodesMapLoadPromise;
+
     this.__nodesMapLoading=true;
+    const load=(async()=>{
+      try{
+        const msg={type:"hivefw_integration/get_contacts"};
+        if(entryId)msg.entry_id=entryId;
+        const result=await this.hass.callWS(msg);
+        this.__nodesMapContacts=Array.isArray(result?.contacts)?result.contacts:[];
+      }catch{
+        this.__nodesMapContacts=Array.isArray(this._contacts)?this._contacts:[];
+      }finally{
+        this.__nodesMapLoadedEntry=entryId;
+        this.__nodesMapLoading=false;
+      }
+    })();
+
+    this.__nodesMapLoadPromise=load;
     try{
-      const msg={type:"hivefw_integration/get_contacts"};
-      if(entryId)msg.entry_id=entryId;
-      const result=await this.hass.callWS(msg);
-      this.__nodesMapContacts=Array.isArray(result?.contacts)?result.contacts:[];
-    }catch{
-      this.__nodesMapContacts=Array.isArray(this._contacts)?this._contacts:[];
+      return await load;
     }finally{
-      this.__nodesMapLoadedEntry=entryId;
-      this.__nodesMapLoading=false;
+      if(this.__nodesMapLoadPromise===load)this.__nodesMapLoadPromise=null;
     }
   }
 
@@ -9651,8 +9667,13 @@ class HiveFWPanel extends BasePanel {
         side.append(gpsRow,ageRow);
         row.append(info,side);
         row.addEventListener("click",()=>{
+          const sameMap=this.__hiveNeighborMapMode==="contacts"&&this.__nodesMapElement?.isConnected;
           this.__hiveNeighborMapMode="contacts";
           this.__nodesMapFocusId=this.__nodeId(contact);
+          if(sameMap){
+            this.__focusNodeOnMap(contact,true);
+            return;
+          }
           const mapHost=this.__networkOverlay?.querySelector(".hive-neighbors-map");
           if(mapHost)void this.__renderHiveNeighborDiscoveryMap(mapHost).then(()=>{
             if(this.__nodeCoords(contact))this.__focusNodeOnMap(contact,true);
