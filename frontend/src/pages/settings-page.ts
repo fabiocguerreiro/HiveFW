@@ -182,7 +182,7 @@ export class SettingsPage extends LitElement {
   @state() private _renameSuccess: SetDeviceConfigRenameResult | null = null;
 
   // Status toast
-  @state() private _statusMensagem: { text: string; type: 'success' | 'error' } | null = null;
+  @state() private _statusMessage: { text: string; type: 'success' | 'error' } | null = null;
   private _statusMessageTimeout: number | null = null;
 
   constructor() {
