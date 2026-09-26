@@ -490,6 +490,19 @@ class CompanionEncoder {
         Uint8List.fromList([offset & 0xFF]),
       );
 
+  static Uint8List verifyObservedChannel(
+    int channelHash,
+    Uint8List secret,
+  ) {
+    if (secret.length != 16) {
+      throw ArgumentError.value(secret.length, 'secret.length');
+    }
+    final payload = BytesBuilder()
+      ..addByte(channelHash & 0xFF)
+      ..add(secret);
+    return _frame(cmdVerifyObservedChannel, payload.toBytes());
+  }
+
   static Uint8List getRepeaterRfConfig() => _frame(cmdGetRepeaterRfConfig);
 
   static Uint8List getRepeaterAuthConfig() =>
