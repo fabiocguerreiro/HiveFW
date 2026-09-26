@@ -144,23 +144,9 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
   @override
   void initState() {
     super.initState();
-    // Subscribe to BLE adapter state on platforms with a runtime-queryable
-    // adapter: Android, iOS, and Windows (WinRT BluetoothAdapter).
-    // macOS/Linux are skipped — their adapter states are not surfaced by
-    // flutter_blue_plus, and scan errors surface naturally without a dialog.
-    if (!kIsWeb &&
-        (Platform.isAndroid || Platform.isIOS || Platform.isWindows)) {
-      // Subscribe to the adapterState stream — this triggers the platform call
-      // that populates the actual state. adapterStateNow is 'unknown' until
-      // the first subscription, so we cannot rely on it at startup.
-      // On Windows, flutter_blue_plus has no platform registration —
-      // use WinBleBridge.adapterState (FlutterBluePlusWindows / WinRT).
-      // On Android/iOS use the standard flutter_blue_plus stream.
-      final adapterStateStream =
-          Platform.isWindows
-              ? WinBleBridge.adapterState
-              : FlutterBluePlus.adapterState;
-      _bleStateSub = adapterStateStream.listen((state) {
+    // Android-only app: subscribe to the native Bluetooth adapter state.
+    if (Platform.isAndroid) {
+      _bleStateSub = FlutterBluePlus.adapterState.listen((state) {
         if (state == BluetoothAdapterState.off) {
           _bleStateSub?.cancel();
           _bleStateSub = null;
@@ -246,19 +232,8 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
   /// Shows a snackbar and returns false when BT is confirmed off, so callers
   /// can abort scan/connect early with clear user feedback.
   bool _checkBluetoothOn() {
-    if (kIsWeb) return true;
-    // Only Android, iOS, and Windows expose a queryable adapter state through
-    // flutter_blue_plus.  macOS/Linux return true and let natural scan errors
-    // surface instead.
-    if (!Platform.isAndroid && !Platform.isIOS && !Platform.isWindows) {
-      return true;
-    }
-    // On Windows, use the cached state from WinBleBridge (WinRT adapter).
-    // On Android/iOS use the standard flutter_blue_plus sync getter.
-    final currentState =
-        Platform.isWindows
-            ? WinBleBridge.adapterStateNow
-            : FlutterBluePlus.adapterStateNow;
+    if (!Platform.isAndroid) return true;
+    final currentState = FlutterBluePlus.adapterStateNow;
     if (currentState == BluetoothAdapterState.off) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
